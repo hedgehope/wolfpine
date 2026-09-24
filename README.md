@@ -1,6 +1,6 @@
 # Wolfpine
 
-<img src="docs/wolfpine.png" alt="Wolfpine logo" align="right" width="260">
+<img src="docs/wolfpine_logo.png" alt="Wolfpine logo" align="right" width="260">
 
 **A framework for simulating AI accelerators, in pure Python.**
 
