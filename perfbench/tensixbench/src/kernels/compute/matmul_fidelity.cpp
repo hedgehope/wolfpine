@@ -45,7 +45,7 @@
 // RISC-V work at a handful of instructions, which is the only way the Tensix
 // side can become the limit. It is still the "wait, matmul, pop, pack" shape
 // that `examples/six` uses -- deliberately, because the alternative (hoist the
-// wait out entirely and never pop) deadlocks tt-sim's Src-bank handshake, which
+// wait out entirely and never pop) deadlocks Wolfpine's Src-bank handshake, which
 // is recorded in docs/plans/tensix-cost-benchmark.md and not chased here.
 //
 // The measurement that is clean is still the DIFFERENCE between fidelities.

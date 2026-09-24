@@ -22,7 +22,7 @@ cannot use -- see ``check_write`` for what each catches and, more importantly,
 what none of them can.
 
 Deliberately standalone: standard library only, so it runs on a card box with
-nothing but ``perfbench/`` rsynced onto it and no tt-sim at all. It duplicates
+nothing but ``perfbench/`` rsynced onto it and no Wolfpine at all. It duplicates
 some arithmetic the home-side ``dram_rate_sweep`` module also does, and that is
 the point -- a check that shares an implementation with the thing it checks
 agrees with it by construction.
@@ -206,8 +206,8 @@ READ_CONTROL_CSV = WORMHOLE.csv
 
 # ---------------------------------------------------------------------------
 # The two ceilings a plateau can sit on, per arch. QUOTED from
-# `tt_sim/perf/unit_costs.yaml`, not derived here and not modifiable here: this
-# module reads a CSV and must run where tt-sim does not exist.
+# `framework/perf/unit_costs.yaml`, not derived here and not modifiable here: this
+# module reads a CSV and must run where Wolfpine does not exist.
 # ---------------------------------------------------------------------------
 CEILINGS = {
     # channel read, channel write, NoC link -- B/cycle
@@ -527,7 +527,7 @@ def check_write(path):
             False,
             "the write direction has no low/high pair in both arms, so nothing "
             "separates the endpoint from anything upstream of it (EXPECTED "
-            "against tt-sim, which cannot sweep the writer count far)",
+            "against Wolfpine, which cannot sweep the writer count far)",
         )
         return
     n_lo, n_hi = min(fan), max(fan)

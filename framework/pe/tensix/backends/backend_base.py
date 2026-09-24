@@ -1,9 +1,9 @@
 from abc import ABC
 from enum import IntEnum
 
-from tt_sim.device.clock import Clockable
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.trace import ComputeEvent, EventCategory, get_bus
+from framework.device.clock import Clockable
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.trace import ComputeEvent, EventCategory, get_bus
 
 
 class DataFormat(IntEnum):
@@ -89,7 +89,7 @@ class TensixBackendUnit(Clockable, ABC):
         # group name for a unit whose published limit is whole-unit. The
         # authority :meth:`is_occupied` consults; :attr:`busy_until` is its max.
         self.busy_groups = {}
-        # A ``tt_sim.perf.model.UnitCostModel`` once a unit opts into the
+        # A ``framework.perf.model.UnitCostModel`` once a unit opts into the
         # cycle-cost tables *and* ``TT_SIM_COST_MODEL`` is set; ``None``
         # otherwise, which is the default and keeps every existing cycle count
         # byte-identical. See ``instruction_occupancy``.
@@ -100,7 +100,7 @@ class TensixBackendUnit(Clockable, ABC):
         # ``_grant_lru`` orders the three threads least-recently-granted first.
         #
         # This exists because the front-end FIFO bound
-        # (``tt_sim/pe/tensix/frontend.CORE_PUSH_INFLIGHT_BOUND``) lets a
+        # (``framework/pe/tensix/frontend.CORE_PUSH_INFLIGHT_BOUND``) lets a
         # refused thread stall its issuing baby core: the wait gates tick in a
         # fixed thread order, so without rotation a thread sustaining one
         # instruction per cycle at a shared unit would win the slot every
@@ -124,7 +124,7 @@ class TensixBackendUnit(Clockable, ABC):
     def _refuse(self, reason, blocked_on="", src_bank=None):
         """Record *why* this unit is refusing, then refuse.
 
-        The wait gate publishes the :class:`~tt_sim.trace.events.StallEvent`,
+        The wait gate publishes the :class:`~framework.trace.events.StallEvent`,
         because it is the caller that holds ``cycle_num`` and the decoded
         opcode -- including the ``ex_resource`` name that becomes
         ``blocked_on``, so the unit's own identity does not need recording
@@ -237,7 +237,7 @@ class TensixBackendUnit(Clockable, ABC):
         is IPC 1 / latency 5 for ``MVMUL``, the SFPU IPC 1 / latency 2 for
         ``SFPMAD``, the Configuration Unit IPC 1 / latency 2 for ``WRCFG``.
         Reading :attr:`busy_until` here would therefore be wrong in both
-        directions; see :meth:`tt_sim.perf.model.UnitCostModel.latency`.
+        directions; see :meth:`framework.perf.model.UnitCostModel.latency`.
         """
         if self._pipeline_exit[from_thread]:
             return True
@@ -423,7 +423,7 @@ class TensixBackendUnit(Clockable, ABC):
         the next cycle is accepted here too.
 
         Why issue is refused rather than queued, which is the whole reason this
-        exists: tt-sim's frontend treats an instruction as *issued* the moment
+        exists: Wolfpine's frontend treats an instruction as *issued* the moment
         a unit accepts it, and the thread moves on in the same cycle. Phase 4's
         ``occupy_for`` stopped an occupied unit *draining* its queue but left it
         *accepting* into one — so a parked instruction would retire after the
@@ -456,7 +456,7 @@ class TensixBackendUnit(Clockable, ABC):
         for every instruction of every unit whose documentation publishes no
         group column, so this reduces to the pre-group mechanism wherever the
         sources do not say otherwise. See
-        :meth:`tt_sim.perf.model.UnitCostModel.ipc_group`.
+        :meth:`framework.perf.model.UnitCostModel.ipc_group`.
         """
         model = self.cost_model
         return None if model is None else model.ipc_group(instruction_name)
@@ -467,7 +467,7 @@ class TensixBackendUnit(Clockable, ABC):
         Split out because the issue path holds the raw word rather than a
         decoded name, and decoding is not free. A unit with no IPC groups —
         which is all of them but Blackhole's config unit — answers from
-        :attr:`~tt_sim.perf.model.UnitCostModel.has_ipc_groups` without
+        :attr:`~framework.perf.model.UnitCostModel.has_ipc_groups` without
         decoding anything. A unit that overrides ``issueInstruction`` and has
         already decoded should call :meth:`instruction_group` directly instead.
         """
@@ -490,7 +490,7 @@ class TensixBackendUnit(Clockable, ABC):
         every unit whose published cost is a per-opcode constant (SFPU, ThCon,
         packer, sync). ``None`` means "no opinion" and leaves the same-cycle
         retire alone, which is deliberately what an untabulated opcode gets —
-        see ``tt_sim/perf/model.py`` for why that choice is made once, there.
+        see ``framework/perf/model.py`` for why that choice is made once, there.
         Only a unit whose cost is a *function* of state needs an override; the
         matrix unit is the one such case, because its fidelity-scaled ops are
         costed against the phase they run at.

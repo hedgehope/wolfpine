@@ -1,14 +1,14 @@
 // tensixbench -- a per-instruction cycle-cost measuring instrument for the
 // Tenstorrent Tensix coprocessor.
 //
-// WHAT IT IS FOR. tt-sim's Tensix instruction cost table
-// (tt_sim/pe/tensix/tensix_instruction_costs.yaml) is well sourced -- every
+// WHAT IT IS FOR. Wolfpine's Tensix instruction cost table
+// (framework/pe/tensix/tensix_instruction_costs.yaml) is well sourced -- every
 // entry traces to the public ISA documentation or to vendor source -- but
 // provenance is not validation, and nothing has ever compared it to a
 // measurement. Rungs 1 and 2 of the calibration ladder in
 // docs/plans/cost-model.md validated the NoC and memory path only. This program
 // is the instrument for the missing rung: run it on real silicon, run the SAME
-// BINARY against tt-sim, and diff the cycles.
+// BINARY against Wolfpine, and diff the cycles.
 //
 // The methodology, the confounds, and what each measurement can and cannot
 // establish are in docs/plans/tensix-cost-benchmark.md. The short version:
@@ -55,12 +55,12 @@
 // exactly the register tt-metal's device profiler reads for DeviceZoneScopedN
 // (tt_metal/tools/profiler/kernel_profiler.hpp). Reading it directly rather
 // than going through the profiler keeps the measurement identical on silicon
-// and on tt-sim, needs no Tracy build, and sidesteps the profiler's dependence
+// and on Wolfpine, needs no Tracy build, and sidesteps the profiler's dependence
 // on a device AICLK that a simulator does not have.
 //
 // OUTPUT is a CSV of raw (probe, threads, blocks, cycles) points, plus a
 // human-readable summary. Nothing here fits or reports a cost model number; the
-// comparison against the tables is tt_sim/perf/tensix_bench_sweep.py.
+// comparison against the tables is framework/perf/tensix_bench_sweep.py.
 
 #include <algorithm>
 #include <cstdint>
@@ -84,7 +84,7 @@ namespace {
 // ---------------------------------------------------------------------------
 // The probe table. Slot order is the contract with kernels/compute/raw_probes.cpp.
 // `unit` is the `ex_resource` key the instruction carries in
-// tt_sim/pe/tensix/tensix_instructions.yaml, so the analysis script can look
+// framework/pe/tensix/tensix_instructions.yaml, so the analysis script can look
 // the cost up without a second mapping.
 // ---------------------------------------------------------------------------
 struct Probe {
@@ -544,7 +544,7 @@ int main(int argc, char** argv) {
         }
         fprintf(csv, "# tensixbench raw points -- see docs/plans/tensix-cost-benchmark.md\n");
         // Every token here is `key=value` because the analysis harness
-        // (tt_sim/perf/tensix_bench_sweep.read_csv) harvests them into `meta`.
+        // (framework/perf/tensix_bench_sweep.read_csv) harvests them into `meta`.
         // `src_format` is `undefined` rather than absent when no format was
         // programmed: under a bare SETDVALID the format the FPU decodes really
         // is undefined on Blackhole, and saying so is the honest header.
@@ -1089,8 +1089,8 @@ int main(int argc, char** argv) {
                     printf(
                         "\n  DIFFERENCE %.3f, BELOW THE 0.5 CYCLE/PAIR FLOOR against both baselines.\n"
                         "  ConfigurationUnit.md predicts >= 1, so this is the NULL and not a small\n"
-                        "  value. EXPECTED against tt-sim, which reads Blackhole's STALLWAIT\n"
-                        "  condition mask as 12 bits (raw 11:0, tt_sim/pe/tensix/backends/sync.py\n"
+                        "  value. EXPECTED against Wolfpine, which reads Blackhole's STALLWAIT\n"
+                        "  condition mask as 12 bits (raw 11:0, framework/pe/tensix/backends/sync.py\n"
                         "  `_read_wait_res`) where the ISA doc gives 13, so C12 never survives the\n"
                         "  decode and the wait degrades to the 0x7F `all resources` fallback. On a\n"
                         "  card it means the construction did not reach the quantity.\n",

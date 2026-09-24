@@ -49,10 +49,10 @@ No tt-metal, no socket: every case here drives the command registers directly.
 
 import pytest
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.tt_noc import NUI
-from tt_sim.util.conversion import conv_to_uint32
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.tt_noc import NUI
+from framework.util.conversion import conv_to_uint32
 
 _OUTSTANDING_ID_0 = int(NUI.NUICounters.CounterNames.NIU_MST_REQS_OUTSTANDING_ID_0)
 _OUTGOING_ID_0 = int(NUI.NUICounters.CounterNames.NIU_MST_WRITE_REQS_OUTGOING_ID_0)
@@ -323,9 +323,9 @@ def test_the_write_barrier_counter_reaches_zero_only_after_the_data_has_landed(
         raise AssertionError("the write barrier never retired")
 
     for coord in destinations:
-        assert bytes(device.read(coord, _L1_DST, len(_PAYLOAD))) == _PAYLOAD, (
-            f"barrier retired with {coord} still missing the payload"
-        )
+        assert (
+            bytes(device.read(coord, _L1_DST, len(_PAYLOAD))) == _PAYLOAD
+        ), f"barrier retired with {coord} still missing the payload"
 
 
 def test_blackhole_accounts_the_same_way():

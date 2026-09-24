@@ -1,8 +1,8 @@
 // Op test for a `tile_regs_acquire()` hoisted out of the output-tile loop.
 //
 // Reported by the hedgehope compiler team: their bf16 GEMM passes on a
-// Wormhole n300 at every core count and on tt-sim at 1 and 2 cores, but fails
-// on tt-sim at 4 cores. The only difference between their passing 2-core
+// Wormhole n300 at every core count and on Wolfpine at 1 and 2 cores, but fails
+// on Wolfpine at 4 cores. The only difference between their passing 2-core
 // codegen and their failing 4-core codegen is the loop nest -- at 2 cores the
 // DST acquire/commit/release cycle sits *inside* the output-tile loop, at 4
 // cores `matmul_init` and `tile_regs_acquire` are hoisted *outside* it. This
@@ -52,7 +52,7 @@
 // What it found (2026-08-20, tt-metal 0.74):
 //
 //   * With the packer keeping up -- the default run -- the acquire placement
-//     makes no difference at all, on either architecture, and tt-sim is
+//     makes no difference at all, on either architecture, and Wolfpine is
 //     bit-identical to ttsim over all 12288 elements. The hoisted acquire is
 //     modelled correctly.
 //   * Under back-pressure -- `stall 50` and up on Blackhole -- the hoisted loop
@@ -60,12 +60,12 @@
 //     acquire to stall on, math wraps onto a DEST bank the packer has not
 //     drained. The threshold is the same in both simulators (both clean at
 //     `stall 20`, both changed at `stall 50`); what differed was the reaction.
-//     tt-sim carried on and returned the corruption; ttsim stopped with
+//     Wolfpine carried on and returned the corruption; ttsim stopped with
 //     `NonContractualBehavior: tensix_sempost: sem=2 sem_max=2`, because the
 //     math thread has posted MATH_PACK past the max its SEMINIT declared.
-//     **They now agree.** Since 2026-08-20 tt-sim raises
+//     **They now agree.** Since 2026-08-20 Wolfpine raises
 //     `SemaphoreContractError` on the same instruction with the same two
-//     numbers (`tt_sim/pe/tensix/semaphore_contract.py`, behaviour
+//     numbers (`framework/pe/tensix/semaphore_contract.py`, behaviour
 //     `tensix-semaphore-bounds`), on Wormhole as well as Blackhole -- the
 //     stalled Wormhole run corrupts identically, which this op test had not
 //     previously recorded. `stall 20` and the default run stay silent, so the
@@ -84,9 +84,9 @@
 // max), and hoisting it out is safe exactly while the packer keeps up. The ISA
 // documentation's functional model for SEMPOST saturates at 15 and never
 // stalls, so hardware has no back-pressure to fall back on either -- a card
-// that passes this shape is passing it on timing. That is precisely why tt-sim
+// that passes this shape is passing it on timing. That is precisely why Wolfpine
 // stops rather than answering: which way a race falls is a timing property of
-// the part it runs on, and tt-sim is not cycle-accurate, so its answer would
+// the part it runs on, and Wolfpine is not cycle-accurate, so its answer would
 // be an artefact of its own scheduling wearing the clothes of a result.
 
 #include <bit>
@@ -117,7 +117,7 @@ constexpr uint32_t KT = 2;       // MUST match KT in the compute kernel
 //
 // The two K terms of a row are deliberately *unequal*. A row of {1, 1} --
 // x + x accumulated into a Float16_b DEST -- comes back one ulp high for every
-// B value with an odd bfloat16 mantissa, identically on tt-sim and on ttsim
+// B value with an odd bfloat16 mantissa, identically on Wolfpine and on ttsim
 // (bit-for-bit), so it is a property of the accumulate rather than a simulator
 // defect. Using it here would have put an unrelated 512-element rounding
 // difference into every golden check.

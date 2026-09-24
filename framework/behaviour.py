@@ -1,8 +1,8 @@
-"""What *this* tt-sim gets right — an assertion target for external suites.
+"""What *this* Wolfpine gets right — an assertion target for external suites.
 
 Why this is not ``__version__``
 -------------------------------
-The compiler team ran their multicast suite against a tt-sim that delivered
+The compiler team ran their multicast suite against a Wolfpine that delivered
 correctly-encoded NoC 1 multicasts to nobody and reported success. Every run was
 green because nothing was delivered, not because anything worked, and there was
 no way to tell from the outside. Their question was "is there a version marker
@@ -15,7 +15,7 @@ So what is published here is **behaviour**: named guarantees an outside suite
 may depend on. A name means the same thing forever; it is either present or it
 is not; and asserting on it says what the suite actually depends on.
 
-Most entries are of one shape — tt-sim used to get something silently wrong and
+Most entries are of one shape — Wolfpine used to get something silently wrong and
 now refuses it — and for a long time that was the whole registry. It is
 deliberately not the definition. ``dram-interleaved-bank-distinctness`` is a
 **modelling property**: nothing raises, no environment variable switches it off,
@@ -37,30 +37,30 @@ Asserting on it
 ---------------
 From Python, in a suite's session setup::
 
-    from tt_sim.behaviour import require
+    from framework.behaviour import require
 
     require("noc1-multicast-corner-order")
 
 which raises :class:`UnsupportedBehaviour` — naming what is missing, what this
 build does have, and where to read about it — rather than letting the suite
-collect another set of vacuous green results. Against a tt-sim older than this
+collect another set of vacuous green results. Against a Wolfpine older than this
 module the ``import`` fails instead, which is the same outcome at the same
 moment; a consumer should not wrap it in ``except ImportError``, because a
 checkout without this module is precisely the one whose results are suspect.
 
 From a shell, a Makefile, or a C++ harness's test runner::
 
-    python3 -m tt_sim.behaviour --require noc1-multicast-corner-order
+    python3 -m framework.behaviour --require noc1-multicast-corner-order
 
 exits 0 when every named behaviour is present and 1 when any is missing, with
-the missing names on stderr. ``python3 -m tt_sim.behaviour`` with no arguments
+the missing names on stderr. ``python3 -m framework.behaviour`` with no arguments
 lists what this build guarantees, one name per line, so a consumer can record
 the set a run was made against.
 
 :func:`supports` is the non-raising form, for a suite that would rather skip
 than fail.
 
-This module imports nothing from the rest of tt-sim and nothing outside the
+This module imports nothing from the rest of Wolfpine and nothing outside the
 standard library, so asserting on it costs no simulator construction and cannot
 be broken by an import cycle.
 
@@ -76,7 +76,7 @@ see our tree. Two guards hold it to the code.
   outlive the thing that checks it.
 * **Backward.** The registry is *not* the only place a new guard has to be
   mentioned, because that is the mention people forget. ``behaviour_test.py``
-  parses every non-test module under ``tt_sim/`` for exception classes and
+  parses every non-test module under ``framework/`` for exception classes and
   requires each one to be either registered here or listed in
   ``_NOT_A_GUARANTEE`` with a reason. Adding a loudness guard to the simulator
   therefore turns the suite red until somebody has decided, in writing, whether
@@ -120,7 +120,7 @@ _BEHAVIOURS = (
         name="noc1-multicast-corner-order",
         guarantee=(
             "A NoC multicast whose rectangle corners are ordered for the wrong "
-            "NoC raises tt_sim.network.multicast_order.MulticastOrderError at "
+            "NoC raises framework.network.multicast_order.MulticastOrderError at "
             "the point of issue. Before this, both wrong orderings completed "
             "green: low-corner-first on a translated NoC 1 was delivered to "
             "every destination (silicon delivers it to none and the sender's "
@@ -129,7 +129,7 @@ _BEHAVIOURS = (
         ),
         since="2026-08-19",
         pinned_by=(
-            "tt_sim.network.multicast_order_test:"
+            "framework.network.multicast_order_test:"
             "test_a_translated_noc1_multicast_written_low_first_raises"
         ),
     ),
@@ -137,16 +137,16 @@ _BEHAVIOURS = (
         name="riscv-ebreak-halts",
         guarantee=(
             "A baby RISC-V executing ebreak raises "
-            "tt_sim.pe.rv.breakpoint.RiscvBreakpoint naming the core and PC. "
+            "framework.pe.rv.breakpoint.RiscvBreakpoint naming the core and PC. "
             "ebreak is what a kernel ASSERT(), an LLK_ASSERT under "
             "TT_METAL_LLK_ASSERTS=1, and __builtin_trap() all lower to, and "
-            "tt-sim used to decode it as a no-op — so a program whose own "
+            "Wolfpine used to decode it as a no-op — so a program whose own "
             "authors had declared a state impossible ran past it and reported "
             "success while the same binary stopped dead on silicon. Set "
             "TT_SIM_IGNORE_EBREAK=1 to restore the old skip-and-continue."
         ),
         since="2026-08-04",
-        pinned_by="tt_sim.pe.rv.breakpoint_test:test_ebreak_names_the_core_and_pc",
+        pinned_by="framework.pe.rv.breakpoint_test:test_ebreak_names_the_core_and_pc",
     ),
     Behaviour(
         name="dram-interleaved-bank-distinctness",
@@ -166,7 +166,7 @@ _BEHAVIOURS = (
             "back right. NOT covered: which page lands in which bank — that "
             "arithmetic is tt-metal's on both sides (host "
             "WriteToDeviceInterleavedContiguous, device InterleavedAddrGen) and "
-            "never tt-sim's — nor bank ordering, nor any claim about a "
+            "never Wolfpine's — nor bank ordering, nor any claim about a "
             "descriptor you supply yourself. Unlike the other entries here, "
             "nothing raises and no environment variable disables it: this is a "
             "modelling property, so it says the substrate your gate needs is "
@@ -174,7 +174,7 @@ _BEHAVIOURS = (
         ),
         since="2026-08-19",
         pinned_by=(
-            "tt_sim.device.dram_banks_test:"
+            "framework.device.dram_banks_test:"
             "test_every_bank_is_its_own_storage_at_its_own_coordinate"
         ),
     ),
@@ -187,7 +187,7 @@ _BEHAVIOURS = (
             "holds however the LLK init calls are ordered around "
             "tile_regs_wait(). STALLWAIT.md's block-mask table ticks "
             "STALLWAIT in all nine columns, on both architectures, and it is "
-            "the only instruction whose row is; tt-sim used to catch it by "
+            "the only instruction whose row is; Wolfpine used to catch it by "
             "its execution unit (Sync Unit, block bit B1) alone, so a "
             "STALLWAIT behind a SEMWAIT whose block mask named the TDMA units "
             "walked past and that semaphore wait was silently forgotten. "
@@ -204,7 +204,7 @@ _BEHAVIOURS = (
         ),
         since="2026-08-20",
         pinned_by=(
-            "tt_sim.pe.tensix.waitgate_stallwait_blocked_test:"
+            "framework.pe.tensix.waitgate_stallwait_blocked_test:"
             "test_a_stallwait_does_not_forget_an_unsatisfied_semwait"
         ),
     ),
@@ -213,19 +213,19 @@ _BEHAVIOURS = (
         guarantee=(
             "A Tensix SEMPOST that carries a semaphore to or past the Max its "
             "own SEMINIT declared raises "
-            "tt_sim.pe.tensix.semaphore_contract.SemaphoreContractError, "
+            "framework.pe.tensix.semaphore_contract.SemaphoreContractError, "
             "naming the semaphore, its value, that Max and the issuing thread; "
             "so does a SEMPOST at 15 or a SEMGET at 0, on the Tensix "
             "instructions and on the memory-mapped RISC-V path alike. Max is a "
             "SEMWAIT C1 threshold and per SEMINIT.md 'has no effect on "
-            "SEMPOST', so hardware increments regardless and tt-sim still "
+            "SEMPOST', so hardware increments regardless and Wolfpine still "
             "models that arithmetic — what the raise says is that the producer "
             "issued past its own back-pressure, after which the computed "
-            "values depend on thread timing, which tt-sim does not model. "
+            "values depend on thread timing, which Wolfpine does not model. "
             "Concretely: a compute kernel that hoists tile_regs_acquire() out "
             "of its output-tile loop over-posts MATH_PACK the moment the "
             "packer falls behind and wraps onto a Dst bank that has not been "
-            "drained; tt-sim used to return the corrupted tiles while the "
+            "drained; Wolfpine used to return the corrupted tiles while the "
             "vendor simulator ttsim stopped. NOT covered: a post above Max on "
             "a semaphore no SEMINIT configured, or through the memory-mapped "
             "write, both of which working tt-metal kernels do and neither of "
@@ -234,7 +234,7 @@ _BEHAVIOURS = (
         ),
         since="2026-08-20",
         pinned_by=(
-            "tt_sim.pe.tensix.semaphore_contract_test:"
+            "framework.pe.tensix.semaphore_contract_test:"
             "test_a_sempost_past_a_declared_max_stops_and_names_everything"
         ),
     ),
@@ -243,7 +243,7 @@ _BEHAVIOURS = (
         guarantee=(
             "A NoC transfer whose source and destination addresses are not "
             "congruent in the low bits the path requires raises "
-            "tt_sim.network.alignment.NoCAlignmentError naming the path and "
+            "framework.network.alignment.NoCAlignmentError naming the path and "
             "both addresses. Hardware neither faults nor completes such a "
             "transfer correctly — it skews or drops the payload — so before "
             "this a program with the defect produced plausible wrong numbers. "
@@ -252,7 +252,7 @@ _BEHAVIOURS = (
         ),
         since="2026-08-02",
         pinned_by=(
-            "tt_sim.network.alignment_test:"
+            "framework.network.alignment_test:"
             "test_misaligned_transfer_raises_actionable_message"
         ),
     ),
@@ -264,7 +264,7 @@ _BEHAVIOURS = (
 BEHAVIOURS = MappingProxyType({b.name: b for b in _BEHAVIOURS})
 
 
-#: Exception classes in ``tt_sim/`` that are deliberately *not* published as
+#: Exception classes in ``framework/`` that are deliberately *not* published as
 #: behaviours, and why. The backward guard in ``behaviour_test.py`` requires
 #: every exception class in the tree to appear here or in the registry above,
 #: so this is the file where "we thought about it and the answer is no" is
@@ -284,7 +284,7 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "request rather than a modelling gap that used to pass"
         ),
         "NoCResponseError": (
-            "internal NoC bookkeeping; reaching it means tt-sim is wrong, not "
+            "internal NoC bookkeeping; reaching it means Wolfpine is wrong, not "
             "that the program under test is"
         ),
         "UnitWedgedError": (
@@ -293,7 +293,7 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "consumer asserting on it would be asserting on a heuristic"
         ),
         "UnmodelledTileRegisterError": (
-            "names a register tt-sim does not model. Honest, but the set it "
+            "names a register Wolfpine does not model. Honest, but the set it "
             "covers moves with every release, so it is not a stable guarantee"
         ),
         "SrcDvalidError": (
@@ -307,7 +307,7 @@ _NOT_A_GUARANTEE = MappingProxyType(
         ),
         "UnknownCSRError": "an encoding no CSR answers for; malformed input",
         "UnmodelledCSRError": (
-            "a real CSR tt-sim does not implement. Same objection as "
+            "a real CSR Wolfpine does not implement. Same objection as "
             "UnmodelledTileRegisterError: the covered set is not stable"
         ),
         "PlanError": (
@@ -319,7 +319,7 @@ _NOT_A_GUARANTEE = MappingProxyType(
 
 
 class UnsupportedBehaviour(RuntimeError):
-    """This tt-sim does not guarantee something the caller depends on."""
+    """This Wolfpine does not guarantee something the caller depends on."""
 
 
 def supports(*names: str) -> bool:
@@ -339,7 +339,7 @@ def require(*names: str) -> None:
         return
     have = ", ".join(sorted(BEHAVIOURS)) or "(none)"
     raise UnsupportedBehaviour(
-        f"this tt-sim does not guarantee {', '.join(missing)}. Results from a "
+        f"this Wolfpine does not guarantee {', '.join(missing)}. Results from a "
         f"suite that depends on it are not trustworthy — the failure mode these "
         f"markers exist for is a green run that exercised nothing. This build "
         f"guarantees: {have}. See {DOCS}."
@@ -348,8 +348,8 @@ def require(*names: str) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python3 -m tt_sim.behaviour",
-        description="What this tt-sim guarantees, for an external test suite.",
+        prog="python3 -m framework.behaviour",
+        description="What this Wolfpine guarantees, for an external test suite.",
     )
     parser.add_argument(
         "--require",

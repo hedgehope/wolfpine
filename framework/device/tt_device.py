@@ -1,19 +1,19 @@
 from abc import ABC
 
-from tt_sim.device.clock import MultiTileClock, TileClock
-from tt_sim.device.deadlock import (
+from framework.device.clock import MultiTileClock, TileClock
+from framework.device.deadlock import (
     DeadlockDetector,
     deadlock_config_from_env,
     unit_stall_config_from_env,
 )
-from tt_sim.device.device import Device, DeviceTile
-from tt_sim.device.reset import Reset
-from tt_sim.network.noc_shadow import ShadowReporter
-from tt_sim.network.tt_noc import AliasedEndpoint, NocLinkRegistry, resolved_nui
-from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
-from tt_sim.trace import enable_from_env
-from tt_sim.util.bits import clear_bit, set_bit
-from tt_sim.util.conversion import (
+from framework.device.device import Device, DeviceTile
+from framework.device.reset import Reset
+from framework.network.noc_shadow import ShadowReporter
+from framework.network.tt_noc import AliasedEndpoint, NocLinkRegistry, resolved_nui
+from framework.pe.rv.babyriscv import BabyRISCVCoreType
+from framework.trace import enable_from_env
+from framework.util.bits import clear_bit, set_bit
+from framework.util.conversion import (
     conv_to_bytes,
     conv_to_uint32,
 )
@@ -26,7 +26,7 @@ def _endpoint_at(nui, cell):
     worker-visible endpoints (Wormhole's two-ended DRAM columns) or a different
     NoC 1 subchannel from its NoC 0 one (Blackhole DRAM). Its NUI stands on
     exactly one of them, so every other cell needs an
-    :class:`~tt_sim.network.tt_noc.AliasedEndpoint` carrying that cell's own
+    :class:`~framework.network.tt_noc.AliasedEndpoint` carrying that cell's own
     coord — otherwise the hop model charges the packet a flight to a different
     physical NIU, which on Wormhole was wrong for every one of the 480
     worker/DRAM-endpoint pairs on each NoC (mean 34 cycles, worst 90) and on
@@ -55,7 +55,7 @@ class TT_Device(Device):
     3. ``TT_Device.__init__`` — directories, NoCs, clocks, resets, then the
        watchdog and the second tracing pass.
 
-    ``tt_sim/device/parity_test.py`` fails if an architecture starts doing any
+    ``framework/device/parity_test.py`` fails if an architecture starts doing any
     of this itself.
     """
 
@@ -95,7 +95,7 @@ class TT_Device(Device):
         ``noc_translation`` selects the coordinate space the NoC directories
         are keyed in. It is an explicit argument and **not** read from the
         environment here, deliberately: the wire bridge decides the mode once,
-        from :func:`~tt_sim.network.noc_translation.translation_source`, and
+        from :func:`~framework.network.noc_translation.translation_source`, and
         hands the same answer to the device and to the convention guard — so
         the two cannot disagree. Reading the environment in this constructor
         as well would mean a user who exports
@@ -304,7 +304,7 @@ class TT_Device(Device):
           which is one fact with both consequences.
 
         **A key naming a cell the tile's NUI does not stand on is registered
-        through an** :class:`~tt_sim.network.tt_noc.AliasedEndpoint`
+        through an** :class:`~framework.network.tt_noc.AliasedEndpoint`
         (:func:`_endpoint_at`), carrying that cell's own coord in this NoC's
         space. Routing is unchanged — the same NUI answers — but the hop model
         then times the packet to where it is actually going rather than to the
@@ -313,7 +313,7 @@ class TT_Device(Device):
         worst 90) and on Blackhole for every NoC 1 DRAM flight — 65 % of every
         destination its committed replay guards resolve. The invariant that
         catches a recurrence lives in
-        ``tt_sim/network/noc_endpoint_consistency_test.py``.
+        ``framework/network/noc_endpoint_consistency_test.py``.
 
         **NoC 1 precedence** — untranslated, where both conventions are live.
         On NoC 1 a tile is *physically* reachable at its mirror coord
@@ -356,14 +356,14 @@ class TT_Device(Device):
         (``NoCDataRequest.reply_to`` / ``NUI.send_response``), not by
         re-resolving a coordinate; doing the latter delivered ACKs and read
         responses to whichever tile happened to own the shadowed cell. See
-        ``tt_sim/network/noc_routing_test.py``.
+        ``framework/network/noc_routing_test.py``.
 
         **The ambiguity is reported, not silently tolerated.** Where a mirror
         takes a cell a live Tensix worker owns canonically — or a worker is
         built into a cell a mirror already holds — that worker is unreachable
         on NoC 1 and its traffic is ACKed by the impostor, so neither end can
         tell. Every such cell goes to :attr:`shadow_reporter`, which names the
-        coordinate and both tiles (see ``tt_sim/network/noc_shadow.py``; set
+        coordinate and both tiles (see ``framework/network/noc_shadow.py``; set
         ``TT_SIM_NOC1_SHADOW=error`` to make it fatal).
         """
         coord = tile.get_coord_pair()
@@ -426,7 +426,7 @@ class TT_Device(Device):
             # broadcast is written high corner first; untranslated, NoC 1's own
             # coordinates already increment with its own flow and the corners
             # ascend as on NoC 0. See
-            # :mod:`tt_sim.network.multicast_order`.
+            # :mod:`framework.network.multicast_order`.
             nui1.broadcast_corners_descend = True
         self._check_noc1_shadowing(tile, nui1, primary, noc1_source, register_mirror)
         nui0.set_noc_directory(self.noc_0_directory)
@@ -627,7 +627,7 @@ class TT_Device(Device):
         **Every entry goes in through** :func:`_endpoint_at`, on the *physical*
         cell the translated coord names — never on the translated coord itself.
         A translated coordinate is an identity, not a grid position: it has no
-        place on the torus :func:`~tt_sim.network.tt_noc.noc_hop_count` walks,
+        place on the torus :func:`~framework.network.tt_noc.noc_hop_count` walks,
         and handing one to that walk is how a cost-model run under translation
         used to spin. Registering the physical cell means the hop model sees
         the same journey it would have seen untranslated, which is the journey
@@ -893,7 +893,7 @@ class TTDeviceTile(DeviceTile, ABC):
 
         ``gated`` components are skipped while the tile is dormant; ``always``
         components are ticked every cycle regardless (see
-        :class:`~tt_sim.device.clock.TileClock`). The concatenation must equal
+        :class:`~framework.device.clock.TileClock`). The concatenation must equal
         ``get_clocks()`` in order, because ``always`` is ticked after
         ``gated`` — so only a trailing slice may be moved across.
         Default: everything is gated.
@@ -910,7 +910,7 @@ class TTDeviceTile(DeviceTile, ABC):
         case on a live tile.
 
         This is what the pump consults; it fails safe for exactly the reason
-        :meth:`~tt_sim.device.clock.Clockable.is_clock_idle` does — a
+        :meth:`~framework.device.clock.Clockable.is_clock_idle` does — a
         component that has opted into neither predicate answers
         ``cycle_num + 1`` and keeps the tile awake forever. Subclasses
         override to put the cheapest discriminator first (a Tensix tile with
@@ -1015,7 +1015,7 @@ class TTDeviceTile(DeviceTile, ABC):
 
 
 # The concrete Wormhole device and its tiles moved to ``wormhole.py``. They are
-# re-exported here so ``from tt_sim.device.tt_device import Wormhole`` (and the
+# re-exported here so ``from framework.device.tt_device import Wormhole`` (and the
 # tile classes) keeps working. This is done lazily via module ``__getattr__``
 # (PEP 562) rather than a top-level import, so it stays safe regardless of which
 # module is imported first — a plain import would be circular, since
@@ -1025,7 +1025,7 @@ _REEXPORTED = ("Wormhole", "DRAMTile", "EthTile", "TensixTile")
 
 def __getattr__(name):
     if name in _REEXPORTED:
-        from tt_sim.device import wormhole
+        from framework.device import wormhole
 
         return getattr(wormhole, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

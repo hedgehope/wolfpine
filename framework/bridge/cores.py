@@ -5,7 +5,7 @@ has not built: they swallow writes and answer reads out of a ``_WriteShadow``
 — the host's own bytes back, zeros for anything untouched, ``RUN_MSG_DONE``
 for the go message. ``TensixCore`` and ``DramCore`` are thin shims over
 ``Device`` that route the wire's translated NoC coords to the corresponding
-tt-sim unified coord.
+Wolfpine unified coord.
 
 The ``--mock-tensix`` CLI flag in ``__main__.py`` substitutes ``NullCore`` for
 ``TensixCore``/``DramCore`` registration — a device that remembers but does not
@@ -26,7 +26,7 @@ class _WriteShadow:
     (``dprint_server.cpp:WriteInitMagic``). Against a zero-filling stand-in
     that spin can never succeed, so *any* run with DPRINT enabled aborted with
     ``TT_THROW: Timed out writing init magic`` — DPRINT, and everything built on
-    it (the LLK sanitizer, watcher-style debugging), was unusable on tt-sim.
+    it (the LLK sanitizer, watcher-style debugging), was unusable on Wolfpine.
 
     So writes are shadowed, sparsely, in 4 KB pages — only the pages actually
     written cost anything — and reads are served out of the shadow, zero-filled
@@ -114,7 +114,7 @@ class NullCore(_WriteShadow):
       launch) to this coord. Unlike the grid-wide go=INIT handshake that
       touches every worker during device init, a go=GO only ever targets
       cores a program actually runs on — so a go=GO to an un-materialised
-      worker is a hard error: the program needs more cores than tt-sim
+      worker is a hard error: the program needs more cores than Wolfpine
       was started with.
     """
 
@@ -279,7 +279,7 @@ class DeferredTensixCore(_WriteShadow):
 
 
 class TensixCore:
-    """Routes wire messages for a Tensix coord into the tt-sim Wormhole."""
+    """Routes wire messages for a Tensix coord into the Wolfpine Wormhole."""
 
     def __init__(self, device, unified_coord):
         self.device = device
@@ -307,9 +307,9 @@ class TensixCore:
 
 
 class EthCore:
-    """Routes wire messages for an eth coord into the tt-sim Wormhole.
+    """Routes wire messages for an eth coord into the Wolfpine Wormhole.
 
-    Eth tiles in tt-sim today are L1 SRAM only — no ERisc CPU — so reset
+    Eth tiles in Wolfpine today are L1 SRAM only — no ERisc CPU — so reset
     assert/deassert are no-ops (there is no core to gate). Reads and writes
     land in the eth tile's 256 KB L1; this replaces the previous NullCore
     zero-fill behaviour so kernels that hardcode an eth coord
@@ -320,7 +320,7 @@ class EthCore:
     ``go_msg_t`` to every core (workers *and* eth) with the ``signal`` byte
     set to a launch run-state (INIT/GO/...), then spins in
     ``wait_until_cores_done`` until it reads back ``RUN_MSG_DONE`` (signal
-    byte 0). Real eth cores run base firmware that flips the byte; tt-sim has
+    byte 0). Real eth cores run base firmware that flips the byte; Wolfpine has
     no ERisc, so with plain memory-backed L1 the signal would stay at its
     launched value and the host would hang forever. (Unmodelled *worker*
     coords dodge this only because ``NullCore`` zero-fills, and 0 happens to
@@ -360,7 +360,7 @@ class EthCore:
 
 
 class DramCore:
-    """Routes wire messages for a DRAM coord into the tt-sim Wormhole.
+    """Routes wire messages for a DRAM coord into the Wolfpine Wormhole.
 
     DRAM has no reset — assert/deassert are no-ops. Reads/writes still pump
     the device so BRISC progresses on background traffic to DRAM.

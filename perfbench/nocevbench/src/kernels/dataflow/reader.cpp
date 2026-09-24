@@ -7,7 +7,7 @@
 // once yields exactly one completion timestamp and one enormous latency
 // sample. Barriering per chunk gives one clean issue->completion pair per
 // transaction, which is what makes the per-class latency in
-// tt_sim.perf.noc_events a comparison of transactions rather than of batches.
+// framework.perf.noc_events a comparison of transactions rather than of batches.
 //
 // The circular buffer is used as flat L1 scratch -- no push, no pop. The
 // writer reads the same base address. Nothing is computed here; this program

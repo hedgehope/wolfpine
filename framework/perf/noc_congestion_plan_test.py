@@ -5,8 +5,8 @@ tested here is that it *does* refuse: a plan in which two of {flow count, path
 length, shared links} move together is the same unidentifiable thing tt-metal's
 shipped dataset is, and shipping one would be worse than shipping nothing.
 
-The routing model is not cross-checked against ``tt_sim.network.tt_noc`` any
-more, it **is** ``tt_sim.network.tt_noc``: since the simulator started charging
+The routing model is not cross-checked against ``framework.network.tt_noc`` any
+more, it **is** ``framework.network.tt_noc``: since the simulator started charging
 link occupancy it needs link identities of its own, and a shared-link count
 measured against one naming scheme describes a different machine from a model
 that uses another. The tests below hold that down, and the properties they
@@ -19,8 +19,8 @@ import pathlib
 import pytest
 import yaml
 
-from tt_sim.network.tt_noc import noc_hop_count, noc_route_links
-from tt_sim.perf import noc_congestion_plan as plan
+from framework.network.tt_noc import noc_hop_count, noc_route_links
+from framework.perf import noc_congestion_plan as plan
 
 
 def _grid_text(arch, translated=False, with_phys=False, drop_columns=()):

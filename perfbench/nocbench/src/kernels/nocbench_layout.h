@@ -6,7 +6,7 @@
 // measurement came from is the core the plan asked for. A measurement whose
 // coordinates are not recorded is exactly the thing that makes tt-metal's
 // shipped NoC dataset unidentifiable; see
-// tt_sim/perf/noc_dataset_sweep.py's CONGESTION_VERDICT.
+// framework/perf/noc_dataset_sweep.py's CONGESTION_VERDICT.
 #pragma once
 
 #define NOCBENCH_MAGIC 0x4E4F4342u  // "NOCB"; bump on any layout change
@@ -28,7 +28,7 @@
 // The core's own coordinate straight out of its NIU's NOC_NODE_ID register.
 // `my_x[]`/`my_y[]` are NOT used for this: the firmware fills those from
 // NOC_CFG(NOC_ID_LOGICAL), which is the *translated* coordinate on Blackhole
-// and which tt-sim answers 0 for. NOC_NODE_ID is the physical NoC coordinate,
+// and which Wolfpine answers 0 for. NOC_NODE_ID is the physical NoC coordinate,
 // which is the space every link and hop count in the plan is computed in --
 // so this is the number worth checking the plan against.
 #define NOCBENCH_R_NODE_X 13
@@ -58,7 +58,7 @@
 // tensix.h that the compute-kernel force-include chain pulls in; a data
 // movement kernel does not necessarily see it, so fall back to the literal
 // (RISCV_DEBUG_REGS_START_ADDR 0xFFB12000 | 0x1F0) that both architectures'
-// headers spell out and that tt_sim/misc/tile_ctrl.py answers for.
+// headers spell out and that framework/misc/tile_ctrl.py answers for.
 #ifdef RISCV_DEBUG_REG_WALL_CLOCK_L
 #define NOCBENCH_WALL_CLOCK_L RISCV_DEBUG_REG_WALL_CLOCK_L
 #else

@@ -497,7 +497,7 @@ check "run_sim_activity.sh refuses an interpreter with no pyelftools" "$?" "4"
 check "...and names the module that is missing" \
   "$(grep -c "elftools.elf.elffile: No module named" "$WORK/prereq-bad.log")" "1"
 check "...and names the deferred import that used to fail one boot too late" \
-  "$(grep -c "tt_sim.trace.report" "$WORK/prereq-bad.log")" "1"
+  "$(grep -c "framework.trace.report" "$WORK/prereq-bad.log")" "1"
 check "...and refuses BEFORE running an arm" \
   "$(grep -c '^=== ' "$WORK/prereq-bad.log")" "0"
 

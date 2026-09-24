@@ -4,11 +4,11 @@ Why this exists
 ---------------
 
 A kernel built with ``TT_METAL_PROFILE_PERF_COUNTERS=<bitmask>`` programs these
-registers, runs, and reads the counters back. Before this module tt-sim mapped
+registers, runs, and reads the counters back. Before this module Wolfpine mapped
 the whole ``RISCV_DEBUG_REG`` window onto a permissive generic store, so every
 one of those reads returned **zero** — which decodes as a perfectly plausible
 "nothing ever stalled". That is the worst failure mode available: wrong, and
-quiet. The registers now either report a quantity tt-sim genuinely tracks, or
+quiet. The registers now either report a quantity Wolfpine genuinely tracks, or
 say out loud that they do not.
 
 What the hardware is
@@ -56,7 +56,7 @@ What is sourced, and what is not
 --------------------------------
 
 Only the ``INSTRN_THREAD`` bank is sourced, because that is the bank whose
-quantities tt-sim already tracks (``tt_sim/trace/events.py``'s
+quantities Wolfpine already tracks (``framework/trace/events.py``'s
 ``STALL_REASONS`` vocabulary, materialised per cycle by the wait gate). Every
 other bank's counters are *registered by name* and read back as zero with a
 one-shot warning naming the counter — the point being that an unmodelled
@@ -86,7 +86,7 @@ PERF_CNT_ALL = 0x03C
 #: Blackhole, 0-1 on Wormhole) the single L1 counter bank observes.
 PERF_CNT_MUX_CTRL = 0x218
 
-#: Every offset this block owns, for :mod:`tt_sim.misc.tile_ctrl` to delegate.
+#: Every offset this block owns, for :mod:`framework.misc.tile_ctrl` to delegate.
 PERF_CNT_OFFSETS = frozenset(
     [PERF_CNT_ALL, PERF_CNT_MUX_CTRL]
     + [base + 4 * i for base, _, _ in BANK_REGISTERS.values() for i in range(3)]
@@ -135,7 +135,7 @@ _AVAILABILITY_UNITS = (
     "PACK",
 )
 
-#: Counter names the INSTRN bank reports from a quantity tt-sim tracks, with
+#: Counter names the INSTRN bank reports from a quantity Wolfpine tracks, with
 #: the tech report's own description of each. Keep this table and
 #: :meth:`TensixPerfCounters._instrn_value` in step.
 INSTRN_SOURCED = {
@@ -147,17 +147,17 @@ INSTRN_SOURCED = {
     "WAITING_FOR_NONZERO_SEM": (
         "cycles held on a selected semaphore still reading zero -- the "
         'report\'s "waiting for a producer to signal (semaphore is 0)", '
-        "tt-sim's ``semaphore_empty``"
+        "Wolfpine's ``semaphore_empty``"
     ),
     "WAITING_FOR_NONFULL_SEM": (
         "cycles held on a selected semaphore at its maximum -- the report's "
-        '"waiting for a consumer to drain (semaphore is at max)", tt-sim\'s '
+        '"waiting for a consumer to drain (semaphore is at max)", Wolfpine\'s '
         "``semaphore_full``"
     ),
     "WAITING_FOR_SRCA_VALID": (
         "cycles a Matrix Unit instruction was held because SrcA is still "
         "owned by the unpackers -- the report's \"waiting for source register "
-        "data to become valid (unpacker hasn't filled it yet)\", tt-sim's "
+        "data to become valid (unpacker hasn't filled it yet)\", Wolfpine's "
         "``src_reserved_by_unpacker``"
     ),
     "WAITING_FOR_SRCB_VALID": ("as WAITING_FOR_SRCA_VALID, for the SrcB bank"),
@@ -165,7 +165,7 @@ INSTRN_SOURCED = {
         "cycles an unpacker (or a ThCon GPR-to-Src write) was held because "
         "the SrcA bank it writes is still owned by the Matrix Unit -- the "
         "report's \"waiting for source register to be cleared (math is still "
-        "using the previous data)\", tt-sim's ``src_reserved_by_matrix``"
+        "using the previous data)\", Wolfpine's ``src_reserved_by_matrix``"
     ),
     "WAITING_FOR_SRCB_CLEAR": ("as WAITING_FOR_SRCA_CLEAR, for the SrcB bank"),
     "THREAD_INSTRUCTIONS": (
@@ -179,7 +179,7 @@ INSTRN_SOURCED = {
 #: forced, per the rule that a counter which does not map cleanly is a finding.
 INSTRN_DECLINED = {
     "WAITING_FOR_*_IDLE_*": (
-        "The obvious reading -- tt-sim's ``tensix_stall_on_<unit>`` -- is "
+        "The obvious reading -- Wolfpine's ``tensix_stall_on_<unit>`` -- is "
         "contradicted by the tech report itself. Metric 11 calls these "
         '"cycles each thread waits for its primary hardware unit to become '
         'idle", but the Stall Breakdown section then removes the metrics '
@@ -188,7 +188,7 @@ INSTRN_DECLINED = {
         "When thread stalls are low (e.g. concat, tilize), ``WAITING_FOR_X >> "
         'THREAD_STALLS``, producing meaningless >100% values." A counter '
         "that outruns the thread's own total stall count is not a stall "
-        "count, so the per-thread stall attribution tt-sim has is the wrong "
+        "count, so the per-thread stall attribution Wolfpine has is the wrong "
         "quantity. Unit-busy cycles are cost-model occupancy, which is absent "
         "with TT_SIM_COST_MODEL unset and would read zero in the default "
         "regime -- exactly the failure this module exists to remove."
@@ -205,7 +205,7 @@ INSTRN_DECLINED = {
     "*_INSTRN_AVAILABLE_*": (
         "Selects 0-23 count cycles an instruction of a given type was "
         "*available* at the thread's instruction buffer, which is a property "
-        "of the buffer's occupancy rather than of issue. tt-sim's frontend "
+        "of the buffer's occupancy rather than of issue. Wolfpine's frontend "
         "FIFOs are unbounded queues filled by the pushing RISC-V core, so "
         "their occupancy is a modelling artefact and not the hardware's."
     ),
@@ -298,7 +298,7 @@ class PerfCounterBank:
 class TensixPerfCounters:
     """The five perf-counter banks of one Tensix tile.
 
-    Counting is **armed by the hardware's own start bit**, not by a tt-sim
+    Counting is **armed by the hardware's own start bit**, not by a Wolfpine
     switch: nothing accumulates until a kernel writes the rising edge to
     ``PERF_CNT_INSTRN_THREAD2``, which is exactly when real silicon starts
     counting. That is also what keeps an unprofiled run free of the cost —
@@ -317,7 +317,7 @@ class TensixPerfCounters:
         self._instrn_selects = _instrn_selects(blackhole)
         self._warned = set()
         #: Hot-path guard. ``True`` only between the start and stop edges on
-        #: the INSTRN bank, which is the only bank tt-sim sources.
+        #: the INSTRN bank, which is the only bank Wolfpine sources.
         self.instrn_running = False
         self._reset_instrn()
 
@@ -363,7 +363,7 @@ class TensixPerfCounters:
         """One cycle in which a *latched* wait condition was unsatisfied.
 
         Deliberately separate from :meth:`note_stall`, and deliberately not a
-        stall: this is the counting rule the hardware uses and the one tt-sim's
+        stall: this is the counting rule the hardware uses and the one Wolfpine's
         model could not previously express.
 
         ``SEMWAIT`` does not pause the thread. Per
@@ -386,7 +386,7 @@ class TensixPerfCounters:
         between reasons can explain.
 
         The caller is ``WaitGate._tick_unheld_latched_wait``
-        (``tt_sim/pe/tensix/frontend.py``), on the branch where a wait is
+        (``framework/pe/tensix/frontend.py``), on the branch where a wait is
         latched and nothing is held by it -- the cycles the held-path hook
         ``_note_latched_wait`` never sees. Every one of them is counted here
         and *not* as a stall, so a simulated window can now carry
@@ -479,7 +479,7 @@ class TensixPerfCounters:
             self._decline(
                 f"{bank.name} bank, select {bank.select}"
                 f"{' (grant)' if bank.grant_side else ''}",
-                f"tt-sim models no counter in the {bank.name} bank",
+                f"Wolfpine models no counter in the {bank.name} bank",
             )
             return 0
         name = self._instrn_selects.get((bank.select, bank.grant_side))
@@ -500,7 +500,7 @@ class TensixPerfCounters:
         return value & 0xFFFFFFFF
 
     def _instrn_value(self, name):
-        """The tt-sim quantity behind ``name``, or ``None`` if unsourced."""
+        """The Wolfpine quantity behind ``name``, or ``None`` if unsourced."""
         if name.startswith("THREAD_STALLS_"):
             return self.thread_stalls[int(name[-1])]
         if name.startswith("THREAD_INSTRUCTIONS_"):
@@ -531,13 +531,13 @@ class TensixPerfCounters:
         """
         if os.environ.get(self.STRICT_ENV, "").lower() in ("1", "true", "yes", "on"):
             raise NotImplementedError(
-                f"Tensix performance counter {what} is not modelled in tt-sim: {why}"
+                f"Tensix performance counter {what} is not modelled in Wolfpine: {why}"
             )
         if what in self._warned:
             return
         self._warned.add(what)
         print(
-            f"tt-sim WARNING: performance counter {what} is not modelled; "
+            f"Wolfpine WARNING: performance counter {what} is not modelled; "
             f"reading it returns 0, which is NOT a measurement of zero. {why}",
             file=sys.stderr,
         )

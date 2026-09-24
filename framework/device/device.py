@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory import MemorySpace
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory import MemorySpace
 
 
 class DeviceMemory(MemorySpace):

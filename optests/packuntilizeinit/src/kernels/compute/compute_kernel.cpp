@@ -4,7 +4,7 @@
 // from before `matmul_init` to after `tile_regs_wait()` -- changing nothing
 // else, and changing only the PACK thread's own instruction order, since the
 // call compiles to nothing on UNPACK/MATH -- takes their single-core K=2 GEMM
-// from `errors=0 of 1024` to `errors=320 of 1024` on tt-sim. Both forms are
+// from `errors=0 of 1024` to `errors=320 of 1024` on Wolfpine. Both forms are
 // correct on an n300 card, and both are correct on ttsim.
 //
 // Fixed 2026-08-20 in the Wait Gate -- a `STALLWAIT` no longer overwrites an
@@ -63,7 +63,7 @@ constexpr auto cb_out = tt::CBIndex::c_16;   // untilized output, row-major
 // 16 rows -- and `_llk_math_reconfig_remap_` opens by spinning on the
 // MATH_PACK semaphore. Issued late, that spin waits on the very pack it is
 // meant to configure, so PACK (already past `tile_regs_wait`) reaches the
-// untilize PACR with the bits still clear; both tt-sim and ttsim then refuse
+// untilize PACR with the bits still clear; both Wolfpine and ttsim then refuse
 // the instruction, since strided DEST access without the remap is specified
 // nowhere. tt-metal's own escape hatch is the `configure_remap` template
 // parameter: configure the remap once, up front, and pass `false` late.

@@ -21,7 +21,7 @@ anything. With every functional worker built that is 56 of Wormhole's 80
 coords, and on-demand materialisation manufactures collisions that a fixed grid
 would not have. None of that is fixed here — on Wormhole the two coordinate
 conventions genuinely collide — but every instance is named at the moment it is
-created (``tt_sim/network/noc_shadow.py``).
+created (``framework/network/noc_shadow.py``).
 
 **Blackhole is not Wormhole, and the difference is the trap this file guards.**
 Blackhole registers no Tensix mirror alias at all, because tt-metal's
@@ -47,13 +47,13 @@ No tt-metal, no socket, no oracle — the cheapest guard available for this.
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.noc_coords import WormholeNocCoords
-from tt_sim.network.noc_shadow import POLICY_ENV, NoC1ShadowError
-from tt_sim.network.tt_noc import NUI, resolved_nui
-from tt_sim.util.conversion import conv_to_uint32
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.noc_coords import WormholeNocCoords
+from framework.network.noc_shadow import POLICY_ENV, NoC1ShadowError
+from framework.network.tt_noc import NUI, resolved_nui
+from framework.util.conversion import conv_to_uint32
 
 _OUTSTANDING_ID_0 = NUI.NUICounters.CounterNames.NIU_MST_REQS_OUTSTANDING_ID_0
 
@@ -163,7 +163,7 @@ def _set_coord(initiator, which, coord):
 
     Wormhole packs it into the MID address register (X@4, Y@10); Blackhole has
     a dedicated HI register holding ``(Y << 6) | X``. Mirrors
-    ``tt_sim.network.noc_coords``, which only reads them.
+    ``framework.network.noc_coords``, which only reads them.
     """
     x, y = coord
     if isinstance(initiator.nui.noc_coord_strategy, WormholeNocCoords):
@@ -177,7 +177,7 @@ def _run_until_settled(device, nui, budget=4000):
 
     Deliberately not a fixed cycle count. A NoC round trip costs two cycles
     with the per-hop latency model off and a few hundred with it on
-    (``TT_SIM_COST_MODEL``, see ``tt_sim/network/noc_cost_model_test.py``), so
+    (``TT_SIM_COST_MODEL``, see ``framework/network/noc_cost_model_test.py``), so
     a hardcoded budget makes this test a *timing pin* on a routing property
     that has nothing to do with timing. Waiting on the outstanding-request
     FIFOs instead is what the test actually means, and it fails the same way
@@ -548,7 +548,7 @@ def test_the_noc_node_id_mirror_is_only_load_bearing_on_wormhole():
        ``DM_DYNAMIC_NOC``/``program_ret_addr`` — build an ``atomic_ret_addr``
        and then write only ``NOC_RET_ADDR_LO``, i.e. ``& 0xFFFFFFFF``. The
        coordinate bits are computed and thrown away.
-    2. **tt-sim resolves neither register a preset lands in.** A read or atomic
+    2. **Wolfpine resolves neither register a preset lands in.** A read or atomic
        resolves its *target* coord; a write resolves its *ret* coord; a
        response goes to ``reply_to``. ``noc_init`` presets the write buffers'
        *target* coord and the read/atomic buffers' *ret* coord — the two that
@@ -614,7 +614,7 @@ def test_wormhole_only_eth_cores_cannot_address_themselves():
     14 of them a live worker, 2 a DRAM tile. It is the same two-conventions-in-
     one-dict collision the shadow census measures from the other side, and it
     is unreachable in practice because tt-metal launches no eth kernel under
-    the slow-dispatch flow tt-sim supports. Enabling NoC coordinate translation
+    the slow-dispatch flow Wolfpine supports. Enabling NoC coordinate translation
     is what would clear it; registering eth mirrors here is not, and would
     break DRAM.
     """
@@ -826,7 +826,7 @@ def _multicast(tile, rectangle, payload):
 def test_a_multicast_over_a_non_worker_column_names_the_gap_cells(capsys):
     """Blackhole's columns 8 and 9 are not workers; a rectangle spanning them
     is ACKed by cells the caller never counted, and ``noc_async_write_barrier``
-    then waits on an equality that can never hold. tt-sim cannot see the
+    then waits on an equality that can never hold. Wolfpine cannot see the
     kernel's ``num_dests`` (it reaches no command register), but it can see the
     cells nothing answers for, which is the same bug from the other end.
     """

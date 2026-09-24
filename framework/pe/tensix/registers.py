@@ -2,7 +2,7 @@ from enum import IntEnum
 
 import numpy as np
 
-from tt_sim.util.conversion import conv_to_uint32
+from framework.util.conversion import conv_to_uint32
 
 
 class DstRegister:
@@ -19,7 +19,7 @@ class DstRegister:
         # it is why the GMPOOL reads below pass ``isGmpool=True`` and nothing
         # else does (ttsim's ``read_dst16b``/``read_dst32b`` take the same
         # ``is_gmpool`` template flag, set only by ``TENSIX_EXECUTE_GMPOOL``).
-        # tt-sim additionally keeps zeroing the backing data on a clear, so the
+        # Wolfpine additionally keeps zeroing the backing data on a clear, so the
         # zero every other consumer sees comes out of the array either way.
         self.dstRowValid = np.ones(1024, dtype=bool)
         # DEST_ACCESS_CFG row-remap gates (Blackhole). Both default off, which
@@ -140,7 +140,7 @@ class DstRegister:
 
     def setUndefinedRow(self, row, isDst32=False):
         # ZEROACC clears a row's zero flag, it does not touch the data. Every
-        # consumer but GMPOOL then reads the row as zero, so tt-sim also zeroes
+        # consumer but GMPOOL then reads the row as zero, so Wolfpine also zeroes
         # the backing store: that keeps the array agreeing with the flag and
         # keeps the paths that rely on reading a cleared row as +0 (e.g. the
         # FP32 copy_tile's zeroed SrcB operand) working unchanged. The 32-bit
@@ -250,7 +250,7 @@ class LReg:
     float value, the raw int for bits). This is what keeps the SFPU pipeline
     bit-exact with the reference on both architectures.
 
-    tt-sim used to keep a *mixed* model on Wormhole, where a lane could hold a
+    Wolfpine used to keep a *mixed* model on Wormhole, where a lane could hold a
     Python float instead. That silently destroyed information the SFPU relies
     on: NaN payloads (the accurate FP32 exp builds ``2**n`` through an integer
     ``0x7ffffffd``-shaped lane, which becomes a payload-less ``nan`` the moment

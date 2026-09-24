@@ -30,7 +30,7 @@ RISC-V core's register writes and its barrier polling. Since 2026-08-08 the
 prediction includes them too -- :func:`predict_timed_region` runs that program
 on a simulated BRISC rather than poking the registers from Python, which is
 what :func:`predict_cycles` did and still does. See
-:data:`RESIDUAL_EXPECTATION` and :mod:`tt_sim.perf.noc_issue_loop`.
+:data:`RESIDUAL_EXPECTATION` and :mod:`framework.perf.noc_issue_loop`.
 
 Three things about the keying are worth stating because they are easy to get
 wrong and none of them is documented:
@@ -76,9 +76,9 @@ Run it
 
 ::
 
-    python3 -m tt_sim.perf.noc_dataset_sweep                  # auto-locate
-    python3 -m tt_sim.perf.noc_dataset_sweep --dataset PATH
-    python3 -m tt_sim.perf.noc_dataset_sweep --arch blackhole
+    python3 -m framework.perf.noc_dataset_sweep                  # auto-locate
+    python3 -m framework.perf.noc_dataset_sweep --dataset PATH
+    python3 -m framework.perf.noc_dataset_sweep --arch blackhole
 
 The dataset lives outside this repo, so with no tt-metal checkout the script
 prints where it looked and exits 0 -- the same "degrade gracefully" contract
@@ -183,7 +183,7 @@ def load_dataset(path):
 #
 # This ordering matters more than the criteria do. Dropping entries because
 # they *disagree* is fitting, not validating, and it would make the whole
-# exercise worthless -- so each rule below names a term tt-sim does not model,
+# exercise worthless -- so each rule below names a term Wolfpine does not model,
 # and every one of them could have been written without the dataset in hand.
 # The cost of each in entries is reported by the sweep so a reader can see how
 # much of the dataset the model is declining to be tested against.
@@ -197,11 +197,11 @@ service time.
 Until 2026-08-08 the prediction did not: it drove the initiator's NoC
 registers from Python, and the sweep recorded the difference as a constant
 77-94 cycle residual described as "one unmodelled issuing-core path". THAT
-DESCRIPTION WAS WRONG. The path was never unmodelled -- tt-sim runs baby
+DESCRIPTION WAS WRONG. The path was never unmodelled -- Wolfpine runs baby
 RISC-V cores against a published pipeline and a published load-latency table,
 and a kernel issuing a NoC transaction pays for its own stores and polls like
 any other code. What was missing is that the HARNESS never ran them. It does
-now (`predict_timed_region`, `tt_sim.perf.noc_issue_loop`), and this adds no
+now (`predict_timed_region`, `framework.perf.noc_issue_loop`), and this adds no
 cost-table entry and moves no simulated cycle outside this harness.
 
 So the residual is still NOT expected to be zero, but what is left is
@@ -261,7 +261,7 @@ congestion from the two terms above.
 WHAT THE DATASET *CAN* DO, and it is worth having: it bounds the size of the
 missing term, and it is a validation target. The all-to-all series above is a
 measured saturation curve -- aggregate bandwidth rising far slower than the
-core count while the per-core share collapses -- and any congestion model tt-sim
+core count while the per-core share collapses -- and any congestion model Wolfpine
 ever gains must reproduce it. That is exactly the role rung 2 was climbed for.
 
 WHAT WOULD DERIVE ONE, on a card, from tt-metal's own microbenchmarks in
@@ -289,7 +289,7 @@ shipped YAML drops, and write per-core profiler CSVs):
 
 (a) and (c) together are the minimum: an intercept and a slope, both measured
 with the confounds held fixed rather than fitted out. Neither needs anything
-tt-sim can supply, and neither can be substituted by more of this file.
+Wolfpine can supply, and neither can be substituted by more of this file.
 
 THAT LIST IS NOW A HARNESS, and one correction to it is worth stating here
 because it changes what (a) can deliver. The data_movement suite CANNOT be
@@ -297,8 +297,8 @@ parameterised: every coordinate, grid size and virtual channel in it is a
 compile-time literal in a gtest body, and the one test whose name promises
 otherwise (`TensixDataMovementOneToOneCustom`) is GTEST_SKIPped. So the harness
 is a tt-metal program of this repository's own -- `perfbench/nocbench`, planned
-by `tt_sim.perf.noc_congestion_plan` and read back by
-`tt_sim.perf.noc_congestion_sweep`. It also corrects (a): sweeping master x
+by `framework.perf.noc_congestion_plan` and read back by
+`framework.perf.noc_congestion_sweep`. It also corrects (a): sweeping master x
 subordinate does NOT give a fine-grained hop sweep, because on a directional
 torus a round trip costs grid_x, grid_y or grid_x + grid_y hops and nothing
 else, whatever the coordinates. What (a) actually yields is a three-level line
@@ -315,7 +315,7 @@ def _exclusions(arch_id):
         ),
         (
             "mechanism != UNICAST",
-            "tt-sim models a multicast as N unicast deliveries sharing one "
+            "Wolfpine models a multicast as N unicast deliveries sharing one "
             "injection port. The hardware's router-level fan-out, and the "
             "arbitration between the copies, is not modelled at all.",
             lambda k: k["mechanism"] == 0,
@@ -324,7 +324,7 @@ def _exclusions(arch_id):
             "pattern not in {ONE_FROM_ONE, ONE_TO_ONE}",
             "every other pattern has >= 2 concurrent initiators or targets "
             "sharing links, which is congestion -- `noc.congestion` is "
-            "`provenance: unknown` and nothing in tt-sim models it. The "
+            "`provenance: unknown` and nothing in Wolfpine models it. The "
             "*_ALL patterns also sweep grids whose per-core distances the "
             "dataset does not record, so there is no hop count to predict.",
             lambda k: k["pattern"] in (PATTERN_READ, PATTERN_WRITE),
@@ -334,13 +334,13 @@ def _exclusions(arch_id):
             "N > 1 is a pipelined burst, and what governs it is the issuing "
             "core's per-transaction cost. That is now modelled and validated "
             "for ONE ISSUE PATH -- the single-target unicast L1 write, which "
-            "`tt_sim.perf.noc_issue_loop` reconstructs from the vendor headers "
+            "`framework.perf.noc_issue_loop` reconstructs from the vendor headers "
             "and which the model reproduces to 0.0 cycles per transaction on "
             "both architectures. The other three are still declined, each for "
             "its own reason. (a) A READ burst is additionally limited by the "
             "initiator's outstanding-request credit: the measured marginal is "
             "27 cycles/transaction on Wormhole and 35 on Blackhole against an "
-            "issue loop costing 18 and 19, and tt-sim's NIU imposes no such "
+            "issue loop costing 18 and 19, and Wolfpine's NIU imposes no such "
             "limit. The ISA docs state the protocol -- software must not write "
             "NOC_CMD_CTRL again until it reverts to 0 -- but publish no timing "
             "for it, so the term would be `provenance: unknown` and may carry "
@@ -363,20 +363,20 @@ def _exclusions(arch_id):
             "stateful",
             "stateful mode is an issue-side optimisation (`set_state` + "
             "`with_state` reuses the configured NoC command registers). "
-            "tt-sim charges no per-transaction NoC register configuration "
+            "Wolfpine charges no per-transaction NoC register configuration "
             "cost, so it has no term that could distinguish the two and "
             "would predict them identical by construction.",
             lambda k: not k["stateful"],
         ),
         (
             "loopback",
-            "a multicast-linked feature; nothing in tt-sim expresses it.",
+            "a multicast-linked feature; nothing in Wolfpine expresses it.",
             lambda k: not k["loopback"],
         ),
         (
             "memory == DRAM_INTERLEAVED",
             "interleaving spreads pages round-robin over 12 channels at "
-            "different distances. tt-sim instantiates one DRAM tile and has "
+            "different distances. Wolfpine instantiates one DRAM tile and has "
             "no interleaving model.",
             lambda k: k["memory"] != MEMORY_DRAM_INTERLEAVED,
         ),
@@ -393,7 +393,7 @@ def retained(entries, arch_id):
     return kept, ladder
 
 
-#: What tt-sim would have to gain before a rule could be retired, one line per
+#: What Wolfpine would have to gain before a rule could be retired, one line per
 #: ladder rule. The rules' own ``reason`` strings say why an entry is dropped;
 #: this says what closing it would take, which is the question a reader of the
 #: ladder actually has. Keyed by rule name and pinned to the ladder by a test,
@@ -415,7 +415,7 @@ MISSING_TERM = {
         "measured, and unpublished, so it cannot be charged at any provenance "
         "rank this cost model has; for the rest, reconstructions of the "
         "`TensorAccessor` and multi-subordinate issue paths alongside the "
-        "plain one in `tt_sim.perf.noc_issue_loop`"
+        "plain one in `framework.perf.noc_issue_loop`"
     ),
     "stateful": "a per-transaction NoC command-register configuration cost",
     "loopback": "the multicast fan-out above, of which this is a flag",
@@ -555,7 +555,7 @@ def point_is_measured(key, size):
 # ``same_axis`` alone -- no core-placement assumption is doing any work, and
 # the answer is the same on NoC 0 and NoC 1.
 
-#: Logical -> tt-sim tile coord for the two cores the single-core patterns use.
+#: Logical -> Wolfpine tile coord for the two cores the single-core patterns use.
 #: Wormhole tiles are keyed by unified coord (18, 18) == SoC-physical (1, 1);
 #: Blackhole tiles are keyed by physical NoC coord directly.
 GEOMETRY = {
@@ -568,7 +568,7 @@ _DRAM_ADDR = 0x1000
 
 
 def _physical_of(arch, tile_coord):
-    """SoC-physical NoC 0 coord of a tt-sim tile coord.
+    """SoC-physical NoC 0 coord of a Wolfpine tile coord.
 
     Wormhole keys its tiles by *unified* coord (the 16-25 band) and Blackhole
     by the physical NoC coord directly, so this is the one place the two
@@ -576,7 +576,7 @@ def _physical_of(arch, tile_coord):
     computed in physical NoC space.
     """
     if arch == "wormhole":
-        from tt_sim.device.wormhole import Wormhole
+        from framework.device.wormhole import Wormhole
 
         return Wormhole.physical_noc0_coord_from_unified_worker(tile_coord)
     return tuple(tile_coord)
@@ -584,16 +584,16 @@ def _physical_of(arch, tile_coord):
 
 def _build_device(arch, tensix_coords):
     if arch == "wormhole":
-        from tt_sim.device.wormhole import Wormhole
+        from framework.device.wormhole import Wormhole
 
         return Wormhole(tensix_coords=list(tensix_coords))
-    from tt_sim.device.blackhole import Blackhole
+    from framework.device.blackhole import Blackhole
 
     return Blackhole(tensix_coords=list(tensix_coords))
 
 
 def _set_target_coord(initiator, which, coord):
-    from tt_sim.network.noc_coords import WormholeNocCoords
+    from framework.network.noc_coords import WormholeNocCoords
 
     x, y = coord
     if isinstance(initiator.nui.noc_coord_strategy, WormholeNocCoords):
@@ -611,11 +611,11 @@ def predict_cycles(arch, memory, is_read, same_axis, size, budget=500_000):
     -- which is precisely what ``noc_async_read_barrier`` /
     ``noc_async_write_barrier`` wait for, and therefore precisely where the
     measured DeviceZone ends. Every term is exercised through its real
-    consumer: the hop model and the injection port in ``tt_sim/network/``,
+    consumer: the hop model and the injection port in ``framework/network/``,
     burst splitting at ``noc_max_burst_size``, and the DRAM endpoint's service
-    window in ``tt_sim/device/tiles.py``.
+    window in ``framework/device/tiles.py``.
     """
-    from tt_sim.network.tt_noc import NUI
+    from framework.network.tt_noc import NUI
 
     outstanding = NUI.NUICounters.CounterNames.NIU_MST_REQS_OUTSTANDING_ID_0
     geometry = GEOMETRY[arch]
@@ -680,17 +680,17 @@ def predict_timed_region(
     instruction stream as well.
 
     This runs that instruction stream: it loads
-    :func:`~tt_sim.perf.noc_issue_loop.issue_loop_program` onto the initiator
+    :func:`~framework.perf.noc_issue_loop.issue_loop_program` onto the initiator
     tile's BRISC, releases it, and times the core's own ``START -> DONE``
     markers -- the loop, the barrier's drain, and nothing else. Every cycle it
     costs is charged by cost-table entries that already existed; this adds no
     term and moves nothing outside the harness. See
-    :mod:`tt_sim.perf.noc_issue_loop` for what the program is and why it is a
+    :mod:`framework.perf.noc_issue_loop` for what the program is and why it is a
     reconstruction rather than a constant.
     """
-    from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
-    from tt_sim.perf import noc_issue_loop as loop
-    from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+    from framework.pe.rv.babyriscv import BabyRISCVCoreType
+    from framework.perf import noc_issue_loop as loop
+    from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
     # The cost model is a process-wide switch, so it is part of the key.
     memo = (
@@ -763,7 +763,7 @@ def predict_timed_region(
 
 def _coord_word(arch, remote):
     """The value the kernel stores into ``NOC_*_ADDR_COORDINATE``."""
-    from tt_sim.network.noc_coords import WormholeNocCoords
+    from framework.network.noc_coords import WormholeNocCoords
 
     x, y = remote.noc0_router.id_pair
     if isinstance(remote.noc0_router.noc_coord_strategy, WormholeNocCoords):
@@ -917,7 +917,7 @@ def report(entries, sizes, arch, out=sys.stdout):
     rows = sweep(kept, sizes, arch)
 
     emit("-" * 78)
-    emit("Per-point: measured (tt-metal) vs predicted (tt-sim), cycles")
+    emit("Per-point: measured (tt-metal) vs predicted (Wolfpine), cycles")
     emit("-" * 78)
     emit(f"{'':<32}" + "".join(f"{s:>8}" for s in sizes))
     for group_label, group in sorted(_grouped(rows, lambda r: r.label).items()):
@@ -1183,7 +1183,7 @@ def _dropped_readout(entries, sizes, arch_id, emit):
             f"    -> {core_ratio:.0f}x the cores buys {last[2] / first[2]:.1f}x the aggregate "
             f"bandwidth, so the\n       per-core share falls {first[3] / last[3]:.1f}x. "
             "Whatever that is -- link queueing, L1\n       port arbitration, the issue loop -- "
-            "tt-sim charges none of it, and this is\n       the scale of what it is not charging."
+            "Wolfpine charges none of it, and this is\n       the scale of what it is not charging."
         )
     # The same rows at the SMALLEST size, which is where the third claim of
     # CONGESTION_VERDICT is checkable rather than asserted: divide the barrier
@@ -1221,7 +1221,7 @@ def _sourced_bandwidths(arch):
     Read out of the YAML rather than restated here, so a table edit moves the
     reference number too.
     """
-    from tt_sim.perf.costs import SOURCED_PROVENANCE, load_costs
+    from framework.perf.costs import SOURCED_PROVENANCE, load_costs
 
     sections = load_costs(arch).sections
     noc = sections.get("noc") or {}
@@ -1275,7 +1275,7 @@ def _bandwidth_ceiling_check(entries, sizes, arch_id, emit):
     """Secondary, dataset-only: does any measurement beat the modelled link?
 
     The primary sweep excludes every entry with more than one transaction per
-    barrier, because their *latency* folds in an issue loop tt-sim does not
+    barrier, because their *latency* folds in an issue loop Wolfpine does not
     model. Their **bandwidth** is a different question and a one-sided one: the
     model says one NIU's injection link carries ``flit_bits / 8`` bytes per
     cycle and no more, so a measured single-initiator transfer that exceeded it
@@ -1283,7 +1283,7 @@ def _bandwidth_ceiling_check(entries, sizes, arch_id, emit):
     check needs no prediction and no simulation, so those 40 entries are worth
     something after all -- just not what the primary sweep wanted from them.
     """
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     arch = {v: k for k, v in ARCH_IDS.items()}[arch_id]
     flit_bits = (load_costs(arch).sections.get("noc") or {}).get("flit_bits")

@@ -18,7 +18,7 @@ it, because that is the only thing that proves the claim the feature rests on:
 that the issuing core is still on the Python stack when the check fires. A test
 that called ``initiate()`` directly would pass with the issuer lookup deleted.
 
-Runs standalone (``python3 -m tt_sim.network.attribution_test``) or under
+Runs standalone (``python3 -m framework.network.attribution_test``) or under
 pytest.
 """
 
@@ -30,8 +30,8 @@ import textwrap
 
 import pytest
 
-from tt_sim.network.alignment import NoCAlignmentError
-from tt_sim.network.attribution import (
+from framework.network.alignment import NoCAlignmentError
+from framework.network.attribution import (
     Issuer,
     Source,
     attach_provenance,
@@ -41,7 +41,7 @@ from tt_sim.network.attribution import (
     provenance,
     span,
 )
-from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
+from framework.pe.rv.babyriscv import BabyRISCVCoreType
 
 # --- a tiny RV32I assembler, enough to program the NoC command registers -----
 
@@ -118,7 +118,7 @@ def _noc_read_program(dram_mid, target_addr, ret_addr, size=64):
 def _run_program(program, cycles=200):
     """Boot a one-Tensix Wormhole, run ``program`` on BRISC, return the device
     and whatever it raised."""
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     device = Wormhole()
     device.reset()
@@ -139,7 +139,7 @@ def _dram_mid(device):
 
 @pytest.fixture(scope="module")
 def dram_mid():
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     return _dram_mid(Wormhole())
 
@@ -176,7 +176,7 @@ def test_the_transfer_itself_is_described(dram_mid):
 def test_no_issuer_is_invented_when_no_core_is_running():
     """A transfer driven straight from Python has no issuing core, and the
     message must say nothing rather than name whatever ran last."""
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     device = Wormhole()
     tensix = device.tensix_tiles[0]
@@ -245,7 +245,7 @@ def test_a_live_core_outranks_a_stale_caller_context():
 
 
 def _expected_prefix(src, dst, modulus, path, noc, tile):
-    from tt_sim.network.alignment import DISABLE_ENV_VAR
+    from framework.network.alignment import DISABLE_ENV_VAR
 
     src_rem, dst_rem = src % modulus, dst % modulus
     return (
@@ -263,16 +263,16 @@ def test_the_original_message_survives_verbatim(dram_mid):
     """Everything the message said before is still the *prefix* of what it
     says now: addresses, moduli, remainders, path, tile, NoC, and the
     disable-checking hint."""
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     device = Wormhole()
     tile = device.tensix_tiles[0].noc0_router.id_pair
     program, _ = _noc_read_program(dram_mid, 0x1010, 0x2000)
     _device, exc = _run_program(program)
     prefix = _expected_prefix(0x1010, 0x2000, 32, "DRAM -> L1 read", 0, tile)
-    assert str(exc).startswith(prefix), (
-        f"\n got: {str(exc)[: len(prefix)]!r}\nwant: {prefix!r}"
-    )
+    assert str(exc).startswith(
+        prefix
+    ), f"\n got: {str(exc)[: len(prefix)]!r}\nwant: {prefix!r}"
     # The additions are appended on their own indented lines, so a consumer
     # matching the first line of the message is unaffected.
     assert str(exc)[len(prefix) :].startswith("\n  ")
@@ -308,7 +308,7 @@ def _accepts(device, src, dst):
 
 
 def test_the_accept_reject_matrix_is_the_congruence_rule():
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     device = Wormhole()
     for src, dst, expected in _MATRIX:
@@ -319,8 +319,8 @@ def test_the_accept_reject_matrix_is_the_congruence_rule():
 def test_a_broken_describer_changes_nothing_about_when_it_raises(monkeypatch):
     """Sabotage the describer: the same transfers must still raise, with the
     same exception type and the same original message."""
-    import tt_sim.network.attribution as attribution
-    from tt_sim.device.wormhole import Wormhole
+    import framework.network.attribution as attribution
+    from framework.device.wormhole import Wormhole
 
     def boom(*args, **kwargs):
         raise RuntimeError("the describer is broken")
@@ -375,7 +375,7 @@ def test_attribution_is_not_imported_by_a_passing_run():
     code = textwrap.dedent(
         """
         import sys
-        from tt_sim.device.wormhole import Wormhole
+        from framework.device.wormhole import Wormhole
 
         device = Wormhole()
         initiator = device.tensix_tiles[0].noc0_router.request_initiators[0]
@@ -388,8 +388,8 @@ def test_attribution_is_not_imported_by_a_passing_run():
             initiator.ctrl = 0
             initiator.cmd_ctrl = 1
             initiator.initiate()
-        assert "tt_sim.network.tt_noc" in sys.modules
-        print("attribution" if "tt_sim.network.attribution" in sys.modules else "clean")
+        assert "framework.network.tt_noc" in sys.modules
+        print("attribution" if "framework.network.attribution" in sys.modules else "clean")
         """
     )
     proc = subprocess.run(
@@ -405,7 +405,7 @@ def test_attribution_is_not_imported_by_a_passing_run():
 def dwarf_elf(tmp_path_factory):
     """A host ``gcc -g`` ELF. DWARF is machine-independent for the parts used
     here, and there is no RISC-V toolchain to rely on -- the same fixture
-    strategy ``tt_sim/trace/attribution_test.py`` uses."""
+    strategy ``framework/trace/attribution_test.py`` uses."""
     if shutil.which("gcc") is None:
         pytest.skip("no gcc to build a DWARF fixture")
     tmp = tmp_path_factory.mktemp("noc_dwarf")
@@ -432,7 +432,7 @@ def dwarf_elf(tmp_path_factory):
 def test_an_explicit_elf_names_the_function_and_line(dwarf_elf, monkeypatch):
     """``TT_SIM_PROFILE_ELFS`` is an ``explicit`` selection, which is trusted,
     so the PC resolves to a call chain and a source line."""
-    from tt_sim.trace.dwarf import DwarfIndex
+    from framework.trace.dwarf import DwarfIndex
 
     index = DwarfIndex()
     assert index.load(dwarf_elf, unit="BRISC"), "fixture carries no DWARF"

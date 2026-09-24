@@ -4,7 +4,7 @@ Called from `TT_Device.__init__` (and `_begin_construction`) so any driver
 script that constructs a device picks up trace env vars automatically —
 no per-example wiring, and no per-architecture wiring either. It used to be
 called from `Wormhole.__init__` only, which is why Blackhole devices silently
-ignored every var below; `tt_sim/device/parity_test.py` guards against that
+ignored every var below; `framework/device/parity_test.py` guards against that
 returning.
 
 Supported env vars (all optional, all default-off):
@@ -38,7 +38,7 @@ Supported env vars (all optional, all default-off):
   first violation.
 - ``TT_SIM_TRACE_STATE_DUMP`` — capture a JSON state dump at each
   lifecycle boundary (kernel start/done) for cross-run / cross-sim
-  diffing via ``python3 -m tt_sim.trace.diff_state``.
+  diffing via ``python3 -m framework.trace.diff_state``.
 
 All writers can be enabled simultaneously; they subscribe to disjoint
 event handling and write independent outputs.
@@ -66,21 +66,21 @@ import os
 import sys
 from pathlib import Path
 
-from tt_sim.trace.bus import get_bus
-from tt_sim.trace.counters import DEFAULT_FLUSH_INTERVAL_CYCLES, CounterAggregator
-from tt_sim.trace.dwarf import DwarfIndex
-from tt_sim.trace.elfdisc import REJECTED, discover, session_start
-from tt_sim.trace.hotspots import HotspotAggregator
-from tt_sim.trace.ids import get_registry
-from tt_sim.trace.invariants import InvariantRunner
-from tt_sim.trace.state_dump import StateDumpWriter
-from tt_sim.trace.writers.cachegrind import MemoryTraceWriter
-from tt_sim.trace.writers.commitlog import SpikeCommitlogWriter
-from tt_sim.trace.writers.jsonl import JSONLLogger
-from tt_sim.trace.writers.lcov import LCOVWriter
-from tt_sim.trace.writers.noc_parquet import NoCParquetWriter
-from tt_sim.trace.writers.parquet import ParquetCounterWriter
-from tt_sim.trace.writers.perfetto import PerfettoWriter
+from framework.trace.bus import get_bus
+from framework.trace.counters import DEFAULT_FLUSH_INTERVAL_CYCLES, CounterAggregator
+from framework.trace.dwarf import DwarfIndex
+from framework.trace.elfdisc import REJECTED, discover, session_start
+from framework.trace.hotspots import HotspotAggregator
+from framework.trace.ids import get_registry
+from framework.trace.invariants import InvariantRunner
+from framework.trace.state_dump import StateDumpWriter
+from framework.trace.writers.cachegrind import MemoryTraceWriter
+from framework.trace.writers.commitlog import SpikeCommitlogWriter
+from framework.trace.writers.jsonl import JSONLLogger
+from framework.trace.writers.lcov import LCOVWriter
+from framework.trace.writers.noc_parquet import NoCParquetWriter
+from framework.trace.writers.parquet import ParquetCounterWriter
+from framework.trace.writers.perfetto import PerfettoWriter
 
 _JSONL: JSONLLogger | None = None
 _PERFETTO: PerfettoWriter | None = None
@@ -232,7 +232,7 @@ def enable_from_env(device=None) -> None:
                 n = _INVARIANTS.report(invariants_path)
                 if n > 0:
                     print(
-                        f"[tt-sim trace] {n} invariant violation(s) recorded "
+                        f"[Wolfpine trace] {n} invariant violation(s) recorded "
                         f"to {invariants_path}",
                         file=__import__("sys").stderr,
                     )
@@ -310,8 +310,8 @@ def write_profile_report(profile: dict, hotspots) -> None:
     """Resolve the hotspot table against auto-discovered ELFs and render
     the ranked report. Never raises: a profiling run that has already
     produced its answer must not fail at exit because a cache moved."""
-    from tt_sim.perf.model import cost_model_enabled
-    from tt_sim.trace import report as report_mod
+    from framework.perf.model import cost_model_enabled
+    from framework.trace import report as report_mod
 
     directory = Path(profile["dir"])
     try:
@@ -378,7 +378,7 @@ def write_profile_report(profile: dict, hotspots) -> None:
             "elf_roots": found.roots,
             # Where the counter dataset actually landed. Usually
             # ``<dir>/counters``, but ``TT_SIM_TRACE_COUNTERS`` overrides it,
-            # and without this the documented ``python3 -m tt_sim.trace.report
+            # and without this the documented ``python3 -m framework.trace.report
             # <dir>`` re-render silently produces a report with no counters.
             "counters": str(profile.get("counters") or ""),
         }
@@ -393,6 +393,6 @@ def write_profile_report(profile: dict, hotspots) -> None:
             notes=notes,
         )
         path = report_mod.write(built, directory)
-        print(f"[tt-sim profile] ranked report written to {path}", file=sys.stderr)
+        print(f"[Wolfpine profile] ranked report written to {path}", file=sys.stderr)
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"[tt-sim profile] report generation failed: {exc}", file=sys.stderr)
+        print(f"[Wolfpine profile] report generation failed: {exc}", file=sys.stderr)

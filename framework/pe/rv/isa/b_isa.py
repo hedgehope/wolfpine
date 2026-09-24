@@ -18,8 +18,8 @@ return ``False`` so the next ISA in the core's list gets a chance. The base
 encodings fall through to here rather than being mis-decoded as base ops.
 """
 
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.util.conversion import conv_to_bytes
 
 _MASK32 = 0xFFFFFFFF
 

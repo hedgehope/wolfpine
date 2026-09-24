@@ -10,9 +10,9 @@ Used by:
 
 - ``StateDumpWriter`` — captures dumps at lifecycle boundaries and
   writes them as JSON files for offline diffing.
-- :mod:`tt_sim.trace.diff_state` — compares two dumps and reports
+- :mod:`framework.trace.diff_state` — compares two dumps and reports
   the first divergence with context. Run as
-  ``python3 -m tt_sim.trace.diff_state a.json b.json``.
+  ``python3 -m framework.trace.diff_state a.json b.json``.
 
 The "diff this trace against another commit / branch" workflow falls
 straight out: capture before, capture after, diff. Catches regressions
@@ -24,8 +24,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import EventCategory, LifecycleEvent
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import EventCategory, LifecycleEvent
 
 SCHEMA_VERSION = 1
 

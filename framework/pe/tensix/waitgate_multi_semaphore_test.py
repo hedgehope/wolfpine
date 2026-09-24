@@ -24,15 +24,15 @@ Silently -- no fault, no diagnostic, just a thread let past its barrier. Every
 in-tree kernel uses a one-hot ``sem_sel``, which is why nothing caught it and
 why fixing it moves no existing number.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.waitgate_multi_semaphore_test``)
+Run standalone (``python3 -m framework.pe.tensix.waitgate_multi_semaphore_test``)
 or under pytest.
 """
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.util.conversion import conv_to_bytes
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.util.conversion import conv_to_bytes
 
 #: Condition-mask bits, as ``SEMWAIT.md`` names them.
 C0_WAIT_WHILE_ZERO = 0b01
@@ -213,9 +213,9 @@ def test_a_real_semwait_holds_a_real_blocked_instruction():
     # moment it is met, so a wait that is still latched here is a wait that is
     # still unmet. The pre-fix gate met it immediately off ``sem0`` and this
     # is where it dropped the latch.
-    assert gate.latchedWaitInstruction is not None, (
-        "the wait was forgotten while semaphore 1 was still empty"
-    )
+    assert (
+        gate.latchedWaitInstruction is not None
+    ), "the wait was forgotten while semaphore 1 was still empty"
 
     # The blocked instruction arrives and must not execute.
     thread.write(0, conv_to_bytes(_sempost(1 << 7), 4))

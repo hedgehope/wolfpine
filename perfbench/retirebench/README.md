@@ -82,7 +82,7 @@ partition cannot.
 
 `mcycle` (0xb00) and `minstret` (0xb02) are Blackhole baby-RISC-V CSRs
 (`BlackholeA0/TensixTile/BabyRISCV/CSRs.md`), modelled in
-`tt_sim/pe/rv/isa/zicsr_isa.py`. `mcycle` reads the same tile clock that
+`framework/pe/rv/isa/zicsr_isa.py`. `mcycle` reads the same tile clock that
 `RISCV_DEBUG_REG_WALL_CLOCK_*` samples, so a cycle here is the same cycle every
 other perfbench program counts in.
 
@@ -103,8 +103,8 @@ fidelity that depends on a CSR read being free.
 The `marker_null` zone is two marker pairs with nothing between them, so **the
 instrument's own cost is a measured number in every artefact** rather than an
 assumption in a comment. The real simulator run reads **3 cycles**; a card's will
-be larger, because tt-sim charges a CSR instruction nothing — `DisCsrSync`'s
-serialisation has no published cycle count and `tt_sim/pe/rv/cost.py` declines to
+be larger, because Wolfpine charges a CSR instruction nothing — `DisCsrSync`'s
+serialisation has no published cycle count and `framework/pe/rv/cost.py` declines to
 invent one. That is a real and *expected* disagreement, it is reported as a note
 with its span share, and the calibration zone is excluded from the CPI grading
 because grading a zone against a number the model deliberately does not have
@@ -133,7 +133,7 @@ A coarse decomposition that is honest beats a fine one that is invented.
 ## Blackhole only, and it refuses rather than degrades
 
 The string `csr` appears **zero times** in the whole `WormholeB0` doc tree. A
-Wormhole baby core has no CSRs to read: tt-sim raises `NoCSRsError` on a CSR
+Wormhole baby core has no CSRs to read: Wolfpine raises `NoCSRsError` on a CSR
 instruction there, and the part has no `minstret` either. Without retired counts
 the structural labels stop being checkable and the leg collapses to an
 elapsed-only envelope check — which is precisely what rung 4 exists to distrust.
@@ -157,7 +157,7 @@ mixes off the wall clock and needs no CSRs.
 
 `perfbench/riscvbench` is a **rung-3 front-end characterisation**: it measures
 what an instruction *costs* on the card. This is a **rung-4 attribution
-comparison**: it measures whether tt-sim spends a span the same way hardware
+comparison**: it measures whether Wolfpine spends a span the same way hardware
 does. They are different instruments on the same core, and they are complements:
 
 | | `riscvbench` (rung 3) | `retirebench` (rung 4) |
@@ -206,7 +206,7 @@ scalar core is in the measurement.
 The two branch zones execute the **identical dynamic instruction sequence** — one
 `xori` and one conditional branch to a target one instruction ahead, which is
 where the not-taken branch falls through to — and differ in exactly one bit:
-whether the branch was taken. tt-sim charges neither, and says so: the mispredict
+whether the branch was taken. Wolfpine charges neither, and says so: the mispredict
 bubble is sourced (4 cycles on Blackhole) but the predictor is undocumented, so
 the number of mispredictions is unknowable and charging every taken branch would
 be a fabrication. This pair is what will put a number on what that omission
@@ -224,7 +224,7 @@ would stop being a decomposition.
 would otherwise suggest. `div_large` is the constraint, and it is the one zone
 whose two sides are **known to disagree before the program runs**: the divide's
 cost is a documented data dependence ("between six and 33 cycles … dependent upon
-the magnitude of the dividend"), tt-sim charges the documented floor of 6 for
+the magnitude of the dividend"), Wolfpine charges the documented floor of 6 for
 every operand, and `riscvbench` read 33.001 on silicon at a 29-bit dividend. The
 zone must be long enough that the *simulator* side — the short one — still clears
 the 1000-cycle floor, which puts the card side near 6300; and every other zone
@@ -241,7 +241,7 @@ working set of exactly the published capacity, so whether they stay resident
 depends on associativity, indexing and replacement — none of which the docs
 publish. The zone's own name would then rest on an unpublished property: the
 first run read **1.001** cycles/instruction against the **1.742** `riscvbench`
-read on silicon at the same four addresses, because tt-sim's L0 model (fully
+read on silicon at the same four addresses, because Wolfpine's L0 model (fully
 associative, by its own documented choice of the generous reading) kept all four.
 Eight lines exceed the published capacity under *any* organisation, and the zone
 now reads 1.761 against silicon's 1.742. The resident case is deliberately **not**
@@ -260,7 +260,7 @@ export TT_METAL_HOME=/path/to/your/built/tt-metal
 ```
 
 Sets `TT_SIM_COST_MODEL=1`, pins worker `1-2`, puts the repo venv on `PATH` (the
-simulator server is spawned by UMD and needs tt_sim's dependencies), and writes
+simulator server is spawned by UMD and needs framework's dependencies), and writes
 `retirebench-blackhole-sim.json`. `--no-cost-model` exists to demonstrate what
 goes wrong and is refused by the analysis, not merely warned about.
 
@@ -274,7 +274,7 @@ export TT_METAL_HOME=/path/to/your/built/tt-metal
 
 No Tracy, no device profiler, no `tt-exalens`, no board reset, no root. Budget
 ~2 min for the build and ~20 s per run. It sets `TT_METAL_SLOW_DISPATCH_MODE=1`,
-because `detail::LaunchProgram` is the only dispatch flow tt-sim supports and a
+because `detail::LaunchProgram` is the only dispatch flow Wolfpine supports and a
 card defaults to fast dispatch — four earlier card runners aborted `rc=134`
 before doing any work for exactly that reason.
 
@@ -284,9 +284,9 @@ comparison of two different programs, and `zone_table_matches` refuses it.
 ### Analysis
 
 ```bash
-python3 -m tt_sim.perf.retire_attribution --decompose-only --sim <artefact>
+python3 -m framework.perf.retire_attribution --decompose-only --sim <artefact>
 
-python3 -m tt_sim.perf.retire_attribution \
+python3 -m framework.perf.retire_attribution \
     --sim  /tmp/retirebench-sim/retirebench-blackhole-sim.json \
     --card ~/retirebench-session/runs/card-1/retirebench-blackhole-card-1.json \
     --report report.txt --json report.json
@@ -351,5 +351,5 @@ other cost table, and `costs_test.py` asserts the ladder holds
 the simulator. If a card session comes back and `div_large` is 5.5× short, that
 is a measurement of a documented one-sided floor, not a licence to pick a number
 between 6 and 33 — the docs give the band and no function within it, and
-`tt_sim/pe/rv/cost.py` has already recorded twice why an invented curve wearing a
+`framework/pe/rv/cost.py` has already recorded twice why an invented curve wearing a
 citation is worse than a floor. Silicon is corroboration, never provenance.

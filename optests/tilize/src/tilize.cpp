@@ -24,7 +24,7 @@
 // driver/wormhole/server/tilize_replay_test.py. On Blackhole the strided unpack
 // runs, but the *pack* that follows it does not: BH's tilize pack MOP issues
 // PACRs with PACK_INTF_SEL 0b0101/0b1010, so packers 2/3 run off THCON_SEC1_REG1
-// — which tt-metal never writes — and tt-sim's packer reads its zero-compress
+// — which tt-metal never writes — and Wolfpine's packer reads its zero-compress
 // bit as "compressing" and raises. ttsim models no pack-side compression at all.
 //
 // The pipeline is exact, so like optests/untilize this carries a *computed*

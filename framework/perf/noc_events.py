@@ -1,6 +1,6 @@
-"""Rung 4's NoC-bound leg: tt-sim's NoC timing against a card's, by mechanism.
+"""Rung 4's NoC-bound leg: Wolfpine's NoC timing against a card's, by mechanism.
 
-The sibling of :mod:`tt_sim.perf.stall_attribution`, and deliberately the same
+The sibling of :mod:`framework.perf.stall_attribution`, and deliberately the same
 shape. Where that leg reads Tensix hardware stall counters out of
 ``profile_log_device.csv``, this one reads tt-metal's **NoC event trace** --
 the artefact ``TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1`` produces -- and compares
@@ -95,7 +95,7 @@ The window was never in doubt; the gate was reading the instrument.
 its posted-write flush -- and it is instrumentation the capture added, not work
 the kernel asked for. Folding it into ``issue`` (which is where it would land,
 since a push is triggered from inside the issue path) would charge the *model*
-for the difference between how tt-sim and a card execute the profiler's own
+for the difference between how Wolfpine and a card execute the profiler's own
 DRAM write. That is the mirror of the argument against a ``pre_first_event_wait``
 bucket below: this one belongs in the partition precisely because **both** sides
 can fill it, from the same firmware doing the same thing.
@@ -177,8 +177,8 @@ want of asking -- the consumer suggested exactly that. It is refused because
 the split is not recoverable *on the card*, and a bucket only the simulator can
 fill would silently break the comparison this module exists for: the card's
 share of it would be zero by construction and ``E_int`` would charge the model
-for an artefact of instrumentation. tt-sim does know more here (a baby core
-polling L1 is recognised by :mod:`tt_sim.pe.rv.spin`), but that knowledge has no
+for an artefact of instrumentation. Wolfpine does know more here (a baby core
+polling L1 is recognised by :mod:`framework.pe.rv.spin`), but that knowledge has no
 counterpart in ``noc_trace_*.json``, so it stays out of the partition.
 
 The criterion is the same as the sibling leg's, with this leg's own stated
@@ -307,7 +307,7 @@ WRITE_ISSUES = {
 #: -- and arm B swaps exactly those two enum values to break it.
 #:
 #: The table is duplicated in ``perfbench/nocevbench/check_arm.py``, which is
-#: the collection-time check and has to run on a card box with no tt-sim on it.
+#: the collection-time check and has to run on a card box with no Wolfpine on it.
 #: Three rows, deliberately: the copy is what lets each side check the other
 #: rather than agree with it by construction.
 #:
@@ -1093,7 +1093,7 @@ def gate_arm_matches(sim, hw, arm, peer=None):
     census cannot see. It does **not** separate A from C, whose NoC pairings are
     identical by design -- pass ``--peer-noc`` for that, and see
     ``perfbench/nocevbench/check_arm.py``, which does the same check at
-    collection time on a box with no tt-sim on it.
+    collection time on a box with no Wolfpine on it.
     """
     problems = []
     for label, side in _sides(sim, hw):
@@ -1147,7 +1147,7 @@ def gate_barriers_pair(sim, hw):
 
 
 def internal_attribution(noc_parquet_dir, core=None):
-    """tt-sim's own modelled per-transaction cycles, for the same run.
+    """Wolfpine's own modelled per-transaction cycles, for the same run.
 
     **This is a diagnostic, never a gate, and it has no card counterpart.**
 
@@ -1159,7 +1159,7 @@ def internal_attribution(noc_parquet_dir, core=None):
        per-transaction completion time. The only completion timing on a card is
        the barrier interval, which is a property of a *batch*, of the NIU's
        counters, and of the RISC's poll loop -- not of one packet's flight.
-    2. **"plus queueing" would double-count.** tt-sim's ``noc_flight_cycles`` is
+    2. **"plus queueing" would double-count.** Wolfpine's ``noc_flight_cycles`` is
        already ``cycle - issue_cycle`` where ``issue_cycle`` is stamped inside
        ``NUI.transmit`` *after* ``NUI.send_to`` has computed the delay, and that
        delay is ``flight + injection-port queueing + link-contention wait +
@@ -1398,7 +1398,7 @@ def _caveat_lines():
 
 def render(reports, decompose_only=False, internal=None):
     out = []
-    out.append("tt-sim NoC timing vs a card's NoC event trace, by mechanism")
+    out.append("Wolfpine NoC timing vs a card's NoC event trace, by mechanism")
     out.append("=" * 74)
     out.append("")
     if not reports:
@@ -1494,7 +1494,7 @@ def render(reports, decompose_only=False, internal=None):
         out.append("")
     if internal:
         out.append(
-            "tt-sim's own modelled NoC cycles for this run (DIAGNOSTIC, not a gate)"
+            "Wolfpine's own modelled NoC cycles for this run (DIAGNOSTIC, not a gate)"
         )
         out.append("-" * 74)
         out.append(
@@ -1540,7 +1540,7 @@ def parse_core_map(values):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Compare tt-sim's NoC timing against a card's, from the NoC event "
+            "Compare Wolfpine's NoC timing against a card's, from the NoC event "
             "trace TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1 produces on both sides."
         )
     )
@@ -1548,7 +1548,7 @@ def main(argv=None):
         "--sim",
         required=True,
         action="append",
-        help="noc_trace_dev*_ID*.json from a run against tt-sim (repeatable)",
+        help="noc_trace_dev*_ID*.json from a run against Wolfpine (repeatable)",
     )
     parser.add_argument(
         "--card",
@@ -1560,13 +1560,13 @@ def main(argv=None):
         "--sim-internal",
         help=(
             "TT_SIM_TRACE_NOC Parquet directory from the same simulator run; "
-            "prints tt-sim's own modelled per-transaction cycles as a diagnostic"
+            "prints Wolfpine's own modelled per-transaction cycles as a diagnostic"
         ),
     )
     parser.add_argument(
         "--decompose-only",
         action="store_true",
-        help="print the tt-sim decomposition alone; no card data, no criterion",
+        help="print the Wolfpine decomposition alone; no card data, no criterion",
     )
     parser.add_argument(
         "--map-core",

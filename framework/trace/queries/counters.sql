@@ -5,7 +5,7 @@
 --   SELECT * FROM read_parquet('dir/**/*.parquet', hive_partitioning=true);
 --
 -- Run any of these in the DuckDB shell:
---   duckdb -c ".read tt_sim/trace/queries/counters.sql"
+--   duckdb -c ".read framework/trace/queries/counters.sql"
 
 -- -----------------------------------------------------------------------
 -- 1) Top counters by total value across the run

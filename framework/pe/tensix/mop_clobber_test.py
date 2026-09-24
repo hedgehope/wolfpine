@@ -1,4 +1,4 @@
-"""The MOP expander is last-writer-wins, and that is why tt-sim sees init clobbers.
+"""The MOP expander is last-writer-wins, and that is why Wolfpine sees init clobbers.
 
 Compute-kernel ``*_init()`` functions are, at the hardware level, bursts of
 writes to backend configuration, address modifiers and **MOP expander
@@ -28,7 +28,7 @@ ever, the output CB never drains and the producer blocks on
 ``cb_reserve_back``.
 
 **This test is the load-bearing half of a documented claim.**
-``docs/cost-model-caveats-for-consumers.md`` tells consumers that tt-sim
+``docs/cost-model-caveats-for-consumers.md`` tells consumers that Wolfpine
 *catches* this class — measured live, a ``copy_tile_init`` inserted between
 ``add_tiles_init`` and ``add_tiles`` in ``examples/four`` returns 254 of 256
 elements wrong instead of passing. It catches it precisely because the model
@@ -36,11 +36,11 @@ below is faithful. If this file goes green-but-wrong, that claim rots silently,
 so both directions are pinned: a clobber *does* change the expansion, and an
 unrelated write *does not*.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.mop_clobber_test``) or under
+Run standalone (``python3 -m framework.pe.tensix.mop_clobber_test``) or under
 pytest.
 """
 
-from tt_sim.pe.tensix.frontend import TensixMOPExpander
+from framework.pe.tensix.frontend import TensixMOPExpander
 
 # Stand-ins for the encoded Tensix instructions the LLK stores into the
 # expander's config. Their values are arbitrary and deliberately distinct; only
@@ -115,7 +115,7 @@ def test_reprogramming_is_unconditional_not_a_dirty_check():
     ``program()`` has no compare-and-skip, so "the config already holds this"
     is never a reason the expander leaves a word alone. Pinning this stops a
     well-meaning optimisation from introducing a dirty check that would make
-    tt-sim miss the clobber above.
+    Wolfpine miss the clobber above.
     """
     mop = TensixMOPExpander(frontend=None)
     _program_unpack_ab(mop)

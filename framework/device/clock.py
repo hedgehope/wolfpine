@@ -3,7 +3,7 @@ import os
 import threading
 from abc import ABC, abstractmethod
 
-from tt_sim.device.reset import Resetable
+from framework.device.reset import Resetable
 
 
 class Clockable(ABC):
@@ -292,7 +292,7 @@ class MultiTileClock(Clock):
     that joins the stride computation exactly as a tile clock's
     ``next_event_cycle`` does, so the pump cannot jump past a cycle it asked
     for. The deadlock watchdog is the one in-tree user; see
-    ``tt_sim/device/deadlock.py``.
+    ``framework/device/deadlock.py``.
 
     **Quiescent windows (the ``cycles_per_poll`` term).** Striding removes the
     *per-cycle* cost of a sleeping grid but not the *per-call* one: the loop
@@ -641,7 +641,7 @@ class MultiTileClock(Clock):
             t = threading.Thread(
                 target=self._worker_loop,
                 args=(tile_clock,),
-                name=f"tt-sim-tile-{idx}",
+                name=f"Wolfpine-tile-{idx}",
                 daemon=True,
             )
             t.start()

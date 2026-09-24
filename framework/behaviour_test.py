@@ -11,14 +11,14 @@ So:
 
 * **Forward** — every entry names a test, and that test has to exist. An entry
   whose guarantee is no longer checked anywhere cannot survive here.
-* **Backward** — every exception class in ``tt_sim/`` has to be either
+* **Backward** — every exception class in ``framework/`` has to be either
   registered or explicitly declined in ``_NOT_A_GUARANTEE``. This is the guard
   that stops the scheme decaying, because the omission people actually make is
   landing a new loudness guard and never telling anyone outside about it. The
   scan is over the source tree rather than a list, so it covers modules nobody
   thought about when this was written.
 
-Runs standalone (``python3 -m tt_sim.behaviour_test``) or under pytest.
+Runs standalone (``python3 -m framework.behaviour_test``) or under pytest.
 """
 
 import ast
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from tt_sim.behaviour import (
+from framework.behaviour import (
     _NOT_A_GUARANTEE,
     BEHAVIOURS,
     UnsupportedBehaviour,
@@ -42,7 +42,7 @@ _ROOT = Path(__file__).resolve().parent
 
 
 def _exception_classes():
-    """``(class name, path)`` for every exception defined under ``tt_sim/``.
+    """``(class name, path)`` for every exception defined under ``framework/``.
 
     Parsed rather than imported: importing the whole tree to enumerate its
     exceptions would make a registry check the slowest test in the suite, and
@@ -94,9 +94,9 @@ def test_every_behaviour_is_completely_described():
             f"{name}: names are typed into other people's test files; keep "
             f"them hyphenated so they survive being pasted anywhere"
         )
-        assert len(behaviour.guarantee) > 60, (
-            f"{name}: the guarantee has to say what a run will observably do"
-        )
+        assert (
+            len(behaviour.guarantee) > 60
+        ), f"{name}: the guarantee has to say what a run will observably do"
         assert len(behaviour.since) == 10, f"{name}: since must be YYYY-MM-DD"
         assert behaviour.since.count("-") == 2, f"{name}: since must be YYYY-MM-DD"
 
@@ -105,7 +105,7 @@ def test_every_behaviour_is_completely_described():
 
 
 def test_every_exception_is_registered_or_explicitly_declined():
-    """The guard against decay. A new exception class in ``tt_sim/`` turns this
+    """The guard against decay. A new exception class in ``framework/`` turns this
     red until somebody decides, in writing, whether an outside consumer would
     want to assert on it."""
     # A behaviour accounts for an exception only by *naming* it in the
@@ -120,7 +120,7 @@ def test_every_exception_is_registered_or_explicitly_declined():
     ]
     assert not unaccounted, (
         "these exception classes are neither named by a registered behaviour "
-        "nor declined in tt_sim/behaviour.py's _NOT_A_GUARANTEE: "
+        "nor declined in framework/behaviour.py's _NOT_A_GUARANTEE: "
         + ", ".join(f"{name} ({path})" for name, path in unaccounted)
         + ". If an external suite would want to assert that this build raises "
         "it, register a behaviour; if not, add it to _NOT_A_GUARANTEE with the "
@@ -183,14 +183,14 @@ def test_the_cli_works_for_a_consumer_with_no_python_at_all():
     on a missing behaviour rather than printing something a script has to
     parse."""
     ok = subprocess.run(
-        [sys.executable, "-m", "tt_sim.behaviour", "--require"] + sorted(BEHAVIOURS),
+        [sys.executable, "-m", "framework.behaviour", "--require"] + sorted(BEHAVIOURS),
         capture_output=True,
         text=True,
         cwd=_ROOT.parent,
     )
     assert ok.returncode == 0, ok.stderr
     bad = subprocess.run(
-        [sys.executable, "-m", "tt_sim.behaviour", "--require", "no-such-guarantee"],
+        [sys.executable, "-m", "framework.behaviour", "--require", "no-such-guarantee"],
         capture_output=True,
         text=True,
         cwd=_ROOT.parent,

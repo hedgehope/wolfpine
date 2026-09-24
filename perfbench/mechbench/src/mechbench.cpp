@@ -2,7 +2,7 @@
 //
 // A normal tt-metal program: one core, three kernels, a DRAM round trip, and a
 // host-side check of the arithmetic. It exists to be run twice -- once on
-// silicon under TT_METAL_PROFILE_PERF_COUNTERS, once against tt-sim with the
+// silicon under TT_METAL_PROFILE_PERF_COUNTERS, once against Wolfpine with the
 // same environment -- so that the *decomposition* of the compute core's span
 // by stall mechanism can be compared, not just its total.
 //

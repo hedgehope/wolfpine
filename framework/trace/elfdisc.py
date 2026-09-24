@@ -3,7 +3,7 @@ hand-holding.
 
 The simulator never sees an ELF. tt-metal JIT-compiles a kernel on the
 host and streams the *bytes* over the wire as ordinary WRITE messages
-(`tt_sim/bridge/`), so nothing in a run says where the ELF that produced
+(`framework/bridge/`), so nothing in a run says where the ELF that produced
 them lives. This module recovers that link from the host's build cache.
 
 **Layout, as of tt-metal 0.74** (read off a real checkout, not assumed)::
@@ -212,7 +212,7 @@ def discover(
 
     ``units`` restricts the search to those unit names. Identification parses
     up to ``VERIFY_LIMIT`` candidate ELFs *per unit and role*, so a caller
-    that wants one core's ELF (``tt_sim.network.attribution``, naming the
+    that wants one core's ELF (``framework.network.attribution``, naming the
     kernel behind a rejected transfer) pays a tenth of a whole-device scan.
     """
     env = os.environ if env is None else env

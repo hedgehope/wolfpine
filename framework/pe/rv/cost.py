@@ -1,6 +1,6 @@
 """Charging a baby RISC-V core for its load/store path.
 
-The consuming half of :class:`tt_sim.perf.model.RiscvCostModel`, and the first
+The consuming half of :class:`framework.perf.model.RiscvCostModel`, and the first
 thing outside the Tensix coprocessor to read the cycle-cost tables at all
 (ROADMAP.md section I, "RV pipeline modelling": *"fetch/decode/issue/retire
 stages with memory-stall back-pressure on L1 / NoC reads"*).
@@ -29,7 +29,7 @@ error the SFPU wiring already caught once:
    miss — and which of the two a given load pays is decided by a minimal
    per-core L0 line model: the ``riscv.l0_data_cache`` block publishes the
    geometry ("a mere 64 bytes: 4 lines of 16 bytes each", ``isa_doc``), so the
-   model keeps four line *tags* per core (no data — tt-sim's loads stay
+   model keeps four line *tags* per core (no data — Wolfpine's loads stay
    functionally instantaneous) and charges the hit row when the loaded line's
    tag is resident, the miss row when it is not. The published flushes are
    honoured too, because they are documented and skipping them would
@@ -65,7 +65,7 @@ error the SFPU wiring already caught once:
    loads per ``N - 1`` cycles is a residency of exactly ``N - 1`` — Little's
    law on two numbers printed a paragraph apart. So the queue depth and the
    throughput formula are one mechanism written down twice, and charging both
-   would bill it twice; :attr:`~tt_sim.perf.model.RiscvCostModel.load_slots`
+   would bill it twice; :attr:`~framework.perf.model.RiscvCostModel.load_slots`
    reads the formula's own "four", not the in-flight column, and the column
    stays unconsumed. The other half of that column — 8 for core-local data
    RAM — is inert under either reading: at a latency of 2 the formula gives
@@ -88,7 +88,7 @@ error the SFPU wiring already caught once:
    writes a scoreboard entry (:attr:`RiscvCostState.multiply_latency`) exactly
    like a load does, and only a dependent read pays the second cycle. Silicon
    confirms the split to a hundredth: ``rv_mul_indep`` 0.999, ``rv_mul_dep``
-   1.985 (tt-sim read 1.000 for both before the scoreboard entry existed).
+   1.985 (Wolfpine read 1.000 for both before the scoreboard entry existed).
    Wormhole publishes no multiply latency — only the blocking occupancy, which
    is already charged — so its ``multiply_latency`` is ``None`` and nothing
    there moved.
@@ -154,7 +154,7 @@ error the SFPU wiring already caught once:
 omission:
 
 * **Branch mispredicts.** Sourced (a 2-cycle bubble on Wormhole, 4 on
-  Blackhole) but uncountable: neither the docs nor tt-sim describe the
+  Blackhole) but uncountable: neither the docs nor Wolfpine describe the
   predictor, so the number of mispredictions is unknowable and charging every
   taken branch would be a fabrication.
 * **Instruction fetch / i-cache misses.** The table gives the fetch *period*
@@ -174,7 +174,7 @@ omission:
   can fill — so it can only bite on the ``>= 12`` atomic row, which no
   in-tree kernel reaches.
 * **Regions the table does not name** — see
-  :data:`tt_sim.perf.model.RV_UNNAMED_REGIONS`. The NoC NIU register block
+  :data:`framework.perf.model.RV_UNNAMED_REGIONS`. The NoC NIU register block
   used to head that list and no longer does; see below.
 
 Every one of those under-charges, which is the direction the cost model's
@@ -220,7 +220,7 @@ Two address ranges were reclassified, both to the region that row supplies:
 
 from __future__ import annotations
 
-from tt_sim.perf.model import (
+from framework.perf.model import (
     RV_REGION_COUNT,
     RV_REGION_L1,
     RV_REGION_LOCAL_DATA_RAM,
@@ -233,7 +233,7 @@ from tt_sim.perf.model import (
 )
 
 # MMIO block bases, read straight off the memory map ``TensixTile.__init__``
-# builds in ``tt_sim/device/tiles.py``. Anything below ``_MMIO_BASE`` is L1 —
+# builds in ``framework/device/tiles.py``. Anything below ``_MMIO_BASE`` is L1 —
 # the same discriminator ``MemorySpace._classify_region`` already uses.
 _MMIO_BASE = 0xFFB00000
 _LOCAL_DATA_RAM_END = 0xFFB10000  # local data RAM is <= 8 KiB at 0xFFB00000
@@ -241,7 +241,7 @@ _TDMA_BASE = 0xFFB11000
 _TILE_CTRL_BASE = 0xFFB12000
 # Tile control / debug / status is 0xFFB1_2000-0xFFB1_2FFF and the PIC
 # configuration and status registers are 0xFFB1_3000-0xFFB1_3FFF. The two are
-# one row of the load-latency table, so they are one region here; tt-sim maps
+# one row of the load-latency table, so they are one region here; Wolfpine maps
 # no PIC today, but classifying by the published map rather than by what
 # happens to be modelled is what stops the next block from being missed.
 _TILE_CTRL_END = 0xFFB14000
@@ -310,7 +310,7 @@ for _op in (0x07, 0x27):  # FLH / FSH: the address register is a GPR
 # SYSTEM (0x73) is left out on purpose: ``csrrwi`` and friends put a uimm in
 # the rs1 field, so treating it as a register read would stall on a register
 # the instruction never touches. Zicsr is *executed* (see
-# ``tt_sim/pe/rv/isa/zicsr_isa.py``) but charged nothing: the ISA doc gives no
+# ``framework/pe/rv/isa/zicsr_isa.py``) but charged nothing: the ISA doc gives no
 # cycle count for a CSR instruction, and none for the frontend serialisation
 # ``cfg0``'s ``DisCsrSync`` bit controls, so there is no sourceable number to
 # charge and this repo does not invent one.
@@ -338,7 +338,7 @@ _INT_MIN = 0x80000000
 class RiscvCostState:
     """One core's cost-model state: a scoreboard, a store queue and a counter.
 
-    Held by :class:`~tt_sim.pe.rv.rv32.RV32I` as ``rv_cost``, and consulted
+    Held by :class:`~framework.pe.rv.rv32.RV32I` as ``rv_cost``, and consulted
     once per instruction through :meth:`can_issue`, which does the whole job —
     hazard check, rate limit and bookkeeping — in one call so the interpreter's
     inner loop grows one branch rather than three.
@@ -456,7 +456,7 @@ class RiscvCostState:
 
     # -- firmware-loop parking ---------------------------------------------
     #
-    # Three methods that let ``tt_sim/pe/rv/spin.py`` treat this scoreboard as
+    # Three methods that let ``framework/pe/rv/spin.py`` treat this scoreboard as
     # part of the state its fixed-point proof covers, without knowing which of
     # these fields are cycle numbers. That knowledge belongs here, next to the
     # fields, which is the whole reason the split is drawn this way.
@@ -664,7 +664,7 @@ class RiscvCostState:
                 self._l0_commit(tag, line)
             rd = (instr >> 7) & 0x1F
             if rd:
-                # The value is written architecturally in this tick (tt-sim's
+                # The value is written architecturally in this tick (Wolfpine's
                 # loads are functionally instantaneous); the scoreboard is what
                 # makes it *unreadable* until the latency has elapsed. Setting
                 # it here rather than after the handler is deliberate: the

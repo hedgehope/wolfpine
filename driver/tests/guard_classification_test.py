@@ -66,15 +66,15 @@ def test_the_prover_never_pumps_after_the_replay(guards):
     """
     src = (gate.REPO / "driver/tests/cost_model_gate.py").read_text()
     assert "POLL_BUDGET_LADDER" in src
-    assert "tt_device.run(" not in src, (
-        "the prover pumps the device directly again — that is the invalid proof"
-    )
+    assert (
+        "tt_device.run(" not in src
+    ), "the prover pumps the device directly again — that is the invalid proof"
 
 
 def test_every_trace_really_does_end_in_reset_then_exit(guards):
     """The premise the poll-budget proof rests on, checked rather than assumed."""
-    from tt_sim.bridge import protocol as proto
-    from tt_sim.bridge.trace import parse_trace_line
+    from framework.bridge import protocol as proto
+    from framework.bridge.trace import parse_trace_line
 
     traces = sorted((gate.REPO / "driver/blackhole/server/traces").glob("*.trace"))
     assert traces, "no traces to check"
@@ -85,9 +85,9 @@ def test_every_trace_really_does_end_in_reset_then_exit(guards):
             if p is not None
         ]
         assert cmds[-1] == proto.CMD_EXIT, f"{trace.name} does not end with EXIT"
-        assert proto.CMD_RESET_ASSERT in cmds[-30:], (
-            f"{trace.name} does not assert reset before exiting"
-        )
+        assert (
+            proto.CMD_RESET_ASSERT in cmds[-30:]
+        ), f"{trace.name} does not assert reset before exiting"
 
 
 def test_an_exclusion_carries_its_reason(guards):

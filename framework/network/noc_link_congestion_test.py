@@ -3,7 +3,7 @@
 The injecting NIU's own port has been occupied since the bandwidth term landed
 (``noc_cost_model_test.py`` section 5). This is the same occupancy — one flit
 per cycle per axis, ``noc.hops.router_to_router.throughput_flits_per_cycle``,
-already in ``tt_sim/perf/unit_costs.yaml`` at ``isa_doc`` — charged on each
+already in ``framework/perf/unit_costs.yaml`` at ``isa_doc`` — charged on each
 router-to-router link a packet crosses instead of only where it is injected.
 No new number enters anything; what changes is where an existing one is spent.
 
@@ -17,7 +17,7 @@ wrong rather than a detail:
 2. **The network layer now commits to a hop *order***, not just a count, since
    a link needs an identity. It is the experiment planner's order, literally
    the same function — see ``noc_congestion_plan_test``, which pins that.
-3. **A multicast claims each link once.** tt-sim models a multicast write as N
+3. **A multicast claims each link once.** Wolfpine models a multicast write as N
    unicasts; claiming per destination would serialise the launch-message path
    every tt-metal program uses against itself, which is the over-charge
    ``claim_injection_port`` was given its odd signature to avoid.
@@ -32,15 +32,15 @@ The measurement this reproduces is ``docs/bh_arch.md`` §4.2: on a Blackhole
 card two flows sharing one router-to-router link each pay one extra
 transaction's link occupancy above the issue loop, and nothing at all below it.
 
-Runs standalone (``python3 -m tt_sim.network.noc_link_congestion_test``) or
+Runs standalone (``python3 -m framework.network.noc_link_congestion_test``) or
 under pytest.
 """
 
 import os
 from contextlib import contextmanager
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.network.tt_noc import NUI, NocLinkRegistry, noc_route_links
+from framework.device.blackhole import Blackhole
+from framework.network.tt_noc import NUI, NocLinkRegistry, noc_route_links
 
 _GRID_X, _GRID_Y = 17, 12
 _FLIT_BYTES = 64  # Blackhole: 512-bit flits, one per cycle per axis
@@ -402,7 +402,7 @@ def test_the_shutdown_summary_distinguishes_inert_from_dead():
     alone would not have distinguished "nothing contended" from "the term is
     dead code", which is the one distinction it exists to make.
     """
-    from tt_sim.bridge.device import link_contention_summary
+    from framework.bridge.device import link_contention_summary
 
     class _Dev:
         def __init__(self, registries):

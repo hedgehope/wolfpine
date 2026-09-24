@@ -22,13 +22,13 @@ import time
 
 import pynng
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
 
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device
 
-# tt-sim Wormhole's tensix is at unified (18,18); DRAM at (16,16). The
+# Wolfpine Wormhole's tensix is at unified (18,18); DRAM at (16,16). The
 # translated wire coords come from coords.py.
 WIRE_TENSIX = next(iter(TENSIX_COORD_MAP))
 WIRE_DRAM = next(iter(DRAM_COORD_MAP))
@@ -123,9 +123,9 @@ def main():
             )
 
             # No pumps yet — nothing has been deasserted.
-            assert device.tt_device.run_calls == 0, (
-                f"expected 0 pumps before deassert, got {device.tt_device.run_calls}"
-            )
+            assert (
+                device.tt_device.run_calls == 0
+            ), f"expected 0 pumps before deassert, got {device.tt_device.run_calls}"
 
             # 2) WRITE to DRAM, READ back, verify.
             dram_payload = bytes.fromhex("11223344" * 4)
@@ -176,9 +176,9 @@ def main():
             proto.parse(sock.recv())
             pumps_after = device.tt_device.run_calls
             # 1 pump on deassert + 1 pump on the subsequent READ = 2.
-            assert pumps_after - pumps_before >= 2, (
-                f"expected >=2 pumps after deassert+read, got {pumps_after - pumps_before}"
-            )
+            assert (
+                pumps_after - pumps_before >= 2
+            ), f"expected >=2 pumps after deassert+read, got {pumps_after - pumps_before}"
 
             # 4) Unmapped coord still works via lazy NullCore allocation.
             # (5, 5) is router-only / unallocated in the SoC descriptor —
@@ -187,9 +187,9 @@ def main():
             # to NullCore.
             sock.send(proto.build_msg(proto.CMD_READ, core=(5, 5), address=0x0, size=4))
             null_rr = proto.parse(sock.recv())
-            assert null_rr.data[:4] == b"\x00\x00\x00\x00", (
-                f"unmapped coord should return zeros, got {null_rr.data.hex()}"
-            )
+            assert (
+                null_rr.data[:4] == b"\x00\x00\x00\x00"
+            ), f"unmapped coord should return zeros, got {null_rr.data.hex()}"
 
             sock.send(proto.build_msg(proto.CMD_EXIT))
 

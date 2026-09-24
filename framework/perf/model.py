@@ -1,10 +1,10 @@
 """Turning the cycle-cost tables into occupancy the simulator can charge.
 
-This is the consuming half of :mod:`tt_sim.perf.costs` — Phase 5 of
+This is the consuming half of :mod:`framework.perf.costs` — Phase 5 of
 ``docs/plans/event-driven-pump.md``, and the first thing in the tree to read
 the tables at all. It answers one question per instruction: *how many cycles
 does this op occupy its unit for?* The answer is then handed to
-:meth:`tt_sim.pe.tensix.backends.backend_base.TensixBackendUnit.occupy_for`,
+:meth:`framework.pe.tensix.backends.backend_base.TensixBackendUnit.occupy_for`,
 which Phase 4 left as the socket for exactly this.
 
 **Opt-in.** Nothing here runs unless ``TT_SIM_COST_MODEL`` is truthy. With it
@@ -39,9 +39,9 @@ from __future__ import annotations
 import math
 import os
 
-from tt_sim.perf.costs import SOURCED_PROVENANCE, CycleCost, load_costs
+from framework.perf.costs import SOURCED_PROVENANCE, CycleCost, load_costs
 
-#: How each :class:`~tt_sim.perf.costs.CycleCost` bound turns into the single
+#: How each :class:`~framework.perf.costs.CycleCost` bound turns into the single
 #: integer ``occupy_for`` needs. ``at_least`` / ``range`` charge the low end,
 #: which makes the model a lower bound on occupancy: the honest direction for
 #: an estimator, because over-charging a unit invents back-pressure that the
@@ -97,7 +97,7 @@ def modelled_occupancy(cost: CycleCost | None) -> int | None:
 class UnitCostModel:
     """Modelled occupancy for one Tensix backend unit's opcodes.
 
-    Built once per unit from :func:`~tt_sim.perf.costs.load_costs`, so a lookup
+    Built once per unit from :func:`~framework.perf.costs.load_costs`, so a lookup
     on the instruction path is a dict hit rather than a YAML walk. Instances
     are immutable in practice and safe to share between units of the same kind.
     """
@@ -221,7 +221,7 @@ class UnitCostModel:
         ``None`` — the answer for every instruction of every ungrouped unit,
         and for an untabulated opcode of a grouped one — means "charge this
         against the whole unit", which is what
-        :meth:`~tt_sim.pe.tensix.backends.backend_base.TensixBackendUnit.occupy_for`
+        :meth:`~framework.pe.tensix.backends.backend_base.TensixBackendUnit.occupy_for`
         did unconditionally before groups existed and is the conservative
         answer: a whole-unit hold refuses strictly more than a per-group one,
         so an instruction whose group is unknown is never let through on a
@@ -317,7 +317,7 @@ class UnitCostModel:
           names in ``tileize_forced_mode`` — "tileize always runs at x4,
           regardless of Throttle_mode". The other forced modes the doc lists
           (compressed data, ``UpsampleZeroes``, BFP2) force modes of unpacks
-          tt-sim rejects before moving a datum, so they never reach this.
+          Wolfpine rejects before moving a datum, so they never reach this.
         * On Blackhole with ``THCON_SEC[0].REG1_ovrd_default_throttle_mode``
           clear (``default_throttle_overridden=False``), the config mode is
           ignored: "8-bit modes use x8, others use x4".
@@ -431,7 +431,7 @@ RV_REGION_NAMES = (
     "unnamed",
 )
 
-#: The MMIO blocks tt-sim maps into a baby core's address space that the ISA
+#: The MMIO blocks Wolfpine maps into a baby core's address space that the ISA
 #: docs' load-latency table does not have a row for, so nothing can be charged
 #: for them without inventing a number.
 #:
@@ -444,7 +444,7 @@ RV_REGION_NAMES = (
 #: and command" and "NoC 1 configuration and command" as their own entries
 #: next to the overlay's, on both architectures, each linking to the NIU
 #: register block's own page. The number was in the table all along; what was
-#: wrong was this file's key name for the row. See ``tt_sim/pe/rv/cost.py``.
+#: wrong was this file's key name for the row. See ``framework/pe/rv/cost.py``.
 #:
 #: What is left is genuinely unnamed. None of the three appears in any row of
 #: either architecture's load-latency table, and two of the three are not
@@ -476,7 +476,7 @@ _LOAD_LATENCY_KEYS = {
         # numbers: 2 on a hit, >= 8 on a miss. This mapping names the row an
         # L1 load is charged **when its line is resident** in the per-core L0
         # line model (:attr:`RiscvCostModel.l0_lines` and friends, consumed by
-        # ``tt_sim/pe/rv/cost.py``); a load whose line is not resident is
+        # ``framework/pe/rv/cost.py``); a load whose line is not resident is
         # charged the miss row instead. The residency test is licensed by the
         # published geometry alone (``riscv.l0_data_cache``: 64 bytes, 4 lines
         # of 16, ``isa_doc``) — no hit *rate* is published anywhere, and none
@@ -500,12 +500,12 @@ _LOAD_LATENCY_KEYS = {
 #: L1 has a single row and the question does not arise).
 #:
 #: Two consumers, both of which know something a bare address does not carry:
-#: ``tt_sim/perf/riscv_bench_sweep`` compares individual benchmark probes whose
+#: ``framework/perf/riscv_bench_sweep`` compares individual benchmark probes whose
 #: working sets are known exactly, and a probe whose working set exceeds
 #: ``riscv.l0_data_cache.capacity_bytes`` reaches this row whatever the
 #: cache's (unpublished) organisation; and, since 2026-08-06,
 #: :attr:`RiscvCostModel.l1_load_miss_latency` feeds it to the per-core L0
-#: line model in ``tt_sim/pe/rv/cost.py``, which charges it to a load whose
+#: line model in ``framework/pe/rv/cost.py``, which charges it to a load whose
 #: line is not among the tracked line tags. Both mappings live here so the two
 #: can never name rows the other does not have.
 _L1_DCACHE_MISS_KEYS = {
@@ -527,7 +527,7 @@ def _sourced_cycles(raw, provenance):
 
     The same three policies as :class:`UnitCostModel`, applied to the plain
     mappings in ``unit_costs.yaml`` (which the loader leaves as raw dicts
-    rather than turning into :class:`~tt_sim.perf.costs.CostEntry`): an
+    rather than turning into :class:`~framework.perf.costs.CostEntry`): an
     ``unknown`` / ``estimated`` block is charged nothing whatever numbers it
     carries, and a bound is resolved by :data:`BOUND_POLICY`.
     """
@@ -647,7 +647,7 @@ class RiscvCostModel:
         )
         #: The mispredict penalty is sourced (2-cycle bubble on Wormhole, 4 on
         #: Blackhole) and deliberately **not** charged: it is a cost per
-        #: *mispredicted* branch and neither the ISA docs nor tt-sim describe
+        #: *mispredicted* branch and neither the ISA docs nor Wolfpine describe
         #: the predictor, so the number of mispredictions is unknowable. Kept
         #: reachable so a report can say the gap is the predictor, not the
         #: table.
@@ -771,7 +771,7 @@ def riscv_cost_model(arch):
 # So the whole model is ``endpoint_cycles + per_hop_cycles * hops``, and the
 # only interesting question is what ``hops`` is. That is a *topology* property
 # rather than a cost-table one, so it lives with the NoC
-# (``tt_sim.network.tt_noc.noc_hop_count``) and this class never sees a
+# (``framework.network.tt_noc.noc_hop_count``) and this class never sees a
 # coordinate.
 #
 # Bandwidth is a *fourth* shape and arrives with the same class: not a latency
@@ -785,7 +785,7 @@ def riscv_cost_model(arch):
 # impact latency" and give no number; ``noc.congestion`` in the table is
 # ``provenance: unknown`` for that reason, so this model charges a packet the
 # same flight time whether *somebody else's* traffic is on the link or not --
-# only the packet's own bytes are charged, and only on the one link tt-sim can
+# only the packet's own bytes are charged, and only on the one link Wolfpine can
 # name without an arbitration policy. That is the honest under-charge -- the
 # same direction as every other bound in these files.
 
@@ -997,7 +997,7 @@ def noc_cost_model(arch):
 # Three things this is not, all of which ROADMAP section I asks for and none of
 # which any source quantifies:
 #
-# * **bank conflicts** -- tt-sim models no DRAM banks, and the ISA docs publish
+# * **bank conflicts** -- Wolfpine models no DRAM banks, and the ISA docs publish
 #   no bank geometry or conflict cost for the DRAM tile;
 # * **refresh windows** -- unpublished, and periodic rather than per-request, so
 #   it is not even this shape;
@@ -1012,7 +1012,7 @@ def noc_cost_model(arch):
 # ``channel_serialisation`` is already in the table at ``isa_doc_derived`` and
 # already spent as a latency -- and it is a floor twice over: it is the shortest
 # any endpoint can possibly be busy (the bytes have to cross the bus), and it is
-# charged only where the rate is sourced. Before it, a tt-sim Wormhole DRAM
+# charged only where the rate is sourced. Before it, a Wolfpine Wormhole DRAM
 # channel sustained 32 B/cycle, the NoC link's rate, against the 24 the ISA docs
 # publish for the channel.
 #
@@ -1272,7 +1272,7 @@ class DramCostModel:
         a write would under-model a term rather than decline an unsourced one.
 
         ``is_write`` is false for an ATOMIC, which reads the array before it
-        modifies it; :meth:`~tt_sim.device.tiles.DRAMEndpointNUI._is_write`
+        modifies it; :meth:`~framework.device.tiles.DRAMEndpointNUI._is_write`
         makes the same call for the channel rate.
         """
         return self.service_cycles_write if is_write else self.service_cycles

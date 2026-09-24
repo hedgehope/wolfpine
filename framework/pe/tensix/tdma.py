@@ -1,7 +1,7 @@
-from tt_sim.device.clock import Clockable
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.util.bits import set_bit
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.device.clock import Clockable
+from framework.memory.mem_mapable import MemMapable
+from framework.util.bits import set_bit
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 
 class TDMA(MemMapable, Clockable):

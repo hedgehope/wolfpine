@@ -1,18 +1,18 @@
 // riscvbench -- a measuring instrument for the baby RISC-V front end.
 //
-// WHAT IT IS FOR. tt-sim's cost model now wires six of the nine Tensix backend
+// WHAT IT IS FOR. Wolfpine's cost model now wires six of the nine Tensix backend
 // units, the NoC hop and bandwidth terms, both arches' DRAM latency and the
 // baby RISC-V load/store path. Six of those units moved ZERO simulated cycles,
 // and `docs/plans/cost-model.md` records the same diagnosis each time: *"the
 // constraint is the un-modelled RISC-V front end"*. Silicon agreed
 // independently -- `perfbench/tensixbench` phase A reads exactly 1.000 cycles
-// per instruction against tt-sim for every probe of every unit at every data
+// per instruction against Wolfpine for every probe of every unit at every data
 // format, because `TensixFrontend.push_mop_instruction` is an unbounded list
 // append and the `.ttinsn` write returns immediately.
 //
 // So the front end is the term that currently makes every other term
 // unobservable, and it is the one part of the machine the cost tables describe
-// (`riscv:` in tt_sim/perf/unit_costs.yaml, almost entirely `isa_doc`) whose
+// (`riscv:` in framework/perf/unit_costs.yaml, almost entirely `isa_doc`) whose
 // ISSUE side nothing has ever measured. This program measures it: fetch, issue
 // rate, branch cost, and above all the cost of pushing a Tensix instruction out
 // of a baby core.
@@ -38,25 +38,25 @@
 //     one number it does have.
 //
 // HOW A NULL IS TOLD FROM AN UN-INSTRUMENTED RUN. This is the trap
-// `tensixbench` fell into -- its phase A reads 1.000 everywhere against tt-sim
+// `tensixbench` fell into -- its phase A reads 1.000 everywhere against Wolfpine
 // *because of* the very gap it was trying to measure, so "everything is 1.000"
 // is simultaneously the expected simulator output and the signature of a
-// benchmark that measured nothing. riscvbench answers it with probes tt-sim
+// benchmark that measured nothing. riscvbench answers it with probes Wolfpine
 // ALREADY moves: `rv_mul_*` (2 cycles on Wormhole), `rv_div` (>= 6),
 // `rv_load_chase` (>= 8 on Wormhole, 2 on Blackhole) and `rv_store_spread`
-// (5 everywhere) are consumed by tt_sim/pe/rv/cost.py today. If those four read
+// (5 everywhere) are consumed by framework/pe/rv/cost.py today. If those four read
 // their table values and everything else reads 1.000, the instrument is live
 // and the 1.000s are a finding. If those four ALSO read 1.000, the run is not
 // measuring anything and the program says so.
 //
 // TIMESTAMPS come from RISCV_DEBUG_REG_WALL_CLOCK_L, exactly the register
 // tt-metal's device profiler reads for DeviceZoneScopedN. Reading it directly
-// keeps the measurement identical on silicon and against tt-sim, needs no Tracy
+// keeps the measurement identical on silicon and against Wolfpine, needs no Tracy
 // build, and sidesteps the profiler's dependence on a device AICLK.
 //
 // OUTPUT is a CSV of raw (probe, threads, n, cycles) points, plus a
 // human-readable summary. Nothing here fits or reports a cost-table number; the
-// comparison against the tables is tt_sim/perf/riscv_bench_sweep.py.
+// comparison against the tables is framework/perf/riscv_bench_sweep.py.
 
 #include <cstdint>
 #include <cstdio>
@@ -89,7 +89,7 @@ namespace {
 //   RV_BR     the branch path
 //   RV_FETCH  instruction fetch
 //   NONE / SFPU / THCON  a Tensix backend unit, spelled exactly as the
-//                        `ex_resource` key in tt_sim/pe/tensix/
+//                        `ex_resource` key in framework/pe/tensix/
 //                        tensix_instructions.yaml, so a `.ttinsn` probe can be
 //                        looked up in the Tensix cost table too
 //   TTINSN    the `.ttinsn` issue path itself, measured per GROUP
@@ -338,7 +338,7 @@ int main(int argc, char** argv) {
                 "                    it; clearing bit 0 makes those phases unreadable.\n"
                 "  --phase LETTERS   any subset of `%s` (default all six):\n"
                 "                      r  straight-line RV32IM -- the baseline, and the\n"
-                "                         four probes tt-sim already moves\n"
+                "                         four probes Wolfpine already moves\n"
                 "                      t  the `.ttinsn` issue path, including the\n"
                 "                         instruction-cache fusion experiment\n"
                 "                      c  branch direction and mispredict cost\n"
@@ -448,7 +448,7 @@ int main(int argc, char** argv) {
         }
         fprintf(csv, "# riscvbench raw points -- see docs/plans/riscv-front-end-benchmark.md\n");
         // Every token is `key=value` because the analysis harness
-        // (tt_sim/perf/riscv_bench_sweep.read_csv) harvests them into `meta`.
+        // (framework/perf/riscv_bench_sweep.read_csv) harvests them into `meta`.
         // `stack_addr` is in there because the `rv_load_stack` probe's expected
         // cost depends on which memory region the stack landed in, and that is
         // a tt-metal placement decision this program does not get to make.
@@ -877,7 +877,7 @@ int main(int argc, char** argv) {
         printf(
             "\n  All three equal -> no predictor, or no penalty. taken > nt -> a static\n"
             "  not-taken prediction. alt > taken ~ nt -> a real predictor, defeated by\n"
-            "  alternation. tt_sim/perf/unit_costs.yaml records the bubble as 2 cycles on\n"
+            "  alternation. framework/perf/unit_costs.yaml records the bubble as 2 cycles on\n"
             "  Wormhole and 4 on Blackhole (`integer_unit.branch_mispredict_bubble`), which\n"
             "  is the SIZE of a mispredict; how OFTEN one happens is what this measures.\n");
     }
@@ -1237,7 +1237,7 @@ int main(int argc, char** argv) {
                         "       doublings added %.0f then %.0f cycles), so it is not an "
                         "asymptote and\n       NO DEPTH IN ENTRIES IS RESOLVABLE from this "
                         "run. Either the queue is\n       deeper than n=%u, or nothing "
-                        "back-pressures this core at all -- which is\n       what tt-sim is "
+                        "back-pressures this core at all -- which is\n       what Wolfpine is "
                         "by construction (`push_mop_instruction` is a list append).\n",
                         prev_step, last_step, plain.hi);
                 } else {
@@ -1559,7 +1559,7 @@ int main(int argc, char** argv) {
         if (solo_ref == nullptr) {
             printf(
                 "    the single-thread slot resolved no depth, so there is no baseline to\n"
-                "    compare against and NO VERDICT. Against tt-sim this is the forced\n"
+                "    compare against and NO VERDICT. Against Wolfpine this is the forced\n"
                 "    outcome -- `push_mop_instruction` is an unbounded list append, so the\n"
                 "    backlog is still growing at every burst length in every slot and no\n"
                 "    depth is resolvable anywhere. That is a fact about the simulator.\n");
@@ -1710,7 +1710,7 @@ int main(int argc, char** argv) {
                 "  on at least one architecture (multiply, divide, an L1 load-use latency,\n"
                 "  the five-cycle L1 store period), so this is the signature of a run that\n"
                 "  measured nothing -- or of a device on which NOTHING back-pressures the\n"
-                "  issuing core, which is exactly what tt-sim looks like with the cost\n"
+                "  issuing core, which is exactly what Wolfpine looks like with the cost\n"
                 "  model off. On silicon, treat it as a broken run and say so.\n");
         } else {
             printf(
@@ -1744,7 +1744,7 @@ int main(int argc, char** argv) {
             printf(
                 "\n    Exactly one intermediate is compiled per --gset, so four of the five\n"
                 "    read `not in this --gset` in every healthy run and that is not an\n"
-                "    absence. Against tt-sim all of them must read the SAME as each other:\n"
+                "    absence. Against Wolfpine all of them must read the SAME as each other:\n"
                 "    it models no instruction cache at all, so a flat row is forced there\n"
                 "    and says nothing about any hardware. `ran` with a flat row is that\n"
                 "    null; a probe that never executed would print nothing at all above.\n");
@@ -1759,7 +1759,7 @@ int main(int argc, char** argv) {
                 "\n    The structural check for this phase is that `s_co_sync` exceeds\n"
                 "    `s_co_plain` at every burst length -- a drain cannot be free. If the\n"
                 "    two are equal the phase measured nothing whatever the verdict said.\n"
-                "    Against tt-sim the backlog grows without bound (its Tensix queue is a\n"
+                "    Against Wolfpine the backlog grows without bound (its Tensix queue is a\n"
                 "    list append), so every slot refuses a depth and there is no verdict:\n"
                 "    forced, and a fact about the simulator rather than about any card.\n");
         }

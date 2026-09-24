@@ -3,12 +3,12 @@
 // kernels/compute/compute_kernel.cpp), one output tile per op, once per
 // (CB data format, math fidelity) pair. Every output tile is read back and
 // dumped as one `OPDIFF_RESULT:<hex>`; optests/diff.sh runs this same binary
-// on tt-sim and on ttsim and compares the dumps. ttsim is the oracle — there
+// on Wolfpine and on ttsim and compares the dumps. ttsim is the oracle — there
 // is no local golden.
 //
 // Why the sweep: ELWMUL's product is built from mantissa slices, one slice
 // pair per fidelity phase, and the compiler team's Gauss-Seidel (fp32 CBs,
-// fp32 Dst, HiFi4) showed tt-sim contributing only phase 0 -- every operand
+// fp32 Dst, HiFi4) showed Wolfpine contributing only phase 0 -- every operand
 // needing more than the phase-0 bits came out low. The fp32 arm here is that
 // configuration; the bf16 arm is the 16-bit-Dst rounding of the same ops.
 //

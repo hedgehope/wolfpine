@@ -3,7 +3,7 @@
 Real Tenstorrent parts ship with NoC coordinate translation enabled: the NIU
 recognises a second, *translated* coordinate range on top of the SoC-physical
 one, and tt-metal addresses workers, ethernet and (on Blackhole) DRAM in that
-range. tt-sim historically ran with it off, which is the configuration in which
+range. Wolfpine historically ran with it off, which is the configuration in which
 a "physical" coordinate is NoC-dependent — and that is the root of the NoC 1
 directory ambiguity documented in
 ``TT_Device._register_tile_internals``: on NoC 1 the same ``(x, y)`` names one
@@ -26,7 +26,7 @@ That works because UMD spawns the simulator with ``uv_spawn`` and a NULL
 documents as "the parent's environment is used" — so the server process
 inherits ``TT_METAL_MOCK_CLUSTER_DESC_PATH`` from the host program, exactly as
 it already inherits ``NNG_SOCKET_ADDR``. Deriving the mode from the descriptor
-rather than from a tt-sim-specific variable removes the whole class of failure
+rather than from a Wolfpine-specific variable removes the whole class of failure
 where the two ends disagree about the convention.
 
 ``TT_SIM_NOC_TRANSLATION`` overrides, for offline tests and for driving the
@@ -36,14 +36,14 @@ precisely so that nobody has to remember to keep two variables in step.
 Inference is *not* attempted, deliberately: the first coordinate on the wire
 does identify the convention, but only after the device is already built and
 keyed. The server instead checks the first coordinates against the convention
-it chose and fails loudly on a mismatch (see ``tt_sim.bridge.fabric``), so a
+it chose and fails loudly on a mismatch (see ``framework.bridge.fabric``), so a
 forgotten environment variable reads as an error and never as a plausible
 result.
 """
 
 import os
 
-#: Explicit tt-sim override. Truthy values: ``1/true/yes/on``.
+#: Explicit Wolfpine override. Truthy values: ``1/true/yes/on``.
 TRANSLATION_ENV = "TT_SIM_NOC_TRANSLATION"
 
 #: The cluster descriptor tt-metal hands UMD; inherited from the host process.
@@ -87,7 +87,7 @@ def descriptor_translation(path):
         value = stripped.split(":", 1)[1].strip().lower()
         # Every chip in a single-chip simulated cluster must agree; if a
         # descriptor ever disagreed, treat "any chip translated" as translated,
-        # because tt-sim models one chip and would be addressed by that one.
+        # because Wolfpine models one chip and would be addressed by that one.
         found = found or value in ("true", "1", "yes", "on")
     return found
 

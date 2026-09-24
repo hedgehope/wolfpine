@@ -11,14 +11,14 @@ The one thing these tests cannot check is whether the *benchmark* measures what
 it claims. That is what ``perfbench/tensixbench``'s own validity gate
 (monotonicity, R^2, fidelity separation) is for, and it runs on the device.
 
-Run:  python3 -m pytest tt_sim/perf/tensix_bench_sweep_test.py
+Run:  python3 -m pytest framework/perf/tensix_bench_sweep_test.py
 """
 
 import io
 
 import pytest
 
-from tt_sim.perf import tensix_bench_sweep as sweep
+from framework.perf import tensix_bench_sweep as sweep
 
 HEADER = (
     "# tensixbench raw points\n"
@@ -250,7 +250,7 @@ def test_a_nonlinear_series_is_excluded(tmp_path):
 
 def test_the_occupancy_comes_from_the_shipped_table_not_a_constant(tmp_path):
     """A table edit must move the comparison, so nothing is restated here."""
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     expected = load_costs("blackhole").find("ADDDMAREG").occupancy.cycles
     rows, _ = sweep.read_csv(
@@ -274,7 +274,7 @@ def test_bounds_are_charged_at_their_low_end_like_the_model(tmp_path):
 
 
 def test_unwired_units_are_read_from_the_list_that_owns_them():
-    from tt_sim.perf.costs_test import UNWIRED_UNITS
+    from framework.perf.costs_test import UNWIRED_UNITS
 
     assert sweep.unwired_units("blackhole") == set(UNWIRED_UNITS)
 
@@ -293,7 +293,7 @@ def _phase_b(variant, per_iter):
 
 def test_the_fidelity_difference_is_what_is_compared_not_the_absolute(tmp_path):
     """Everything the loop does besides the extra MVMULs must cancel."""
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     per_phase = (
         load_costs("blackhole")
@@ -402,7 +402,7 @@ def test_no_tracked_dataset_for_an_arch_says_where_it_looked(capsys):
 # The tracked reference measurement.
 # ---------------------------------------------------------------------------
 #
-# The datasets in ``tt_sim/perf/datasets/`` are the only things in this
+# The datasets in ``framework/perf/datasets/`` are the only things in this
 # repository that came off silicon. These guard the two ways they could quietly
 # stop being what they say they are: the provenance being separated from the
 # numbers, and the numbers changing.
@@ -544,7 +544,7 @@ def test_the_format_expectation_is_declared_as_exploratory(tmp_path):
 
 
 def test_a_null_against_the_simulator_is_labelled_as_forced(tmp_path, capsys):
-    """tt-sim retires one instruction per cycle whatever the format, so a null
+    """Wolfpine retires one instruction per cycle whatever the format, so a null
     there is produced by the simulator's missing FIFO back-pressure and not by
     the hardware. Reading it as "no format effect" is exactly the mistake."""
     a = _format_csv(tmp_path, "a.csv", "bf16", {"MVMUL": 1.0})
@@ -552,7 +552,7 @@ def test_a_null_against_the_simulator_is_labelled_as_forced(tmp_path, capsys):
     sweep.format_report([_format_dataset(a), _format_dataset(b)], "blackhole")
     out = capsys.readouterr().out
     assert "FORCED" in out
-    assert "tt-sim" in out
+    assert "Wolfpine" in out
 
 
 def test_the_tracked_dataset_carries_its_own_provenance():

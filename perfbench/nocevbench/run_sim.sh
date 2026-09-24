@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# nocevbench, simulator side: run each size arm against tt-sim with tt-metal's
+# nocevbench, simulator side: run each size arm against Wolfpine with tt-metal's
 # NoC event profiler on, and collect the same artefact the card protocol
 # produces on the other side.
 #
 # The two sides are deliberately the SAME artefact -- a tt-metal
-# noc_trace_dev*_ID*.json -- so tt_sim.perf.noc_events parses both with one
+# noc_trace_dev*_ID*.json -- so framework.perf.noc_events parses both with one
 # reader and there is no translation step in which a units mistake could hide.
 #
 #   TT_METAL_HOME=/path/to/tt-metal ./perfbench/nocevbench/run_sim.sh \
@@ -29,7 +29,7 @@
 #
 # Each arm lands in <out>/<bytes>/.logs/noc_trace_dev0_ID0.json plus
 # <out>/<bytes>.out, and (unless --no-internal) <out>/<bytes>-internal/ holding
-# tt-sim's own per-transaction modelled cycles.
+# Wolfpine's own per-transaction modelled cycles.
 #
 # EVERY RUN IS CHECKED AGAINST ITS ARM, from the trace rather than from the fact
 # that the flag was passed -- see check_arm.py. A run that silently kept a
@@ -229,7 +229,7 @@ echo "----"
 if [ $status -eq 0 ]; then
   echo "Simulator side complete (arm $ARM). Decomposition:"
   for bytes in $BYTES; do
-    echo "  python3 -m tt_sim.perf.noc_events --decompose-only --expect-arm $ARM \\"
+    echo "  python3 -m framework.perf.noc_events --decompose-only --expect-arm $ARM \\"
     echo "      --sim $OUT/$bytes/.logs/noc_trace_dev0_ID0.json \\"
     echo "      --sim-internal $OUT/$bytes-internal"
   done

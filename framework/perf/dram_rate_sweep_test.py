@@ -20,7 +20,7 @@ prediction that can be edited after the measurement is not one.
 
 import pytest
 
-from tt_sim.perf import dram_rate_sweep as sweep
+from framework.perf import dram_rate_sweep as sweep
 
 _HEADER = (
     "arm,repeat,point,num_readers,num_tx,tx_bytes,bytes_per_reader,total_bytes,"
@@ -132,7 +132,7 @@ def test_the_overlap_gate_fails_when_no_reader_ever_waited(tmp_path):
 
 def test_the_overlap_gate_fails_when_there_is_no_multi_reader_point(tmp_path):
     """One reader cannot overlap with anything, so a single-reader file is
-    DEGENERATE rather than flat -- the reading tt-sim gives with one tile."""
+    DEGENERATE rather than flat -- the reading Wolfpine gives with one tile."""
     rows, _ = sweep.read_csv(_csv(tmp_path, [_row("onechan", 1, 24.0)]))
     gate = sweep.gate_overlap(rows)
     assert not gate.ok
@@ -153,7 +153,7 @@ def test_the_control_gate_passes_when_the_fanout_arm_grew(tmp_path):
 
 def test_the_control_gate_fails_when_the_fanout_arm_is_flat(tmp_path):
     """Both arms flat means something upstream caps both, and the one-channel
-    flatness says nothing about the endpoint. This is the reading tt-sim gives
+    flatness says nothing about the endpoint. This is the reading Wolfpine gives
     where nothing saturates, and it must not be reported as the vendor's."""
     rows, _ = sweep.read_csv(_csv(tmp_path, _clean(agg_fan=(24.0, 24.1, 24.2))))
     gate = sweep.gate_control(rows)
@@ -319,7 +319,7 @@ def test_the_vendor_table_is_the_published_one():
 
 
 def test_the_vendor_comparison_needs_a_real_clock(tmp_path):
-    """tt-sim reports 0 MHz, honestly. Converting B/cycle at a clock the device
+    """Wolfpine reports 0 MHz, honestly. Converting B/cycle at a clock the device
     did not report would invent the very number being compared."""
     rows, _ = sweep.read_csv(_csv(tmp_path, _clean(), clock_mhz=0))
     assert sweep.compare_to_vendor(sweep.sustained(rows), 0) == []
@@ -366,7 +366,7 @@ def test_the_prediction_exists_and_says_it_is_one():
 
 
 def test_the_prediction_is_pinned_cell_by_cell():
-    """The point of the exercise. These are what tt-sim said on 2026-08-12,
+    """The point of the exercise. These are what Wolfpine said on 2026-08-12,
     before any card ran the sweep at these parameters, and a later edit that
     quietly moves one to meet a measurement fails here."""
     rows, _ = sweep.load_prediction()
@@ -380,6 +380,8 @@ def test_the_prediction_is_pinned_cell_by_cell():
         48: 23.9900,
     }
     assert wh[48]["basis"] == "plateau-extrapolated"
+    # "tt-sim" is the project's name as of the 2026-08-12 recording, frozen in
+    # the prediction file's own basis column. It is data, not a live label.
     assert all(wh[n]["basis"] == "tt-sim" for n in (1, 2, 4, 8, 12))
     bh = sweep.predicted_for(rows, "blackhole", "onechan")
     assert {n: r["agg_bytes_per_cycle"] for n, r in bh.items()} == {
@@ -424,7 +426,7 @@ def test_the_prediction_covers_the_vendors_own_reader_counts():
 
 def test_a_prediction_miss_is_reported_as_one(tmp_path):
     rows, _ = sweep.read_csv(_csv(tmp_path, [_row("onechan", 1, 48.0)]))
-    predicted = {1: {"agg_bytes_per_cycle": 24.0, "basis": "tt-sim"}}
+    predicted = {1: {"agg_bytes_per_cycle": 24.0, "basis": "Wolfpine"}}
     ((n, got, _, deviation, hit),) = sweep.compare_to_prediction(
         sweep.sustained(rows), predicted
     )
@@ -435,7 +437,7 @@ def test_a_prediction_miss_is_reported_as_one(tmp_path):
 
 def test_a_prediction_hit_is_reported_as_one(tmp_path):
     rows, _ = sweep.read_csv(_csv(tmp_path, [_row("onechan", 1, 22.2)]))
-    predicted = {1: {"agg_bytes_per_cycle": 24.0, "basis": "tt-sim"}}
+    predicted = {1: {"agg_bytes_per_cycle": 24.0, "basis": "Wolfpine"}}
     ((_, _, _, deviation, hit),) = sweep.compare_to_prediction(
         sweep.sustained(rows), predicted
     )

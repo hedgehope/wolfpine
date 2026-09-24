@@ -2,9 +2,9 @@
 //
 // WHAT THIS IS FOR
 // ----------------
-// `tt_sim/perf/unit_costs.yaml` carries `noc.congestion` at
+// `framework/perf/unit_costs.yaml` carries `noc.congestion` at
 // `provenance: unknown`. tt-metal ships a 740-row measured NoC dataset, and
-// `tt_sim/perf/noc_dataset_sweep.py` established that a congestion model cannot
+// `framework/perf/noc_dataset_sweep.py` established that a congestion model cannot
 // be DERIVED from it -- not because it is coarse but because it is
 // unidentifiable: every multi-party row changes the flow count by resizing a
 // grid, so flow count, path length and link sharing all move together; no core
@@ -32,7 +32,7 @@
 // This program is a dumb executor. It takes a PLAN (a CSV of flows, one row per
 // flow, grouped by run) and reports what each flow measured. Every decision
 // about which coordinates hold which confound fixed is made -- and asserted --
-// in `tt_sim/perf/noc_congestion_plan.py`, in Python, under test. That is
+// in `framework/perf/noc_congestion_plan.py`, in Python, under test. That is
 // deliberate: the invariants are the experiment, and an invariant that lives in
 // tested code is checkable in a way that one living in a comment is not.
 //
@@ -161,7 +161,7 @@ struct Flow {
 // The host API has no way to ask for this. `worker_core_from_logical_core`
 // answers the coordinate a kernel ADDRESSES, which on a harvested part -- or
 // any part whose compute grid is narrower than its worker grid -- is a dense
-// renumbering of the surviving workers. `tt_sim.perf.noc_congestion_plan`'s
+// renumbering of the surviving workers. `framework.perf.noc_congestion_plan`'s
 // link arithmetic is only valid in physical space, and the two spaces are not
 // distinguishable from the addressed coordinates alone: a Blackhole card that
 // dumps columns {1..7, 10..14} may be sitting on physical {1..7, 10..14} or on
@@ -315,7 +315,7 @@ int main(int argc, char** argv) {
             printf(
                 "nocbench --dump-grid [--out FILE]\n"
                 "nocbench --plan PLAN.csv [--out FILE] [-v]\n\n"
-                "Plans are built by `python3 -m tt_sim.perf.noc_congestion_plan`.\n"
+                "Plans are built by `python3 -m framework.perf.noc_congestion_plan`.\n"
                 "See perfbench/nocbench/README.md.\n");
             return 0;
         } else {
@@ -622,7 +622,7 @@ int main(int argc, char** argv) {
             "still checked against worker_core_from_logical_core on the host.\n");
     }
     printf("nocbench: wrote %s (%zu flows, %zu failures)\n", out_path.c_str(), plan.rows.size(), failures);
-    printf("nocbench: analyse with `python3 -m tt_sim.perf.noc_congestion_sweep --measured %s`\n", out_path.c_str());
+    printf("nocbench: analyse with `python3 -m framework.perf.noc_congestion_sweep --measured %s`\n", out_path.c_str());
     CloseDevice(device);
     return failures == 0 ? 0 : 1;
 }

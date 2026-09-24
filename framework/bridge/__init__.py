@@ -18,14 +18,14 @@ Modules:
 - ``hostlink`` — ending a host the simulator can no longer answer.
 """
 
-from tt_sim.bridge.cores import (
+from framework.bridge.cores import (
     DeferredTensixCore,
     DramCore,
     EthCore,
     NullCore,
     TensixCore,
 )
-from tt_sim.bridge.device import (
+from framework.bridge.device import (
     Device,
     diagnostics_from_env,
     dram_channel_contention_summary,
@@ -33,16 +33,16 @@ from tt_sim.bridge.device import (
     link_contention_summary,
     profiler_flush_summary,
 )
-from tt_sim.bridge.fabric import (
+from framework.bridge.fabric import (
     Fabric,
     install_convention_guard,
     install_worker_guards,
 )
-from tt_sim.bridge.grid import compute_grid, fill_order
-from tt_sim.bridge.hostlink import find_wire_peer, host_not_stranded, stop_host
-from tt_sim.bridge.materialise import LazyTensixPool
-from tt_sim.bridge.trace import TraceWriter, parse_trace_line
-from tt_sim.bridge.transport import Transport
+from framework.bridge.grid import compute_grid, fill_order
+from framework.bridge.hostlink import find_wire_peer, host_not_stranded, stop_host
+from framework.bridge.materialise import LazyTensixPool
+from framework.bridge.trace import TraceWriter, parse_trace_line
+from framework.bridge.transport import Transport
 
 __all__ = [
     "DeferredTensixCore",

@@ -2,7 +2,7 @@
 # nocevbench on a real card: collect tt-metal's NoC event traces for rung 4's
 # NoC-timing leg.
 #
-# YOU DO NOT NEED TO KNOW ANYTHING ABOUT tt-sim TO RUN THIS. It builds one
+# YOU DO NOT NEED TO KNOW ANYTHING ABOUT Wolfpine TO RUN THIS. It builds one
 # normal tt-metal program, runs it a handful of times with tt-metal's own NoC
 # event profiler enabled, checks each run validated its own data AND that it
 # really ran the arm it was asked for, and leaves a directory to send home. No
@@ -101,7 +101,7 @@ echo "  out       : $OUT"
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 
-# A card box that also has a tt-sim checkout is exactly where this goes wrong:
+# A card box that also has a Wolfpine checkout is exactly where this goes wrong:
 # with TT_METAL_SIMULATOR left set, every run below completes, validates its own
 # data, passes the arm check and writes a session directory that is a SIMULATOR
 # trace labelled as a card's. `dramratebench` and `energybench` have always
@@ -116,7 +116,7 @@ fi
 # path and requires slow dispatch. A card defaults to FAST dispatch, so without
 # this every run aborts with rc=134 before it reaches a single transfer --
 # measured on a Blackhole p150, 2026-08-17. `run_sim.sh` has always set it
-# (tt-sim supports no other flow), which is exactly why the gap survived: the
+# (Wolfpine supports no other flow), which is exactly why the gap survived: the
 # simulator side could never reproduce the failure. Overridable, because a
 # future program on the command-queue flow would want it unset.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"

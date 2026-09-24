@@ -1,13 +1,13 @@
-"""Rung 4's RV-bound leg: tt-sim's baby-RISC-V cycles against a card's, by zone.
+"""Rung 4's RV-bound leg: Wolfpine's baby-RISC-V cycles against a card's, by zone.
 
-The third sibling of :mod:`tt_sim.perf.stall_attribution` (the Tensix leg, which
-reads hardware stall counters) and :mod:`tt_sim.perf.noc_events` (the NoC leg,
+The third sibling of :mod:`framework.perf.stall_attribution` (the Tensix leg, which
+reads hardware stall counters) and :mod:`framework.perf.noc_events` (the NoC leg,
 which reads tt-metal's NoC event trace), and deliberately the same shape. This
 one reads ``perfbench/retirebench``'s artefact -- a JSON table of per-zone
 ``mcycle`` and ``minstret`` deltas written by the host program on whichever side
 produced it -- and answers the same question for the scalar core:
 
-    **does tt-sim spend a baby RISC-V's cycles on the same mechanisms hardware
+    **does Wolfpine spend a baby RISC-V's cycles on the same mechanisms hardware
     does, or does it merely arrive at the same total?**
 
 The criterion, stated so compensation cannot pass it
@@ -36,7 +36,7 @@ The instrument, and the constraint that shaped the program
 
 ``mcycle`` (0xb00) and ``minstret`` (0xb02) are Blackhole baby-RISC-V CSRs
 (``BlackholeA0/TensixTile/BabyRISCV/CSRs.md``), modelled in
-:mod:`tt_sim.pe.rv.isa.zicsr_isa`. ``mcycle`` reads the same tile clock that
+:mod:`framework.pe.rv.isa.zicsr_isa`. ``mcycle`` reads the same tile clock that
 ``RISCV_DEBUG_REG_WALL_CLOCK_*`` samples, so a cycle here is the same cycle
 every other perfbench program counts in.
 
@@ -88,7 +88,7 @@ That is close to all of it.
 * ``mhpmcounter3`` / ``mhpmcounter4`` exist, but the encodings of their
   ``mhpmevent3`` / ``mhpmevent4`` selectors are **unpublished**, so no event
   can be given a meaning and no count can be honest.
-  :mod:`tt_sim.pe.rv.isa.zicsr_isa` already refuses those counters once
+  :mod:`framework.pe.rv.isa.zicsr_isa` already refuses those counters once
   software has selected an event. **No event mapping was invented to
   manufacture more buckets**, and none may be.
 * There is **no PC sampler and no instruction-trace buffer** in tt-metal 0.74,
@@ -114,7 +114,7 @@ Blackhole only, and it refuses rather than degrades
 -----------------------------------------------------
 
 The string ``csr`` appears **zero times** in the whole ``WormholeB0`` doc tree,
-so a Wormhole baby core has no CSRs to model: tt-sim raises ``NoCSRsError`` on a
+so a Wormhole baby core has no CSRs to model: Wolfpine raises ``NoCSRsError`` on a
 CSR instruction there, and there is no ``minstret`` on the part either. Without
 retired counts the structural labels stop being checkable and the leg degrades
 to an elapsed-only envelope check -- which is precisely what rung 4 exists to
@@ -137,13 +137,13 @@ Usage
 
 ::
 
-    python3 -m tt_sim.perf.retire_attribution \\
+    python3 -m framework.perf.retire_attribution \\
         --sim  sim-session/retirebench-blackhole-sim.json \\
         --card card-session/runs/1/retirebench-blackhole-card-1.json \\
         --report report.txt --json report.json
 
-    # tt-sim side alone, to see the decomposition with no card data yet:
-    python3 -m tt_sim.perf.retire_attribution --sim <artefact> --decompose-only
+    # Wolfpine side alone, to see the decomposition with no card data yet:
+    python3 -m framework.perf.retire_attribution --sim <artefact> --decompose-only
 """
 
 from __future__ import annotations
@@ -207,7 +207,7 @@ WRONG_ARCH_EXPLANATION = (
     "This leg's instrument is the mcycle (0xb00) and minstret (0xb02) CSRs, "
     "documented in BlackholeA0/TensixTile/BabyRISCV/CSRs.md. The string 'csr' "
     "appears ZERO times in the whole WormholeB0 doc tree, so a Wormhole baby "
-    "core has no CSRs to read: tt-sim raises NoCSRsError on a CSR instruction "
+    "core has no CSRs to read: Wolfpine raises NoCSRsError on a CSR instruction "
     "there. Without minstret there is no retired-instruction count, the zone "
     "labels stop being checkable against anything, and what is left is an "
     "elapsed-only envelope check. This repo already has three of those, and "
@@ -511,9 +511,9 @@ def compare_cpi(sim, hw):
 
     The calibration zone is left out, and that is a criterion decision rather
     than tidiness: it measures the instrument, and the two sides' marker costs
-    are *expected* to differ, because tt-sim charges a CSR instruction nothing
+    are *expected* to differ, because Wolfpine charges a CSR instruction nothing
     at all -- ``DisCsrSync``'s serialisation has no published cycle count and
-    ``tt_sim/pe/rv/cost.py`` declines to invent one. Grading a zone against a
+    ``framework/pe/rv/cost.py`` declines to invent one. Grading a zone against a
     number the model deliberately does not have would fail every honest run for
     a reason already recorded as an open gap. It stays in the *partition*, where
     its handful of cycles are counted like any other, and :func:`marker_notes`
@@ -714,8 +714,8 @@ def gate_zone_budget(sim, hw):
     :data:`MIN_ZONE_CYCLES`; and the **measured** two-marker cost at most
     :data:`MARKER_BUDGET` of the smallest measured zone. The last is the reason
     the calibration zone exists: the roadmap's "~28-36 cycle two-marker cost"
-    is a Blackhole estimate, tt-sim charges a CSR instruction nothing at all
-    (``tt_sim/pe/rv/cost.py`` declines it for want of a published number), and
+    is a Blackhole estimate, Wolfpine charges a CSR instruction nothing at all
+    (``framework/pe/rv/cost.py`` declines it for want of a published number), and
     the two sides' marker costs are therefore *not* the same. Reading it off the
     artefact makes that a printed number instead of an assumption, on each side
     separately.
@@ -860,8 +860,8 @@ def gate_retire_census_matches(sim, hw):
     reported. Two things it would mean, in order of likelihood: the two sides
     were not built from the same source or at the same ``--scale`` (which
     :func:`gate_zone_table_matches` catches first when the table itself
-    differs), or tt-sim's retire accounting does not match the hardware's --
-    which would be a defect in :mod:`tt_sim.pe.rv.isa.zicsr_isa`'s counter,
+    differs), or Wolfpine's retire accounting does not match the hardware's --
+    which would be a defect in :mod:`framework.pe.rv.isa.zicsr_isa`'s counter,
     worth fixing, and not a reason to widen anything here.
     """
     if hw is None:
@@ -955,9 +955,9 @@ def marker_notes(sim, hw):
     """Say what the two sides' measured marker costs were, and what differs.
 
     Deliberately a note and not a gate. The two sides are *expected* to disagree
-    here: tt-sim charges a CSR instruction nothing, because ``DisCsrSync``'s
+    here: Wolfpine charges a CSR instruction nothing, because ``DisCsrSync``'s
     serialisation has no published cycle count and this repo's provenance rules
-    forbid inventing one (``tt_sim/pe/rv/cost.py`` records the omission). So the
+    forbid inventing one (``framework/pe/rv/cost.py`` records the omission). So the
     simulator's marker pair is a handful of cycles and a card's is the
     serialisation. It lands in every bucket, on the card side only, at
     ``2 x marker`` per zone -- one pair opening it and one closing it are inside
@@ -973,9 +973,9 @@ def marker_notes(sim, hw):
     drift = (hw.marker_cycles - sim.marker_cycles) * zones
     notes.append(
         f"the two-marker cost differs: sim {sim.marker_cycles} cycles, card "
-        f"{hw.marker_cycles}. tt-sim charges a CSR instruction nothing -- "
+        f"{hw.marker_cycles}. Wolfpine charges a CSR instruction nothing -- "
         f"cfg0's DisCsrSync serialisation has no published cycle count and "
-        f"tt_sim/pe/rv/cost.py declines to invent one -- so about "
+        f"framework/pe/rv/cost.py declines to invent one -- so about "
         f"{drift:+d} cycles of the span difference "
         f"({100.0 * abs(drift) / max(1, hw.window_cycles):.2f} % of the card "
         f"window) is the instrument rather than a mechanism."
@@ -1041,7 +1041,7 @@ def _pct(x):
 
 def render(reports, decompose_only=False):
     out = []
-    out.append("tt-sim baby RISC-V cycle attribution vs a card's, by zone")
+    out.append("Wolfpine baby RISC-V cycle attribution vs a card's, by zone")
     out.append("=" * 74)
     out.append("")
     out.append(
@@ -1178,12 +1178,12 @@ def parse_core_map(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Compare tt-sim's per-zone baby RISC-V cycle attribution against a "
+            "Compare Wolfpine's per-zone baby RISC-V cycle attribution against a "
             "card's, from the retirebench artefact both sides emit."
         )
     )
     parser.add_argument(
-        "--sim", required=True, help="retirebench-*.json from a run against tt-sim"
+        "--sim", required=True, help="retirebench-*.json from a run against Wolfpine"
     )
     parser.add_argument(
         "--card", help="retirebench-*.json from the same binary on a card"
@@ -1191,7 +1191,7 @@ def main(argv=None):
     parser.add_argument(
         "--decompose-only",
         action="store_true",
-        help="print the tt-sim decomposition alone; no card data, no criterion",
+        help="print the Wolfpine decomposition alone; no card data, no criterion",
     )
     parser.add_argument(
         "--map-core",

@@ -346,7 +346,7 @@ def test_a_single_writer_count_is_degenerate(tmp_path):
 def test_endpoint_bound_is_read_as_a_ratio_not_a_threshold(tmp_path):
     """The concentrated arm may scale a long way and still be bound.
 
-    tt-sim's own Wormhole numbers are the case: onechan x2.21 against fanchan
+    Wolfpine's own Wormhole numbers are the case: onechan x2.21 against fanchan
     x3.97 is the endpoint costing 44% of the available scaling, and an absolute
     "onechan must stay under x1.5" rule calls that a refutation.
     """

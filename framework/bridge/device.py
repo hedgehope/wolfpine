@@ -11,17 +11,17 @@ closes it — see its docstring: the device profiler's readback is the one host
 transaction whose answer is still being *written* at the moment the host asks
 for it.
 
-The underlying tt-sim device (Wormhole / Blackhole) and its coord map are
+The underlying Wolfpine device (Wormhole / Blackhole) and its coord map are
 injected by the driver, so nothing here is architecture-specific.
 """
 
 import os
 import sys
 
-from tt_sim.device.tt_device import DeviceTileDiagnostics
-from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
-from tt_sim.pe.tensix.util import TensixCoprocessorDiagnostics
-from tt_sim.util.conversion import conv_to_uint32
+from framework.device.tt_device import DeviceTileDiagnostics
+from framework.pe.rv.babyriscv import BabyRISCVCoreType
+from framework.pe.tensix.util import TensixCoprocessorDiagnostics
+from framework.util.conversion import conv_to_uint32
 
 # Map from individual env var → (group, field). Group "rv"/"noc" fields land
 # on DeviceTileDiagnostics; group "co" fields land on TensixCoprocessorDiagnostics.
@@ -128,7 +128,7 @@ def link_contention_summary(device):
     that distinction needed a one-off instrumentation patch to see. Printing it
     at shutdown makes every simulator run say which of the two it was.
 
-    ``device`` is the :class:`Device` wrapper or a bare tt-sim device; ``None``
+    ``device`` is the :class:`Device` wrapper or a bare Wolfpine device; ``None``
     and a device built before the registries existed both answer ``""``, as does
     a run with the cost model off, where every counter stays at zero.
     """
@@ -212,9 +212,9 @@ def profiler_flush_summary(device):
 
 
 class Device:
-    """Wire-bridge wrapper around a tt-sim device (cycle pump + reset tracking).
+    """Wire-bridge wrapper around a Wolfpine device (cycle pump + reset tracking).
 
-    Architecture-agnostic: ``device_factory`` builds the underlying tt-sim
+    Architecture-agnostic: ``device_factory`` builds the underlying Wolfpine
     device (``driver/wormhole`` passes a Wormhole factory, ``driver/blackhole``
     a Blackhole one), and ``tensix_coord_map`` maps a translated worker coord to
     the tile-directory coord the device is keyed by. The device only needs the
@@ -274,7 +274,7 @@ class Device:
         """Lazily materialise the TensixTile addressed by a translated coord.
 
         Called on first access to a Tensix worker coord that isn't yet
-        backed by a tt-sim tile. Builds the tile through
+        backed by a Wolfpine tile. Builds the tile through
         ``add_tensix_tile`` (which registers it in both NoC directories under
         its canonical SoC-physical NoC 0 coord) and registers it for
         BRISC-reset tracking. Idempotent — returns the unified coord on repeat

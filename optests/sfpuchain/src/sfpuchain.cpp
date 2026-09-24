@@ -1,9 +1,9 @@
 // Minimal reproducer for the `sfpu_eltwise_chain` upstream programming example
-// failing its PCC self-check on tt-sim (host side).
+// failing its PCC self-check on Wolfpine (host side).
 //
 // Upstream `metal_example_sfpu_eltwise_chain` computes softplus as the SFPU
 // chain exp -> add_binary(+1) -> log over a bfloat16 tile and asserts
-// PCC > 0.999 against a CPU golden. On tt-sim it lands at ~0.9986 and aborts;
+// PCC > 0.999 against a CPU golden. On Wolfpine it lands at ~0.9986 and aborts;
 // on ttsim (the vendor reference) the same binary lands at ~0.9998 and passes.
 // That example seeds its input from std::random_device, so it can't be diffed
 // directly -- this program is the deterministic equivalent.
@@ -18,7 +18,7 @@
 //   4: exp; add_binary(+1); log  -- the whole chain, exactly as upstream
 //
 // Dumps every output tile as `OPDIFF_RESULT:<hex>` (bfloat16 as 4 hex digits
-// each); optests/diff.sh runs the same binary on tt-sim and on ttsim and
+// each); optests/diff.sh runs the same binary on Wolfpine and on ttsim and
 // compares. ttsim is the oracle -- there is no local golden.
 
 #include <bit>

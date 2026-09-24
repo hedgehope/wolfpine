@@ -1,8 +1,8 @@
 """DWARF index — map PCs back to (function, source file, line) for trace
 attribution.
 
-Used by :class:`~tt_sim.trace.writers.lcov.LCOVWriter` and
-:mod:`tt_sim.trace.hotspots` (the ranked-report path). Built once at
+Used by :class:`~framework.trace.writers.lcov.LCOVWriter` and
+:mod:`framework.trace.hotspots` (the ranked-report path). Built once at
 construction time from one or more ELF files; lookup is a dict access
 plus, for :meth:`DwarfIndex.nearest`, one bisect.
 
@@ -141,12 +141,12 @@ class DwarfIndex:
         half of a run resolves to nothing.
         """
         # Imported here, not at module scope, and that is load-bearing rather
-        # than style. `tt_sim.trace.__init__` imports `auto`, which imports this
+        # than style. `framework.trace.__init__` imports `auto`, which imports this
         # module, so a module-scope `elftools` import makes pyelftools a hard
-        # requirement of importing *anything* under `tt_sim` — including the
+        # requirement of importing *anything* under `framework` — including the
         # analysis tools, which only read JSON. That bit twice on 2026-08-13/17:
         # once burning a simulator boot per arm before the reduction step
-        # failed, and once on a card box that has tt-metal but not tt-sim's
+        # failed, and once on a card box that has tt-metal but not Wolfpine's
         # Python dependencies. DWARF symbolisation is genuinely optional; this
         # is the one place that needs it, so this is where the cost is paid.
         from elftools.elf.elffile import ELFFile

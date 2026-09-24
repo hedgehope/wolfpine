@@ -60,7 +60,7 @@
 #
 # ESCAPE HATCH
 #     TT_SIM_KILL_ALL_SERVERS=1    restore the old sledgehammer: kill every
-#                                  tt-sim server on the machine at startup.
+#                                  Wolfpine server on the machine at startup.
 #                                  Prefer `sim_procs.sh run` (below), which
 #                                  makes a manual run reapable in the first
 #                                  place, over reaching for this.
@@ -68,7 +68,7 @@
 # COMMAND LINE
 # ------------
 # The library above only helps a script that sources it. A human at a prompt --
-# or another team running tt-sim their own way -- had nothing but the
+# or another team running Wolfpine their own way -- had nothing but the
 # sledgehammer, which kills concurrent runs and turns a vanished server into a
 # plausible wrong measurement rather than a loud failure. That is not
 # hypothetical: it is how an hours-long run was lost on 2026-08-13, and how the
@@ -80,7 +80,7 @@
 #                                       tag a manual run so its servers are
 #                                       reapable, and clean them up on exit
 #     driver/sim_procs.sh kill <pid>... kill named servers, after checking each
-#                                       really is a tt-sim server
+#                                       really is a Wolfpine server
 #
 # `run` is the one that closes the gap. Anything started under it carries a tag
 # and is cleaned up when it ends, however it ends -- so a manual run stops
@@ -145,7 +145,7 @@ _sim_ancestry() {
   done
 }
 
-# pids of real tt-sim server processes, one per line. $1, if given, is a
+# pids of real Wolfpine server processes, one per line. $1, if given, is a
 # substring the command line must also contain (used to select by run tag).
 _sim_servers() {
   local want="${1:-}" dir pid cmd skip
@@ -198,7 +198,7 @@ _sim_kill_all() {
   for pid in $(_sim_servers); do
     kill -9 "$pid" 2>/dev/null && n=$((n + 1))
   done
-  echo "[sim] TT_SIM_KILL_ALL_SERVERS: killed $n tt-sim server(s) on this machine" >&2
+  echo "[sim] TT_SIM_KILL_ALL_SERVERS: killed $n Wolfpine server(s) on this machine" >&2
   return 0
 }
 
@@ -288,7 +288,7 @@ _sim_cli_list() {
     printf '%-8s %-10s %-9s %-9s %s\n' "$pid" "$arch" "${age:-?}" "$state" "$tag"
     n=$((n + 1))
   done
-  [ "$n" = 0 ] && echo "(no tt-sim servers running)"
+  [ "$n" = 0 ] && echo "(no Wolfpine servers running)"
   echo "" >&2
   echo "live    = its run is still going. Do not kill it; you will corrupt that run." >&2
   echo "orphan  = its run is gone. 'reap' clears these." >&2
@@ -310,7 +310,7 @@ _sim_cli_kill() {
       [ "$pid" = "$want" ] && found=1 && break
     done
     if [ "$found" = 0 ]; then
-      echo "[sim] refusing: pid $want is not a tt-sim server (or is gone)" >&2
+      echo "[sim] refusing: pid $want is not a Wolfpine server (or is gone)" >&2
       rc=1
       continue
     fi

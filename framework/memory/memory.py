@@ -2,10 +2,10 @@ from abc import ABC
 
 import numpy as np
 
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory_map import MemoryMap
-from tt_sim.trace import EventCategory, MemEvent, Unit, get_bus
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory_map import MemoryMap
+from framework.trace import EventCategory, MemEvent, Unit, get_bus
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 _UNKNOWN_UNIT_ID = (0, 0, 0, Unit.UNKNOWN.value)
 
@@ -92,7 +92,7 @@ class MemorySpace(MemMapable, ABC):
                 msg += (
                     "\nIf the program uses tt-metal CommandQueue dispatch "
                     "(e.g. EnqueueProgram), note that CQ dispatch is unsupported "
-                    "in tt-sim — see ROADMAP.md §E."
+                    "in Wolfpine — see ROADMAP.md §E."
                 )
             raise IndexError(msg)
         else:
@@ -187,7 +187,7 @@ def resolve_plain_ram_span(memory, addr):
     the event bus is disabled.
 
     Nesting is followed the same few levels ``_resolve_plain_ram`` in
-    ``tt_sim/pe/rv/spin.py`` follows; merged maps normally hold leaves directly.
+    ``framework/pe/rv/spin.py`` follows; merged maps normally hold leaves directly.
     """
     shift = 0
     low = None

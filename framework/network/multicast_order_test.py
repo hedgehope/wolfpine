@@ -1,6 +1,6 @@
 """A multicast rectangle whose corners are in the wrong order for its NoC.
 
-The rule and its sources are in :mod:`tt_sim.network.multicast_order`; what is
+The rule and its sources are in :mod:`framework.network.multicast_order`; what is
 asserted here is that both shapes of the mistake are now loud, that the shape
 which is *not* a mistake now works, and that nothing about a correctly-ordered
 rectangle changed.
@@ -8,27 +8,27 @@ rectangle changed.
 The two shapes, and why each used to be silent:
 
 * **Corners reversed for an ascending NoC** (NoC 0, or an untranslated NoC 1).
-  ``range(start, end + 1)`` with ``start > end`` is empty, so tt-sim sent the
+  ``range(start, end + 1)`` with ``start > end`` is empty, so Wolfpine sent the
   packet to nobody, ``num_dests`` was 0, and ``noc_async_write_barrier`` retired
   with no ACKs to wait for. Green run, nothing written.
 * **Corners ascending on a NoC 1 addressed in translated coordinates**, which is
   the defect that prompted this: right for NoC 0, wrong for NoC 1. The range is
-  non-empty, so tt-sim delivered to every intended tile and produced exactly the
+  non-empty, so Wolfpine delivered to every intended tile and produced exactly the
   right numbers, while on silicon the span wraps the torus and the barrier never
   retires.
 
 And the case that was not a mistake but behaved like one: a *correctly* encoded
 NoC 1 translated multicast descends, so ``range(start, end + 1)`` was empty and
-tt-sim silently delivered nothing. :func:`rectangle_destinations` fixes that
+Wolfpine silently delivered nothing. :func:`rectangle_destinations` fixes that
 independently of the check, so turning the check off does not put it back.
 """
 
 import pytest
 
-from tt_sim.behaviour import require
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.multicast_order import (
+from framework.behaviour import require
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.multicast_order import (
     DISABLE_ENV_VAR,
     MulticastOrderError,
     checking_enabled,
@@ -36,7 +36,7 @@ from tt_sim.network.multicast_order import (
     refresh_from_env,
     set_checking_enabled,
 )
-from tt_sim.network.noc_coords import BlackholeNocCoords
+from framework.network.noc_coords import BlackholeNocCoords
 
 _L1_SRC = 0x40000
 _L1_DST = 0x60000
@@ -211,7 +211,7 @@ def test_only_a_translated_noc1_descends(arch, translated):
 
 def test_a_translated_noc1_multicast_written_low_first_raises():
     """The reported defect: corners emitted low-first, which is right for NoC 0
-    and wrong for NoC 1. tt-sim used to deliver to every intended tile and
+    and wrong for NoC 1. Wolfpine used to deliver to every intended tile and
     produce the right answer while the same program hung on silicon."""
     device = _wormhole(translated=True)
     with pytest.raises(MulticastOrderError) as excinfo:
@@ -450,7 +450,7 @@ def test_a_two_dimensional_multicast_wrong_on_one_axis_raises(
     assert f"on {'Y' if axis == 'X' else 'X'}" not in message
     assert "on X/Y" not in message
     # The guard fires *instead of* the transfer, not alongside it: a rectangle
-    # tt-sim cannot model must not be half-delivered on the way to the raise.
+    # Wolfpine cannot model must not be half-delivered on the way to the raise.
     assert _received(device, block) == []
 
 
@@ -586,8 +586,8 @@ def test_disabling_the_check_does_not_undo_the_enumeration_fix():
 def test_the_behaviour_marker_for_this_guard_is_published():
     """The guard and the name external suites assert on live and die together.
 
-    ``tt_sim.behaviour`` publishes ``noc1-multicast-corner-order`` so a consumer's suite can refuse
-    to run against a tt-sim that lacks this check rather than collect another
+    ``framework.behaviour`` publishes ``noc1-multicast-corner-order`` so a consumer's suite can refuse
+    to run against a Wolfpine that lacks this check rather than collect another
     set of green results that exercised nothing. Deleting the registry entry
     therefore has to turn *this* suite red — a marker quietly withdrawn is
     exactly the failure the marker exists to prevent.

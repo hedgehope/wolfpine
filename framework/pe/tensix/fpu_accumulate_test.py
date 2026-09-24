@@ -36,9 +36,9 @@ both ``TT_ARCH_VERSION`` values; the same harness fuzz-matched this port on
 import numpy as np
 import pytest
 
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.backends.matrix import MatrixUnit
-from tt_sim.pe.tensix.util import DataFormatConversions as DFC
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.backends.matrix import MatrixUnit
+from framework.pe.tensix.util import DataFormatConversions as DFC
 
 # (dstVal, useDst32b, groupSums, expected Wormhole, expected Blackhole).
 # The first four straddle the -1 renormalisation quirk: the two arches disagree
@@ -160,9 +160,9 @@ def _batch_accumulate(groupSums, dstVals, useDst32b, negOneRenormBug):
     ids=[f"accum{i}" for i in range(len(ACCUMULATE_VECTORS))],
 )
 def test_accumulate_matches_ttsim(dstVal, useDst32b, groupSums, wormhole, blackhole):
-    assert MatrixUnit._fpu_accumulate(groupSums, dstVal, useDst32b, True) == wormhole, (
-        "Wormhole accumulate"
-    )
+    assert (
+        MatrixUnit._fpu_accumulate(groupSums, dstVal, useDst32b, True) == wormhole
+    ), "Wormhole accumulate"
     assert (
         MatrixUnit._fpu_accumulate(groupSums, dstVal, useDst32b, False) == blackhole
     ), "Blackhole accumulate"
@@ -400,9 +400,9 @@ def test_mvmul_datapath_from_storage_matches_scalar(
             fidelityPhase,
             negOneRenormBug,
         )
-        assert np.array_equal(expected, got), (
-            f"trial {trial}: rows={rows} broadcast={broadcast} phase={fidelityPhase}"
-        )
+        assert np.array_equal(
+            expected, got
+        ), f"trial {trial}: rows={rows} broadcast={broadcast} phase={fidelityPhase}"
 
 
 def test_accumulate_boundaries_match_scalar():
@@ -451,7 +451,7 @@ def test_accumulate_boundaries_match_scalar():
 
 def _fused_or_skip():
     try:
-        from tt_sim.pe.tensix.backends.fpu_jit_kernel import mvmul_fused
+        from framework.pe.tensix.backends.fpu_jit_kernel import mvmul_fused
     except ImportError:
         pytest.skip("numba not installed; the numpy path is the whole simulator")
     return mvmul_fused
@@ -525,7 +525,7 @@ def test_jit_is_optional_and_off_by_default_for_short_runs(monkeypatch):
     MVMULs would never earn that back, so the switch waits for the threshold
     and ``TT_SIM_NUMBA=0`` pins it off for good.
     """
-    from tt_sim.pe.tensix.backends import fpu_jit
+    from framework.pe.tensix.backends import fpu_jit
 
     monkeypatch.setenv("TT_SIM_NUMBA", "0")
     fpu_jit.reset_for_test()

@@ -1,29 +1,29 @@
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.pe.tensix.backends.config import TensixBackendConfigurationUnit
-from tt_sim.pe.tensix.backends.matrix import MatrixUnit
-from tt_sim.pe.tensix.backends.misc import MiscellaneousUnit
-from tt_sim.pe.tensix.backends.mover import MoverUnit
-from tt_sim.pe.tensix.backends.packer import PackerUnit
-from tt_sim.pe.tensix.backends.sync import TensixSyncUnit
-from tt_sim.pe.tensix.backends.thcon import ScalarUnit
-from tt_sim.pe.tensix.backends.unpacker import UnPackerUnit
-from tt_sim.pe.tensix.backends.vector import VectorUnit
-from tt_sim.pe.tensix.registers import DstRegister, SrcRegister
-from tt_sim.pe.tensix.util import (
+from framework.memory.mem_mapable import MemMapable
+from framework.pe.tensix.backends.config import TensixBackendConfigurationUnit
+from framework.pe.tensix.backends.matrix import MatrixUnit
+from framework.pe.tensix.backends.misc import MiscellaneousUnit
+from framework.pe.tensix.backends.mover import MoverUnit
+from framework.pe.tensix.backends.packer import PackerUnit
+from framework.pe.tensix.backends.sync import TensixSyncUnit
+from framework.pe.tensix.backends.thcon import ScalarUnit
+from framework.pe.tensix.backends.unpacker import UnPackerUnit
+from framework.pe.tensix.backends.vector import VectorUnit
+from framework.pe.tensix.registers import DstRegister, SrcRegister
+from framework.pe.tensix.util import (
     TensixConfigurationConstants,
     TensixInstructionDecoder,
 )
-from tt_sim.util.bits import get_nth_bit
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.util.bits import get_nth_bit
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
-#: Blackhole-only Tensix instructions that tt-sim decodes but does not model:
+#: Blackhole-only Tensix instructions that Wolfpine decodes but does not model:
 #: name -> what the hardware does, for the error message. The vendor reference
 #: simulator (ttsim, ``data/bh/tensix_isa.json``) marks all four "unsupported"
 #: and raises on them, so there is no behaviour to port and nothing to validate
 #: an implementation against. Rather than silently no-op them (RESOURCEDECL in
 #: particular has ``ex_resource: NONE``, which would otherwise be ignored like a
 #: NOP) they are rejected loudly here — the same choice as the baby-RISC-V
-#: guards in ``tt_sim/pe/rv/isa/guard_isa.py``. Decoding them at least means the
+#: guards in ``framework/pe/rv/isa/guard_isa.py``. Decoding them at least means the
 #: fields are named (see ``tensix_instructions.yaml``) for whoever implements one.
 UNMODELLED_BLACKHOLE_INSTRUCTIONS = {
     "MOVDBGB2D": "moves SrcB into Dst in debug mode, bypassing the ready signals",
@@ -245,10 +245,10 @@ class TensixBackend:
         if instruction_name in UNMODELLED_BLACKHOLE_INSTRUCTIONS:
             raise NotImplementedError(
                 f"Tensix instruction {instruction_name} ({hex(instruction)}) from thread "
-                f"{from_thread} is not modelled in tt-sim: it "
+                f"{from_thread} is not modelled in Wolfpine: it "
                 f"{UNMODELLED_BLACKHOLE_INSTRUCTIONS[instruction_name]}, and the vendor "
                 f"reference simulator does not implement it either, so its behaviour "
-                f"cannot be ported. Implement it here (tt_sim/pe/tensix/backend.py) when "
+                f"cannot be ported. Implement it here (framework/pe/tensix/backend.py) when "
                 f"a kernel needs it."
             )
         tgt_backend_unit = instruction_info["ex_resource"]

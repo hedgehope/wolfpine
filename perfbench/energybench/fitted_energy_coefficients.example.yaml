@@ -8,16 +8,16 @@
 # fitted to board-level tt-smi telemetry sampled at roughly 1 Hz. Tenstorrent
 # publishes no per-event energy figure -- no pJ/op, no pJ/bit -- so none of these
 # can ever be traced to a document. They are WEAKER than the `estimated`
-# provenance that tt_sim/perf/unit_costs.yaml forbids.
+# provenance that framework/perf/unit_costs.yaml forbids.
 #
-# DO NOT MOVE THESE INTO tt_sim/perf/unit_costs.yaml OR
-# tt_sim/pe/tensix/tensix_instruction_costs.yaml.
+# DO NOT MOVE THESE INTO framework/perf/unit_costs.yaml OR
+# framework/pe/tensix/tensix_instruction_costs.yaml.
 #
-#   * `provenance: fitted` is not in tt_sim.perf.costs.PROVENANCE_RANK, so the
+#   * `provenance: fitted` is not in framework.perf.costs.PROVENANCE_RANK, so the
 #     cost loader raises KeyError on any table carrying it;
-#   * tt_sim.perf.energy_rank.check_destination refuses to write this file
-#     anywhere under tt_sim/;
-#   * tt_sim/perf/energy_quarantine_test.py asserts both, in both directions.
+#   * framework.perf.energy_rank.check_destination refuses to write this file
+#     anywhere under framework/;
+#   * framework/perf/energy_quarantine_test.py asserts both, in both directions.
 #
 # What these predict is STEADY-STATE REPEATED-KERNEL BOARD POWER UNDER SUSTAINED
 # LOAD -- not the energy of a single launch -- and they are validated on ORDERING

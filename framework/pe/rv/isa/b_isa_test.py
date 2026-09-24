@@ -5,8 +5,8 @@ register inputs, and checks the destination against a reference value. Encodings
 follow the RISC-V Zba/Zbb spec (the same the Blackhole ISA doc references).
 """
 
-from tt_sim.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 M = 0xFFFFFFFF
 

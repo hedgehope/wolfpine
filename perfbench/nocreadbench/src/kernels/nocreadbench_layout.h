@@ -4,7 +4,7 @@
 // subordinate coordinate it was told to use, and the full experiment key, so a
 // row is identifiable without reference to the host's loop counters. That is
 // the property tt-metal's shipped `noc_latencies.yaml` lacks and the reason
-// `tt_sim/perf/noc_dataset_sweep.py` can only difference it along one axis.
+// `framework/perf/noc_dataset_sweep.py` can only difference it along one axis.
 #pragma once
 
 #define NOCREADBENCH_MAGIC 0x4E524234u  // "NRB4"; bump on any layout change

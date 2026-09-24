@@ -23,8 +23,8 @@ start; the framework is the thing.
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from tt_sim.trace.bus import get_bus
-from tt_sim.trace.events import (
+from framework.trace.bus import get_bus
+from framework.trace.events import (
     Event,
     EventCategory,
     InstrEvent,
@@ -172,7 +172,7 @@ DEFAULT_INVARIANTS: tuple[type[Invariant], ...] = (
 
 class InvariantRunner:
     """Wires up a set of invariants and exposes the aggregated
-    violations. The atexit hook in :mod:`tt_sim.trace.auto` calls
+    violations. The atexit hook in :mod:`framework.trace.auto` calls
     :meth:`report` to dump violations and (optionally) exit non-zero.
     """
 

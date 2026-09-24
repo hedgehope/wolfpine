@@ -1,11 +1,11 @@
-"""Compare tt-sim's *interior* cycle attribution against silicon's own counters.
+"""Compare Wolfpine's *interior* cycle attribution against silicon's own counters.
 
 This is the home-side half of rung 4's **mechanism-attribution leg**
 (``ROADMAP.md`` §4, criterion 2 and 3). It consumes two device-profiler logs --
-one produced by running a program against tt-sim, one produced by running the
+one produced by running a program against Wolfpine, one produced by running the
 *same binary* on a card -- and answers one question:
 
-    **does tt-sim spend the core's cycles on the same mechanisms hardware
+    **does Wolfpine spend the core's cycles on the same mechanisms hardware
     does, or does it merely arrive at the same total?**
 
 Why the interior, and not the total
@@ -41,8 +41,8 @@ make that unrepresentable rather than merely discouraged.
 The partition
 -------------
 
-Only four counter families map cleanly onto quantities tt-sim tracks (see
-:mod:`tt_sim.misc.perf_counters`), and the partition is built from exactly
+Only four counter families map cleanly onto quantities Wolfpine tracks (see
+:mod:`framework.misc.perf_counters`), and the partition is built from exactly
 those. Per core, over ``3 x ref_cnt`` **thread-cycles** -- three Tensix threads,
 each observed for the same window::
 
@@ -208,8 +208,8 @@ and the ``SEMWAIT`` semantics that explain it are documented identically for
 both parts. Wormhole is simply the first architecture on which this gate has
 ever seen silicon.
 
-**tt-sim cannot fail this gate, on either architecture.**
-:meth:`tt_sim.misc.perf_counters.TensixPerfCounters.note_stall` increments
+**Wolfpine cannot fail this gate, on either architecture.**
+:meth:`framework.misc.perf_counters.TensixPerfCounters.note_stall` increments
 ``thread_stalls[t]`` and at most one reason bucket in the *same call*, so
 ``sem_empty_t + sem_full_t <= thread_stalls_t`` holds by construction. Every
 Blackhole result this leg has -- the two checked-in ``sim-*-blackhole.csv`` logs
@@ -221,7 +221,7 @@ does not close by luck -- it closes by construction, and is untested.**
 
 A gate that cannot fail is not a gate, so the identity has been broken where it
 belongs -- in the counter model, not in the criterion.
-:meth:`tt_sim.misc.perf_counters.TensixPerfCounters.note_wait_condition` counts
+:meth:`framework.misc.perf_counters.TensixPerfCounters.note_wait_condition` counts
 a cycle in which a *latched* wait condition was unsatisfied without counting a
 stall, which is what ``SEMWAIT.md`` says the hardware does, and the test suite
 now drives ``TensixPerfCounters`` through its own hooks and its own MMIO
@@ -262,13 +262,13 @@ Usage
 
 ::
 
-    python3 -m tt_sim.perf.stall_attribution \\
+    python3 -m framework.perf.stall_attribution \\
         --sim  sim-session/.logs/profile_log_device.csv \\
         --card card-session/instrn/profile_log_device.csv \\
         --report report.txt --json report.json
 
-    # tt-sim side alone, to see the decomposition with no card data yet:
-    python3 -m tt_sim.perf.stall_attribution --sim <log> --decompose-only
+    # Wolfpine side alone, to see the decomposition with no card data yet:
+    python3 -m framework.perf.stall_attribution --sim <log> --decompose-only
 """
 
 import argparse
@@ -848,7 +848,7 @@ def gate_armed(sim, hw):
 
     An unarmed bank reads back as a full set of zeros, which decodes as a
     perfectly plausible "nothing ever stalled" -- the exact failure mode
-    :mod:`tt_sim.misc.perf_counters` exists to remove, and the one a comparison
+    :mod:`framework.misc.perf_counters` exists to remove, and the one a comparison
     would otherwise pass with flying colours.
     """
     sides = [("sim", sim)] + ([("card", hw)] if hw is not None else [])
@@ -1041,7 +1041,7 @@ def regime_notes(sim_part, hw_part):
     hw_clear = hw_part["srca_clear"] + hw_part["srcb_clear"]
     if sim_clear == 0 and hw_clear > 0:
         notes.append(
-            "tt-sim reports exactly zero SrcA/SrcB CLEAR cycles while the card "
+            "Wolfpine reports exactly zero SrcA/SrcB CLEAR cycles while the card "
             f"reports {hw_clear}. With TT_SIM_COST_MODEL unset no backend arms "
             "an occupancy, so that column is ABSENT rather than measured zero "
             "-- re-run the simulator side with TT_SIM_COST_MODEL=1 before "
@@ -1192,7 +1192,7 @@ def _overlap_lines(label, overlaps):
 
 def render(reports, decompose_only=False):
     out = []
-    out.append("tt-sim interior cycle attribution vs Tensix hardware stall counters")
+    out.append("Wolfpine interior cycle attribution vs Tensix hardware stall counters")
     out.append("=" * 74)
     out.append("")
     if not reports:
@@ -1305,14 +1305,14 @@ def parse_core_map(values):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=(
-            "Compare tt-sim's per-mechanism cycle attribution against a card's "
+            "Compare Wolfpine's per-mechanism cycle attribution against a card's "
             "Tensix hardware stall counters, per core."
         )
     )
     parser.add_argument(
         "--sim",
         required=True,
-        help="profile_log_device.csv from a run against tt-sim",
+        help="profile_log_device.csv from a run against Wolfpine",
     )
     parser.add_argument(
         "--card",
@@ -1321,7 +1321,7 @@ def main(argv=None):
     parser.add_argument(
         "--decompose-only",
         action="store_true",
-        help="print the tt-sim decomposition alone; no card data, no criterion",
+        help="print the Wolfpine decomposition alone; no card data, no criterion",
     )
     parser.add_argument(
         "--map-core",

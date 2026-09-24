@@ -21,15 +21,15 @@ hold at once, short-circuited by ``OverrideEn and OverrideBusy``.
 ``OverrideValue`` instead if ``OverrideEn`` is set (``OverrideBusy`` is *not*
 consulted on this side).
 
-Run standalone (``python3 -m tt_sim.pe.pcbuf_test``) or under pytest.
+Run standalone (``python3 -m framework.pe.pcbuf_test``) or under pytest.
 """
 
-from tt_sim.memory.memory import AddressableMemory, MemorySpace, MemoryStall
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.misc.tile_ctrl import TensixTileControl
-from tt_sim.pe.pcbuf import PCBuf
-from tt_sim.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.memory import AddressableMemory, MemorySpace, MemoryStall
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.misc.tile_ctrl import TensixTileControl
+from framework.pe.pcbuf import PCBuf
+from framework.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 BRISC = BabyRISCVCoreType.BRISC
 TRISC = (
@@ -48,7 +48,7 @@ class _Coprocessor:
     """Just the ``CoprocessorDoneCheck`` the PCBuf needs.
 
     It returns True while the thread is still *busy* (see
-    :class:`~tt_sim.misc.ttsync.TTSync`), so ``busy_threads`` is the set of
+    :class:`~framework.misc.ttsync.TTSync`), so ``busy_threads`` is the set of
     threads with in-flight Tensix instructions.
     """
 
@@ -103,7 +103,7 @@ def test_trisc_read_of_empty_fifo_waits():
     This used to be ``self.fifo.pop(0)`` unconditionally, so the first TRISC
     read to beat its BRISC producer killed the core with an ``IndexError``
     out of the memory subsystem -- the failure mode is a simulator crash, not
-    a wrong answer, so it would be reported as a tt-sim bug rather than a
+    a wrong answer, so it would be reported as a Wolfpine bug rather than a
     kernel one.
     """
     assert _buf().read_from(TRISC[0]) is MemoryStall
@@ -316,7 +316,7 @@ def test_the_fifo_is_unbounded_on_purpose():
     the RISCV B memory subsystem" whose capacity it does not publish. Bounding
     at 16 would invent back-pressure the hardware does not have, which for a
     queue depth is the over-charging direction. See ``ROADMAP.md`` §3 and the
-    module docstring of ``tt_sim/pe/pcbuf.py``; if this test is ever changed,
+    module docstring of ``framework/pe/pcbuf.py``; if this test is ever changed,
     that decision is what is being reversed.
     """
     buf = _buf()

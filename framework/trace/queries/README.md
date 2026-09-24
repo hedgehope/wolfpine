@@ -1,4 +1,4 @@
-# Canned queries for tt-sim traces
+# Canned queries for Wolfpine traces
 
 Column meanings, units and stability guarantees for everything queried
 here are in [`docs/trace-schema.md`](../../../docs/trace-schema.md).
@@ -13,10 +13,10 @@ Two query sets:
 - **DuckDB / Parquet** — see [`counters.sql`](counters.sql) for queries
   against the Parquet dataset produced by
   `TT_SIM_TRACE_COUNTERS=<dir>`. Run with
-  `duckdb -c ".read tt_sim/trace/queries/counters.sql"` or copy into
+  `duckdb -c ".read framework/trace/queries/counters.sql"` or copy into
   any DuckDB / pandas / Polars session.
 
-## Perfetto SQL queries for tt-sim traces
+## Perfetto SQL queries for Wolfpine traces
 
 After loading a `*.json.gz` trace into [ui.perfetto.dev](https://ui.perfetto.dev),
 open the **Query (SQL)** tab and run any of the queries below. The

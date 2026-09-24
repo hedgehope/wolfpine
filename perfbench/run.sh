@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run a perfbench program against the tt-sim simulator.
+# Build and run a perfbench program against the Wolfpine simulator.
 #
 # This is the SIMULATOR side only. On real hardware you do not need this script
 # and you must not use it: unset TT_METAL_SIMULATOR and run ./build/tensixbench
@@ -12,7 +12,7 @@
 # Environment:
 #   TT_METAL_HOME / TT_METAL_RUNTIME_ROOT  built tt-metal checkout (required)
 #   TT_SIM_ARCH        blackhole (default) | wormhole
-#   TT_SIM_VENV        venv holding tt_sim's deps (default: <repo>/../venv)
+#   TT_SIM_VENV        venv holding framework's deps (default: <repo>/../venv)
 #   TT_SIM_COST_MODEL  set to 1 to run the simulator with the cost model on
 
 set -u
@@ -50,7 +50,7 @@ export TT_METAL_SIMULATOR="$REPO/driver/$ARCH"
 export TT_METAL_SLOW_DISPATCH_MODE=1
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 # TT_SIM_TENSIX_COORDS is deliberately NOT defaulted here. Setting it -- even to
-# the same single worker the server would have built anyway -- is what tt-sim
+# the same single worker the server would have built anyway -- is what Wolfpine
 # reads as "the user PINNED this pool", and a pinned pool switches off on-demand
 # materialisation (driver/<arch>/server/__main__.py, `pinned`). This script used
 # to export the arch's default coord, which silently made every perfbench run

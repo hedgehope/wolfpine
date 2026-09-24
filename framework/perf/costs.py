@@ -2,24 +2,24 @@
 
 Two YAML files, one schema, one loader:
 
-* ``tt_sim/pe/tensix/tensix_instruction_costs.yaml`` -- per-instruction costs
+* ``framework/pe/tensix/tensix_instruction_costs.yaml`` -- per-instruction costs
   for the Tensix backend units, keyed by the same ``ex_resource`` names and
   instruction names that ``tensix_instructions.yaml`` uses, so the two read
   side by side (ROADMAP.md section I).
-* ``tt_sim/perf/unit_costs.yaml`` -- the NoC, DRAM, baby RISC-V cores, Mover
+* ``framework/perf/unit_costs.yaml`` -- the NoC, DRAM, baby RISC-V cores, Mover
   and L1.
 
-**Consumed through :mod:`tt_sim.perf.model`, and only when asked.** The tables
+**Consumed through :mod:`framework.perf.model`, and only when asked.** The tables
 landed ahead of any consumer so the schema and the provenance discipline could
 be reviewed on their own; Phase 5 of ``docs/plans/event-driven-pump.md`` then
 wired the first unit — the Tensix matrix unit — to them, behind
 ``TT_SIM_COST_MODEL``. The judgement calls a consumer has to make (an
 untabulated opcode costs nothing; a bound is not an equals sign) are made once,
-in :mod:`tt_sim.perf.model`, and a test in ``costs_test.py`` pins the exact set
+in :mod:`framework.perf.model`, and a test in ``costs_test.py`` pins the exact set
 of modules that reach the tables at all.
 
 The one property that matters more than any number in these files is that a
-reader can tell a sourced constant from a placeholder at a glance. tt-sim is a
+reader can tell a sourced constant from a placeholder at a glance. Wolfpine is a
 cycle-*approximate* estimator (ROADMAP "Positioning") because calibrating
 against silicon needs RTL or captured traces that are not public, so a table
 that could not distinguish "the ISA doc says 5" from "5 seemed about right"
@@ -34,7 +34,7 @@ import importlib.resources as resources
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-from tt_sim.util.yaml_cache import load_yaml_cached
+from framework.util.yaml_cache import load_yaml_cached
 
 #: Provenance kinds, ranked strongest to weakest. An entry's provenance is the
 #: weakest provenance of any number in it, so ranking them lets a consumer ask
@@ -377,7 +377,7 @@ def _drop_foreign_arch(mapping, arch):
 
 def _load_tensix(arch):
     raw = load_yaml_cached(
-        resources.files("tt_sim.pe.tensix").joinpath(_TENSIX_YAML),
+        resources.files("framework.pe.tensix").joinpath(_TENSIX_YAML),
         _TENSIX_YAML.removesuffix(".yaml"),
     )
     resolved = _apply_arch(raw, arch)
@@ -411,7 +411,7 @@ def _load_tensix(arch):
 
 def _load_units(arch):
     raw = load_yaml_cached(
-        resources.files("tt_sim.perf").joinpath(_UNIT_YAML),
+        resources.files("framework.perf").joinpath(_UNIT_YAML),
         _UNIT_YAML.removesuffix(".yaml"),
     )
     resolved = _apply_arch(raw, arch)
@@ -446,11 +446,11 @@ def raw_tables():
     to see ``arch_overrides`` rather than a merged view."""
     return (
         load_yaml_cached(
-            resources.files("tt_sim.pe.tensix").joinpath(_TENSIX_YAML),
+            resources.files("framework.pe.tensix").joinpath(_TENSIX_YAML),
             _TENSIX_YAML.removesuffix(".yaml"),
         ),
         load_yaml_cached(
-            resources.files("tt_sim.perf").joinpath(_UNIT_YAML),
+            resources.files("framework.perf").joinpath(_UNIT_YAML),
             _UNIT_YAML.removesuffix(".yaml"),
         ),
     )

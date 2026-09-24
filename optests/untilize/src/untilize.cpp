@@ -26,7 +26,7 @@
 // Add an op: append a phase in the compute kernel and bump NUM_OPS.
 //
 // Two run modes, same binary:
-//   (no argument)  16-bit DEST, the default. All three ops pass on tt-sim and
+//   (no argument)  16-bit DEST, the default. All three ops pass on Wolfpine and
 //                  match ttsim; this is what `optests/diff.sh untilize` runs and
 //                  what `driver/wormhole/server/untilize_replay_test.py` freezes.
 //   `fp32`         `fp32_dest_acc_en` on, every CB still Float16_b -- a 32-bit
@@ -39,7 +39,7 @@
 //                  architecture as `traces/untilize_fp32.trace` and replayed
 //                  by `driver/<arch>/server/untilize_fp32_replay_test.py`.
 //
-//                  What it caught. tt-sim used to take the DEST read width
+//                  What it caught. Wolfpine used to take the DEST read width
 //                  from the pack source format, so with a 16-bit format it
 //                  read DEST 16 bits at a time and most of the output was
 //                  never written -- 896, 960, 896 elements of 1024 wrong on
@@ -51,16 +51,16 @@
 //                  sets to `is_32b_format || is_fp32_dest_acc_en` -- so a
 //                  16-bit format does not imply a 16-bit DEST read.
 //                  Reported by the tt-xftn compiler team as `gemm_bf16_check`
-//                  giving `errors=4096 of 4096` on tt-sim Wormhole while both
+//                  giving `errors=4096 of 4096` on Wolfpine Wormhole while both
 //                  cards passed it, from a `ComputeConfig{.fp32_dest_acc_en
 //                  = true}` over Float16_b CBs.
 //
-//                  Nothing in the tree reached this before: every other tt-sim
+//                  Nothing in the tree reached this before: every other Wolfpine
 //                  program that sets `fp32_dest_acc_en` (optests/transpose,
 //                  optests/sfpumath, examples/five-fp) makes its CBs Float32, so
 //                  DEST and the output format are both 32-bit and the
 //                  conversion this exercises never happens. The unit-level
-//                  pin is tt_sim/pe/tensix/pack_dest_rd_ctrl_test.py, and the
+//                  pin is framework/pe/tensix/pack_dest_rd_ctrl_test.py, and the
 //                  whole-program pin *with a matrix unit in it* is the
 //                  `six-fp32` case (examples/six under `SIX_FP32=1`) -- nothing
 //                  here issues a matmul, so this op test alone could not tell a

@@ -7,7 +7,7 @@ externally on the **NoC and memory path only** — the Tensix instruction costs
 rest on provenance alone, and
 ["There is no rung-3 dataset for Tensix compute"](#there-is-no-rung-3-dataset-for-tensix-compute-and-that-changes-what-rung-2-climbed-means)
 says why that is not going to change without silicon. Two YAML files and
-a tested loader, plus `tt_sim/perf/model.py`, which turns a table entry into
+a tested loader, plus `framework/perf/model.py`, which turns a table entry into
 the occupancy a unit is charged. The Tensix **matrix, vector (SFPU), scalar
 (ThCon), packer, sync, config, unpacker and mover** units read it, so do the
 **five baby RISC-V cores**, and so does the **NoC**, behind the
@@ -106,25 +106,25 @@ is deliberate:
 
 | File | Holds |
 | --- | --- |
-| `tt_sim/pe/tensix/tensix_instruction_costs.yaml` | Per-instruction costs for the ten Tensix backend units |
-| `tt_sim/perf/unit_costs.yaml` | NoC, DRAM, baby RISC-V cores, Mover, L1 (only `l1` has no consumer now) |
-| `tt_sim/perf/costs.py` | The loader, `load_costs(arch)` |
-| `tt_sim/perf/model.py` | The consumer-side policy: table entry → cycles to charge |
-| `tt_sim/perf/costs_test.py` | 48 tests: parse, provenance integrity, loader fidelity, coverage, "exactly these modules consume this", and the `corroboration` field's discipline |
-| `tt_sim/perf/model_test.py` | 12 tests: off by default, bound policy, fidelity phases |
-| `tt_sim/pe/tensix/matrix_cost_model_test.py` | 6 tests: the FPU driven with the model on and off |
-| `tt_sim/pe/tensix/backend_cost_model_test.py` | 21 tests: the SFPU, ThCon, packer, sync and config units, same treatment — including the config unit charging nothing on Wormhole, Blackhole's `CFGSHIFTMASK` 2, and its 2-cycle hold on the `Config` IPC group leaving `SETC16` free |
-| `tt_sim/pe/tensix/unpacker_cost_model_test.py` | 27 tests: the address phase at 2, the data phase at every throttle rate on both arches, the tileize-forces-x4 and Blackhole default-mode paths, a blocked unpacker charged nothing for waiting, and the two deliberate under-charges (the joint ceiling, the cross-unpacker hold) pinned by name |
-| `tt_sim/pe/tensix/mover_cost_model_test.py` | 13 tests: the transfer duration per kind against the doc's own arithmetic, the contended column recorded and unspent, the XMOV and TDMA paths both charged, and a transfer in flight reading as outstanding work |
-| `tt_sim/pe/tensix/frontend_backpressure_test.py` | 9 tests: the bounded front-end FIFO, the stalled `.ttinsn` store, the dvalid-twice wedge reaching the core, and the two licensed terms' arithmetic (push at 1.000, ThCon at 3.0, 3 threads at ~3× each) |
-| `tt_sim/pe/rv/cost.py` | The baby RISC-V consumer: address-region classifier, load-use scoreboard, L1 store rate limiter |
-| `tt_sim/pe/rv/cost_test.py` | 19 tests: off by default, the interlock, the unnamed regions, stores, multiply/divide |
-| `tt_sim/network/tt_noc.py` | The NoC consumer: `noc_hop_count`, `NUI.send_to`, and the in-flight packet queue |
-| `tt_sim/network/noc_cost_model_test.py` | 42 tests: opt-in, torus hop counting on both arches and both NoCs, flight time, an end-to-end DRAM read landing on the predicted cycle, the bandwidth terms, and a forced out-of-order response landing where it belongs |
-| `tt_sim/device/tiles.py` | The DRAM consumer: `DRAMEndpointNUI` holds an arriving request for the channel's own service time, plus the channel bandwidth's excess over the NoC link's |
-| `tt_sim/device/dram_cost_model_test.py` | 18 tests: opt-in, both arches' derivations and their provenance rank, the channel rate and its Blackhole refusal, the named gaps, and a DRAM read costing flight + service + channel + flight on a real device |
-| `tt_sim/perf/noc_dataset_sweep.py` | **Rung 2.** Sweeps tt-metal's 8,140-point measured NoC dataset against the whole assembled model; declares its exclusion criteria up front and reports residuals by axis |
-| `tt_sim/perf/noc_dataset_sweep_test.py` | 29 tests: the exclusion ladder, the dataset's undocumented keying, the predictor against the closed form, and the sweep itself (skipped without tt-metal) |
+| `framework/pe/tensix/tensix_instruction_costs.yaml` | Per-instruction costs for the ten Tensix backend units |
+| `framework/perf/unit_costs.yaml` | NoC, DRAM, baby RISC-V cores, Mover, L1 (only `l1` has no consumer now) |
+| `framework/perf/costs.py` | The loader, `load_costs(arch)` |
+| `framework/perf/model.py` | The consumer-side policy: table entry → cycles to charge |
+| `framework/perf/costs_test.py` | 48 tests: parse, provenance integrity, loader fidelity, coverage, "exactly these modules consume this", and the `corroboration` field's discipline |
+| `framework/perf/model_test.py` | 12 tests: off by default, bound policy, fidelity phases |
+| `framework/pe/tensix/matrix_cost_model_test.py` | 6 tests: the FPU driven with the model on and off |
+| `framework/pe/tensix/backend_cost_model_test.py` | 21 tests: the SFPU, ThCon, packer, sync and config units, same treatment — including the config unit charging nothing on Wormhole, Blackhole's `CFGSHIFTMASK` 2, and its 2-cycle hold on the `Config` IPC group leaving `SETC16` free |
+| `framework/pe/tensix/unpacker_cost_model_test.py` | 27 tests: the address phase at 2, the data phase at every throttle rate on both arches, the tileize-forces-x4 and Blackhole default-mode paths, a blocked unpacker charged nothing for waiting, and the two deliberate under-charges (the joint ceiling, the cross-unpacker hold) pinned by name |
+| `framework/pe/tensix/mover_cost_model_test.py` | 13 tests: the transfer duration per kind against the doc's own arithmetic, the contended column recorded and unspent, the XMOV and TDMA paths both charged, and a transfer in flight reading as outstanding work |
+| `framework/pe/tensix/frontend_backpressure_test.py` | 9 tests: the bounded front-end FIFO, the stalled `.ttinsn` store, the dvalid-twice wedge reaching the core, and the two licensed terms' arithmetic (push at 1.000, ThCon at 3.0, 3 threads at ~3× each) |
+| `framework/pe/rv/cost.py` | The baby RISC-V consumer: address-region classifier, load-use scoreboard, L1 store rate limiter |
+| `framework/pe/rv/cost_test.py` | 19 tests: off by default, the interlock, the unnamed regions, stores, multiply/divide |
+| `framework/network/tt_noc.py` | The NoC consumer: `noc_hop_count`, `NUI.send_to`, and the in-flight packet queue |
+| `framework/network/noc_cost_model_test.py` | 42 tests: opt-in, torus hop counting on both arches and both NoCs, flight time, an end-to-end DRAM read landing on the predicted cycle, the bandwidth terms, and a forced out-of-order response landing where it belongs |
+| `framework/device/tiles.py` | The DRAM consumer: `DRAMEndpointNUI` holds an arriving request for the channel's own service time, plus the channel bandwidth's excess over the NoC link's |
+| `framework/device/dram_cost_model_test.py` | 18 tests: opt-in, both arches' derivations and their provenance rank, the channel rate and its Blackhole refusal, the named gaps, and a DRAM read costing flight + service + channel + flight on a real device |
+| `framework/perf/noc_dataset_sweep.py` | **Rung 2.** Sweeps tt-metal's 8,140-point measured NoC dataset against the whole assembled model; declares its exclusion criteria up front and reports residuals by axis |
+| `framework/perf/noc_dataset_sweep_test.py` | 29 tests: the exclusion ladder, the dataset's undocumented keying, the predictor against the closed form, and the sweep itself (skipped without tt-metal) |
 | `driver/tests/cost_model_gate.py` | **The gate.** Runs the timing-agnostic guards with the model on, and proves the timing-pinned ones' mismatches benign |
 | `driver/tests/guard_classification_test.py` | 10 tests: the millisecond tripwire that keeps the guard classification from rotting |
 
@@ -137,8 +137,8 @@ says what it *costs*. A test asserts the unit keys are exactly the set of
 silently.
 
 The non-Tensix units have no YAML to sit next to. Their nearest equivalent is
-`tt_sim/arch/profile.py`, which already owns arch-level hardware constants, so
-they live in a new `tt_sim/perf/` package alongside the loader instead of being
+`framework/arch/profile.py`, which already owns arch-level hardware constants, so
+they live in a new `framework/perf/` package alongside the loader instead of being
 crammed into a file named after the Tensix coprocessor.
 
 ## The schema
@@ -228,7 +228,7 @@ so the SFPU needs no per-arch cost override at all.
 
 ## The provenance convention
 
-This is the part that matters. ROADMAP "Positioning" is explicit that tt-sim is
+This is the part that matters. ROADMAP "Positioning" is explicit that Wolfpine is
 a *first-order performance estimator*, not cycle-accurate, because calibrating
 against silicon needs RTL or captured traces that are not publicly available. A
 table of unattributed constants under those conditions is worse than no table:
@@ -408,7 +408,7 @@ which is the point. The `unknown` entries are:
   cost, and nothing consumes it — but rung 1 of the ladder cannot fully pass on
   Blackhole until somebody explains it.
 - **DRAM bank conflicts and refresh windows**, which §I names directly. No
-  source quantifies either, and tt-sim has no DRAM bank model at all, so the
+  source quantifies either, and Wolfpine has no DRAM bank model at all, so the
   device term above is a flat per-request latency and says so. Endpoint
   occupancy is likewise unmodelled: a second request is not queued behind the
   first.
@@ -441,7 +441,7 @@ which is the point. The `unknown` entries are:
   instructions, and `REPLAY` / `MOP`, whose cost is the length of their
   expansion — an instruction field, not a hardware number.
 - **`DMANOP`'s unit.** `tensix_instructions.yaml` marks it `ex_resource: TDMA`
-  (so tt-sim dispatches it to the Miscellaneous Unit) while the ISA docs put it
+  (so Wolfpine dispatches it to the Miscellaneous Unit) while the ISA docs put it
   in the Scalar Unit. Both units give it 1 cycle, so the disagreement is about
   which unit is occupied, not about the cost. It is costed under `THCON` and
   cross-referenced from `TDMA`; a test asserts no instruction is costed twice
@@ -487,7 +487,7 @@ concrete to calibrate, and a ladder of cheaper checks below the silicon one:
    thing that unblocked its DRAM term. **Swept in full, 2026-08-03**: see
    ["Rung 2, swept"](#rung-2-swept-8140-measured-points-60-the-model-is-allowed-to-predict).
    The verdict splits — **climbed for latency, failed for bandwidth** — and the
-   harness is `tt_sim/perf/noc_dataset_sweep.py`. The bandwidth half is closed
+   harness is `framework/perf/noc_dataset_sweep.py`. The bandwidth half is closed
    for DRAM by ["Two queues, not
    one"](#the-contention-dram-is-channel-limited-not-link-limited) and is left
    open, with the arithmetic, for L1.
@@ -504,7 +504,7 @@ Both are built entirely out of `dram.end_to_end_reference` and
 wired Tensix backend units — which are 21 % of `six`'s cycles and the largest
 *sourced* block in either YAML file — have been validated **not at all**, and
 there is no rung between 2 and 4 that would change that: tt-metal ships no
-measured Tensix compute dataset, only a dispatch one, on a path tt-sim does not
+measured Tensix compute dataset, only a dispatch one, on a path Wolfpine does not
 implement. The search is written out in ["There is no rung-3 dataset for Tensix
 compute"](#there-is-no-rung-3-dataset-for-tensix-compute-and-that-changes-what-rung-2-climbed-means),
 including the one near miss (tt-llk's per-op perf harness, which generates the
@@ -519,7 +519,7 @@ to find out what the machinery costs and what the data is worth before either
 spreads.
 
 **How a cost reaches a cycle.** `MatrixUnit.__init__` asks
-`tt_sim.perf.model.unit_cost_model("MATH", arch)` for a model, which is `None`
+`framework.perf.model.unit_cost_model("MATH", arch)` for a model, which is `None`
 unless `TT_SIM_COST_MODEL` is truthy — so with the switch off no YAML is
 parsed, `TensixBackendUnit.clock_tick` reads one `None` attribute per
 instruction, and nothing else changes. With it on, `clock_tick` asks
@@ -579,7 +579,7 @@ first thing this table has actually been *used* to check.
 
 The headline is that **nothing moved**, and that is the correct answer rather
 than a broken one: every matrix op this workload issues is a one-cycle
-occupancy, and tt-sim's one-instruction-per-cycle issue behaviour was already
+occupancy, and Wolfpine's one-instruction-per-cycle issue behaviour was already
 reproducing the ISA docs' 1 IPC by construction. The model's contribution here
 is that this is now *asserted from a document* instead of being an accident of
 the implementation, and that it is measured: 4,096 `MVMUL` cycles is exactly
@@ -626,7 +626,7 @@ tables, and only the FPU's fidelity-scaled ops are a function of unit state.
 
 One thing did have to change in the mechanism. Phase 4's `occupy_for` made an
 occupied unit stop *draining* its queue, but left it still *accepting* into it.
-That is a reordering bug waiting to happen, because tt-sim's frontend treats an
+That is a reordering bug waiting to happen, because Wolfpine's frontend treats an
 instruction as issued the moment a unit accepts it: an instruction parked in an
 occupied unit retires after the thread's *next* instruction has already run in
 a different, idle unit. `TensixBackendUnit.is_occupied` now refuses the issue
@@ -665,7 +665,7 @@ opcode left uncosted: its latency column reads "Complex" because it expands to
 up to four more instructions, and it is also the only way to have more than one
 sub-unit busy at once, so a single number would misrepresent the unit.
 
-### The first multi-cycle instruction in tt-sim
+### The first multi-cycle instruction in Wolfpine
 
 ThCon is where an instruction finally costs more than a cycle. Its published
 occupancies are 1 (`SETDMAREG`), ≥ 2 (`REG2FLOP`, `FLUSHDMA`), "3 or 4" (the
@@ -683,7 +683,7 @@ Two scoping notes, both deliberate:
   its own `clock_tick` override, which never reaches `super()`. That polling is
   the unit *waiting on somebody else*, not retiring its own instruction, and
   the ISA docs' ">= 2" for `FLUSHDMA` is explicitly a floor under exactly that
-  wait — tt-sim already models the wait functionally.
+  wait — Wolfpine already models the wait functionally.
 - **The issuing thread is under-charged relative to the docs**, which say the
   thread cannot start any further instruction *in any unit* until a ThCon
   instruction completes. The model holds the unit, not the thread. That is the
@@ -716,7 +716,7 @@ Two scoping notes, both deliberate:
 > [`tensix-cost-benchmark.md`](tensix-cost-benchmark.md#rdcfg-two-true-facts-about-different-quantities)
 > say so explicitly for that reason.
 
-The config unit was supposed to be a five-minute wire-up: every opcode tt-sim
+The config unit was supposed to be a five-minute wire-up: every opcode Wolfpine
 implements is one cycle except `RDCFG`, which the Wormhole page gives ">= 2".
 Charging that documented 2 makes the `matmulblock` Blackhole guard **compute
 the wrong answer** — 608.0 where the computed golden says 1120.0, on the first
@@ -736,8 +736,8 @@ So what is left is a missing ordering guarantee between a config write and the
 units that read it. Both the hardware and the vendor LLK have machinery for
 exactly this — the ISA docs' config-write visibility rules, and the LLK's
 comment that it pads "to ensure WRCFG instruction has finished, since it takes
-2 cycles" — and tt-sim's config writes land instantaneously, so nothing in
-tt-sim needs that machinery until something makes a config write late. Nothing
+2 cycles" — and Wolfpine's config writes land instantaneously, so nothing in
+Wolfpine needs that machinery until something makes a config write late. Nothing
 ever had, until now.
 
 Two responses were available and only one of them is honest:
@@ -747,7 +747,7 @@ Two responses were available and only one of them is honest:
   provenance convention exists to prevent, buried under a passing test;
 - leave the unit uncosted, record why, and keep the divergence visible.
 
-The second. `UNWIRED_UNITS` in `tt_sim/perf/costs_test.py` names it, a test in
+The second. `UNWIRED_UNITS` in `framework/perf/costs_test.py` names it, a test in
 `backend_cost_model_test.py` pins that the unit is deliberately uncosted and
 explains the reasoning, and the comment sits in `config.py` where the next
 person to reach for `unit_cost_model("CFG", ...)` will read it first.
@@ -755,7 +755,7 @@ person to reach for `unit_cost_model("CFG", ...)` will read it first.
 Worth stating plainly, because it cuts both ways: this is the cost model
 **finding a bug in the simulator** on its second outing, which is an argument
 for the exercise. It is also a warning that every multi-cycle occupancy is a
-timing perturbation, and tt-sim's functional correctness has never had to
+timing perturbation, and Wolfpine's functional correctness has never had to
 survive one before. ThCon's multi-cycle costs pass all 22 Blackhole guards, but
 that is evidence, not a proof, and the next unit wired should expect to have to
 make the same argument.
@@ -814,7 +814,7 @@ narrower. It is not closed, and the remaining 71–99 % is the same three things
 it was before: **baby RISC-V cores retiring one instruction per cycle with no
 memory stalls, a NoC with no per-hop latency, and DRAM that answers
 instantly.** `four` is the clearest evidence — 0.25 % of a 107,400-cycle run is
-Tensix work, so its cycle count is a statement about tt-sim's dataflow
+Tensix work, so its cycle count is a statement about Wolfpine's dataflow
 modelling and nothing else.
 
 The honest reading: what these five units now provide is a *defensible
@@ -823,7 +823,7 @@ mechanism that will produce correct back-pressure the moment something else in
 the model creates enough pressure to need it. A total cycle count is still not
 a prediction, and the next unit that would change that is not a Tensix backend
 unit at all — it is the RISC-V load/store path, whose table
-(`tt_sim/perf/unit_costs.yaml`) is already the most completely sourced section
+(`framework/perf/unit_costs.yaml`) is already the most completely sourced section
 in the file and has no consumer.
 
 ### Which units are not wired, and why
@@ -844,7 +844,7 @@ in the file and has no consumer.
   still **not** charged, for want of a sourced sharing rule.
 - ~~**Mover (`XMOV`).**~~ **Wired 2026-08-06**, in the same instalment. Its
   1-cycle entry is the *issue* cost once the mover is free; the transfer
-  duration is bandwidth-derived and lives in `tt_sim/perf/unit_costs.yaml`
+  duration is bandwidth-derived and lives in `framework/perf/unit_costs.yaml`
   under `mover`, alongside a measured ideal and contended rate. Both halves are
   now charged — the ideal rate only, since nothing sources when contention
   applies.
@@ -853,7 +853,7 @@ in the file and has no consumer.
   the allow-list in `costs_test.py` is more useful if it means "a unit somebody
   reasoned about" than "a unit somebody imported".
 
-`UNWIRED_UNITS` in `tt_sim/perf/costs_test.py` names the one that remains, and
+`UNWIRED_UNITS` in `framework/perf/costs_test.py` names the one that remains, and
 a test asserts every unit in the table with a `backend:` file is on exactly one
 of the two lists — so a unit cannot fall off both.
 
@@ -904,7 +904,7 @@ reason: the unit is never contended. Nothing else in the run is trying to issue
 into the config unit in the cycle after a `CFGSHIFTMASK`.
 
 **One test did have to change, and it is worth naming.** The back-pressure is
-real, and `tt_sim/pe/tensix/blackhole_ops_test.py` found it: its `_issue`
+real, and `framework/pe/tensix/blackhole_ops_test.py` found it: its `_issue`
 helper called `clock_tick(0)` for every instruction, so the cycle number never
 advanced and a `busy_until` of 2 could never expire — the second
 `CFGSHIFTMASK` in a test was refused for ever. That is a defect in a helper
@@ -932,8 +932,8 @@ the table. `config.py` says so at the point of use.
 > both before and after.
 
 **The divergence the original bug exposed is still not fixed**, only
-unreachable, and that has not changed: nothing in tt-sim orders a config write
-against the units that read it, because tt-sim's config writes land instantly
+unreachable, and that has not changed: nothing in Wolfpine orders a config write
+against the units that read it, because Wolfpine's config writes land instantly
 and no table entry now makes one late. `CFGSHIFTMASK` holds the unit only
 *behind* its own already-committed write. A future entry that delayed a
 `SETC16` or a `WRCFG` would meet the same missing guarantee, and it would look
@@ -1106,8 +1106,8 @@ refusal directly. Nothing it was testing about the pump changed.
 ## The RISC-V cores, where the cycles finally moved
 
 Wired 2026-08-03, following the sentence the section above ends on. The whole
-`riscv` block of `tt_sim/perf/unit_costs.yaml` is `isa_doc`; the consumer is
-`tt_sim/pe/rv/cost.py` (the only file outside `tt_sim/perf/` on the RV side
+`riscv` block of `framework/perf/unit_costs.yaml` is `isa_doc`; the consumer is
+`framework/pe/rv/cost.py` (the only file outside `framework/perf/` on the RV side
 that names the tables at all), reached from `RV32I.clock_tick` through one
 attribute read.
 
@@ -1140,7 +1140,7 @@ Three things *are* occupancy and are charged as such:
 ### What is charged nothing, and why each is a gap not an omission
 
 - **Branch mispredicts.** Sourced (a 2-cycle bubble on Wormhole, 4 on
-  Blackhole) and *uncountable*: nothing in the ISA docs or in tt-sim describes
+  Blackhole) and *uncountable*: nothing in the ISA docs or in Wolfpine describes
   the predictor, so the number of mispredictions is unknowable. Charging every
   taken branch would be a fabrication. `RiscvCostModel.branch_mispredict_observed`
   keeps the number reachable so a report can name the predictor as the gap.
@@ -1149,7 +1149,7 @@ Three things *are* occupancy and are charged as such:
   different block. The NIU registers are what every `noc_async_*_barrier`
   polls, so this is the busiest MMIO load in the tree and it is uncosted;
   charging it the overlay's number would be a guess with a citation stapled to
-  it. `RV_UNNAMED_REGIONS` in `tt_sim/perf/model.py` lists this and the three
+  it. `RV_UNNAMED_REGIONS` in `framework/perf/model.py` lists this and the three
   other unnamed blocks (MOP expander config, instruction RAM, the Tensix
   instruction push buffers).
   **— Retracted 2026-08-06, and this whole bullet was wrong.** That row's cell
@@ -1158,7 +1158,7 @@ Three things *are* occupancy and are charged as such:
   block is charged the row's 7. See ["The NIU register
   block"](#the-niu-register-block-the-number-was-in-the-table-under-the-wrong-key).
 - **Blackhole's L1 miss.** Blackhole's table gives L1 two latencies — 2 on an
-  L0 d-cache hit, ≥ 8 on a miss — and tt-sim models no d-cache and no hit rate
+  L0 d-cache hit, ≥ 8 on a miss — and Wolfpine models no d-cache and no hit rate
   is published anywhere. The pair is charged at its **low end**, like every
   other two-ended cost in these files. See the sensitivity check below, which
   is why that choice turns out not to matter much.
@@ -1261,7 +1261,7 @@ total is not a prediction:
 
 The honest headline is narrower than "cycle counts moved": what moved is the
 part of a run that is *issue-limited*, and almost none of these workloads are.
-The RV interlock is the first mechanism in tt-sim that can express a memory
+The RV interlock is the first mechanism in Wolfpine that can express a memory
 stall at all, and the measurement says the next thing worth building is the
 NoC hop model — not because the RV model is wrong, but because the time these
 runs spend is spent waiting for other cores, and what those cores are waiting
@@ -1280,7 +1280,7 @@ no such field. It is unreachable while every unit retires in the tick it was
 issued; delaying a TRISC by a few cycles is enough to produce the mixed queue.
 Fixed by skipping entries that do not carry the field (a queued `SEMWAIT`
 cannot conflict over a mutex it does not name), with a regression test in
-`tt_sim/pe/tensix/sync_mixed_queue_test.py`. The fix cannot change any run that
+`framework/pe/tensix/sync_mixed_queue_test.py`. The fix cannot change any run that
 did not previously crash, and the model-off gates are unmoved.
 
 The same read turned up a **second, separate bug that is deliberately not
@@ -1360,7 +1360,7 @@ With the model *on*, `four` costs ~8 % more wall clock.
 Wired 2026-08-03, following the sentence the section above ends on, and it is
 the first term in this file that is **not a unit cost at all**: the answer is a
 function of the *distance between two endpoints*, not of an opcode. The
-consumer is `tt_sim/network/tt_noc.py`; the table supplies two constants and
+consumer is `framework/network/tt_noc.py`; the table supplies two constants and
 nothing else.
 
 The whole model:
@@ -1393,7 +1393,7 @@ Three consequences, all pinned in `noc_cost_model_test.py`:
   exactly `grid_x + grid_y` — 22 hops on Wormhole, 29 on Blackhole — *whatever*
   the distance between them. That constant is what makes the calibration check
   below well defined.
-- **NoC 1 is the same formula in the mirrored space.** tt-sim already gives an
+- **NoC 1 is the same formula in the mirrored space.** Wolfpine already gives an
   `NUI` on NoC 1 the coord `(grid-1-x, grid-1-y)`; mirroring both endpoints
   negates `dx` and `dy`, which *is* the reversal of routing direction. So
   `hops_noc1(a, b) == hops_noc0(b, a)` falls out with no special case, and the
@@ -1403,7 +1403,7 @@ Three consequences, all pinned in `noc_cost_model_test.py`:
 The coordinates fed in are each endpoint's **per-NoC** coord (`NUI.x_coord` /
 `y_coord`), never `id_pair` — which is the canonical NoC 0 coord on *both*
 NoCs. This is the same distinction the response-routing fix in
-`tt_sim/network/tt_noc.py` turns on, and it is why the latency lives in
+`framework/network/tt_noc.py` turns on, and it is why the latency lives in
 `NUI.send_to`: the *sender* times the flight, from two endpoint objects, so no
 coordinate lookup was reintroduced and nothing had to be carried across
 coordinate spaces. A `NullEndpoint` (an unmodelled destination) has no clock of
@@ -1584,7 +1584,7 @@ wrong"](#the-fifo-that-was-one-multi-destination-kernel-away-from-being-wrong).)
 Wired 2026-08-03, the step the section above ranks next, and the first entry in
 these files that **no document publishes**. Every number charged before this
 one could be pointed at in a source; this one is arithmetic, and most of the
-work was deciding what that makes it. The consumer is `tt_sim/device/tiles.py`;
+work was deciding what that makes it. The consumer is `framework/device/tiles.py`;
 the table supplies one integer.
 
 ### Where it goes, and why that is not the NoC
@@ -1746,7 +1746,7 @@ sources.)
 Named rather than implied, because "DRAM cost model" sounds like it covers
 them and ROADMAP §I asks for two of them by name:
 
-- **Bank conflicts.** Not modelled. tt-sim has no DRAM bank model at all and
+- **Bank conflicts.** Not modelled. Wolfpine has no DRAM bank model at all and
   the ISA docs publish no bank geometry or conflict cost for the DRAM tile.
 - **Refresh windows.** Not modelled, unpublished — and not even this shape,
   being periodic rather than per-request.
@@ -1827,7 +1827,7 @@ costs for the same transaction (99 against 218), which is the ratio tt-metal's
 own measurements assert (358 against 259) and not something this model chose.
 
 **More plausible, narrowly.** What has improved is *attribution*, not
-prediction. Before this, a DRAM read and an L1 read cost the same in tt-sim
+prediction. Before this, a DRAM read and an L1 read cost the same in Wolfpine
 once they were the same distance away, which is a statement no source supports
 and one that two vendor measurements directly contradict. Now the difference
 between them is the measured difference. That is a real gain and it is the
@@ -1885,7 +1885,7 @@ this file recorded before the change (9,781 / 7,113 / 7,109 / 6,812 / 19,290 /
 
 Wired 2026-08-03, and it closes the gap the hop-model section named first: *"a
 32-byte semaphore poke and an 8 KiB tile read cost the same flight time"*. The
-consumer is the same file, `tt_sim/network/tt_noc.py`; the table supplies one
+consumer is the same file, `framework/network/tt_noc.py`; the table supplies one
 more constant, and the interesting part is that the constant is not a latency
 and cannot be spent as one.
 
@@ -1940,7 +1940,7 @@ policy asks for:
 
 And one place the model could easily have over-charged and does not: **a
 multicast write is injected once**. The hardware fans a single packet out in
-the routers; tt-sim models it as N unicasts, so claiming the injection port N
+the routers; Wolfpine models it as N unicasts, so claiming the injection port N
 times would invent serialisation the hardware does not have. The rectangle
 claims the port once and every copy shares the wait
 (`NUI.claim_injection_port`).
@@ -2340,8 +2340,8 @@ Landed 2026-08-03, immediately after the instalment above, and it is the first
 change in this file that **adds no cost, consumes no table and moves no
 cycle**. It adds one thing: a harness that asks the assembled model to predict
 somebody else's measurements and prints how badly it does.
-`tt_sim/perf/noc_dataset_sweep.py` (runnable, `--arch`, degrades gracefully
-without tt-metal) and `tt_sim/perf/noc_dataset_sweep_test.py` (29 tests, the
+`framework/perf/noc_dataset_sweep.py` (runnable, `--arch`, degrades gracefully
+without tt-metal) and `framework/perf/noc_dataset_sweep_test.py` (29 tests, the
 ones needing the dataset skipped without it).
 
 The section above climbed rung 2 *partially*, by **differencing**: the
@@ -2397,12 +2397,12 @@ test asserts every rule carries one.
 | Rule | Why the model may not be asked | Removes | Leaves |
 | --- | --- | --- | --- |
 | `arch` | swept one at a time | 390 / 350 | 350 / 390 |
-| `mechanism != UNICAST` | tt-sim models a multicast as N unicasts sharing one injection port; router fan-out and the arbitration between copies are not modelled | 150 / 170 | 200 / 220 |
+| `mechanism != UNICAST` | Wolfpine models a multicast as N unicasts sharing one injection port; router fan-out and the arbitration between copies are not modelled | 150 / 170 | 200 / 220 |
 | `pattern ∉ {ONE_FROM_ONE, ONE_TO_ONE}` | every other pattern has ≥ 2 concurrent initiators or targets sharing links, i.e. **congestion** (`noc.congestion`, `provenance: unknown`), and sweeps grids whose per-core distances the dataset does not record | 150 / 170 | 50 / 50 |
 | `num_transactions per barrier ≠ 1` | N > 1 is a pipelined burst, set by the initiator's outstanding-transaction credits and the kernel loop's per-transaction issue cost. Neither is modelled | 40 | 10 |
-| `stateful` | an issue-side optimisation; tt-sim charges no NoC register configuration cost, so it would predict both identical by construction | 4 | 6 |
+| `stateful` | an issue-side optimisation; Wolfpine charges no NoC register configuration cost, so it would predict both identical by construction | 4 | 6 |
 | `loopback` | a multicast-linked feature; nothing expresses it | 0 | 6 |
-| `memory == DRAM_INTERLEAVED` | pages round-robin over 12 channels at different distances; tt-sim has one DRAM tile and no interleaving model | 0 | 6 |
+| `memory == DRAM_INTERLEAVED` | pages round-robin over 12 channels at different distances; Wolfpine has one DRAM tile and no interleaving model | 0 | 6 |
 
 Then one **data-provenance** exclusion, which is about the file rather than the
 model: a DRAM row's 16 / 32 / 64 KiB columns are not measurements.
@@ -2415,12 +2415,12 @@ repeating the last value — visible in the raw data as a flat tail (`733, 733,
 the dataset, and the number is worth staring at rather than hurrying past: it
 is the honest price of a model with no congestion term, no multicast fan-out
 and no issue-loop model. 99.3 % of the most detailed public NoC measurement
-that exists is asking questions tt-sim cannot be asked yet.
+that exists is asking questions Wolfpine cannot be asked yet.
 
 ### What the residual is supposed to be, stated before looking
 
 The model predicts the NoC round trip and the endpoint's service time. The
-measurement additionally contains the issuing core's own path, which tt-sim
+measurement additionally contains the issuing core's own path, which Wolfpine
 does not charge for at all — the NIU register block was on
 `RV_UNNAMED_REGIONS` at the time, and this harness drives the initiator's
 registers directly rather than running a kernel. (The block is charged from
@@ -2700,7 +2700,7 @@ is the only thing that changes:
 
 14× the cores buys 3.4× the aggregate bandwidth on Wormhole and 28× buys 6.0×
 on Blackhole, so the per-core share falls ~4× on both. **Any congestion model
-tt-sim ever gains has to reproduce that curve**, and that is precisely the
+Wolfpine ever gains has to reproduce that curve**, and that is precisely the
 "validate, not derive" role this file gave rung 2 in the first place.
 
 **What would derive one**, on a card, from tt-metal's own
@@ -2727,8 +2727,8 @@ this list, so it is where a reader of the null result finds the next step.
 ### Addendum, 2026-08-05: the list above is now a harness, and one item of it was wrong
 
 The four microbenchmarks the addendum lists as "what would derive one" are now
-`perfbench/nocbench`, planned by `tt_sim/perf/noc_congestion_plan.py` and read
-back by `tt_sim/perf/noc_congestion_sweep.py`. Three things came out of building
+`perfbench/nocbench`, planned by `framework/perf/noc_congestion_plan.py` and read
+back by `framework/perf/noc_congestion_sweep.py`. Three things came out of building
 it, and two of them are corrections to the list rather than confirmations of it.
 
 **It could not be tt-metal's data_movement suite, and the reason is exact.**
@@ -2766,7 +2766,7 @@ than to solve, and `check_invariants` refuses a plan in which anything else
 moved. On Blackhole the search finds eight points, shared links 0 through 7,
 with flow A identical at every one of them.
 
-**What a simulator run showed.** tt-sim models no router-to-router congestion,
+**What a simulator run showed.** Wolfpine models no router-to-router congestion,
 so the experiment is forced flat there; the point of running it is that
 everything *else* is exercised. Two results and one gap:
 
@@ -2781,7 +2781,7 @@ everything *else* is exercised. Two results and one gap:
 * the run's verdict is `INVALID`, and correctly. The self-port control — two
   flows on one core's two data-movement RISCs, same NoC, starting on the same
   cycle and overlapping fully — costs 868 cycles alone and 868 / 798 together.
-  **tt-sim's `NUI._tx_free_cycle` does not serialise two baby cores on one
+  **Wolfpine's `NUI._tx_free_cycle` does not serialise two baby cores on one
   injection port**, so the one contention mechanism the model has is inert on
   this path. That is a gap in the simulator, not in the harness, and the harness
   refusing to call its flat shared-link reading "no congestion effect" under
@@ -2799,7 +2799,7 @@ measurement on one part, not a published number.
 
 The claim above — that `NUI._tx_free_cycle` fails to serialise two baby cores
 sharing an injection port — is **false**, and the reading that produced it is
-not evidence about any hardware. Nothing in `tt_sim/` changed as a result;
+not evidence about any hardware. Nothing in `framework/` changed as a result;
 this section exists so that the next reader does not "fix" a working model.
 
 **What the simulator actually does.** Instrumenting `claim_injection_port` and
@@ -2844,7 +2844,7 @@ harness resolves the injection port perfectly well; what it cannot resolve is
 that port through a 1-vs-2 ratio whose timed region ends on a shared ack
 counter. A control that reads the same whether or not the effect exists is not
 evidence either way, and the card's **1.00** is the same non-reading as
-tt-sim's 0.96.
+Wolfpine's 0.96.
 
 The reason the ratio barely moves is worth stating, because it is a design
 lesson for the replacement: at four transactions the region is dominated by the
@@ -2872,7 +2872,7 @@ Tenstorrent's own reference simulator holds exactly that shape:
 `src/sim.h` declares `noc_targ_addr_lo[NUM_NOCS][NUM_CMD_BUFS]` and
 `noc_packet_tag[NUM_NOCS][NUM_CMD_BUFS]` — indexed by NoC and command buffer,
 never by RISC — and `niu_mst_wr_ack_received[NUM_NOCS]`, one master ack counter
-per NoC per tile. tt-sim's one `NUI` per NoC per tile, with one
+per NoC per tile. Wolfpine's one `NUI` per NoC per tile, with one
 `_tx_free_cycle`, is the same structure. **No serialisation rule was invented
 and none was needed.**
 
@@ -2945,7 +2945,7 @@ naive regression gives, at r2 0.39 — would describe a machine that does not
 exist.
 
 **Why no number goes into the tables.** The cost model charges a hop count and
-an injection port. A term of this shape needs a quantity nothing in `tt_sim`
+an injection port. A term of this shape needs a quantity nothing in `framework`
 computes: for each flow, the maximum over the links on its route of the number
 of concurrent saturating flows crossing that link — a per-link flow census,
 maintained over time, which is a scheduler and not a coefficient. Writing 248
@@ -3004,7 +3004,7 @@ not:
 
 * it is **not** the virtual channel — every one of those 79 completed flows
   issued its writes on VC 0, which is the channel the hung point was on;
-* it is **not** the kernel — tt-sim runs the identical binary and the identical
+* it is **not** the kernel — Wolfpine runs the identical binary and the identical
   plan (64 × 4096 B, bidirectional, VC 0–3) to completion in 4958 cycles, so
   there is no logic error to find;
 * it is not unknown territory upstream: tt-metal's own `core_bidirectional`
@@ -3015,7 +3015,7 @@ not:
 * **the cause is not established.** The `==`-against-a-monotonic-counter
   overshoot the retraction above identifies needs *two* issuers on one NIU, and
   the `vc` point has one, so that specific mechanism is the `selfport` hazard
-  and not this one. tt-sim models no virtual channels, no NoC buffer
+  and not this one. Wolfpine models no virtual channels, no NoC buffer
   back-pressure and no request/response buffer coupling, which is the family a
   bidirectional deadlock would belong to — so the simulator is blind to it by
   construction and the diagnosis needs the card.
@@ -3058,7 +3058,7 @@ flows contend, it does not say *where*. Two response streams leaving one tile
 share the first router-to-router link out of it as well as the port, and on
 silicon those are one reading. That is all a positive control has to do;
 attribution is experiment 2's job, and experiment 2 is what produced the result
-banked above. On tt-sim the two are separable, because tt-sim charges nothing
+banked above. On Wolfpine the two are separable, because Wolfpine charges nothing
 whatever for a router-to-router link — which is what makes the ablation above a
 clean test.
 
@@ -3092,7 +3092,7 @@ prose:
    `test_a_real_l1_round_trip_costs_what_the_tables_compose_to` runs the real
    device against the closed form for both arches, both geometries and three
    sizes including the 8-chunk 64 KiB case, so a harness that drifted from
-   `tt_sim/network/tt_noc.py` would fail rather than quietly report agreement
+   `framework/network/tt_noc.py` would fail rather than quietly report agreement
    with itself.
 
 ## The gate
@@ -3121,8 +3121,8 @@ Three stages, all with `TT_SIM_COST_MODEL=1` in the environment of every
 subprocess it spawns (the model is read once, when a unit is constructed, so
 process isolation is the only honest way to set it):
 
-1. **`pytest tt_sim -q`** — the simulator's own unit tests under the model.
-   `tt_sim` and not `tt_sim driver`, because the driver tree is where the
+1. **`pytest framework -q`** — the simulator's own unit tests under the model.
+   `framework` and not `framework driver`, because the driver tree is where the
    timing-pinned guards live and stage 3 handles those.
 2. **Every budget-independent guard** (28), each as its own `python3 -m …`
    process.
@@ -3299,7 +3299,7 @@ tests — the premise (`test_every_trace_really_does_end_in_reset_then_exit`) an
 the technique (`test_the_prover_never_pumps_after_the_replay`).
 
 **Stands: a timing pin outside the replay guards.**
-`tt_sim/network/noc_routing_test.py::test_noc1_responses_return_to_the_issuing_worker`
+`framework/network/noc_routing_test.py::test_noc1_responses_return_to_the_issuing_worker`
 failed under the model while the NoC hop model was landing, and that one *is* an
 artefact of the same family: the test drives a DRAM round trip and pumps
 `device.run(16)`, a hardcoded cycle budget that a per-hop latency model of
@@ -3618,7 +3618,7 @@ looking for one:
   `pgm_dispatch_golden.json` (472 entries) and its Blackhole twin (460), plus
   three `benchmark_rw_buffer_*_golden.json` (56 / 44 / 180 entries). The first
   pair times `EnqueueProgram` with a deliberately empty kernel — it is pure
-  command-queue overhead, a path tt-sim does not implement at all, since only
+  command-queue overhead, a path Wolfpine does not implement at all, since only
   direct `LaunchProgram` is supported. The second three are host↔device buffer
   `bytes_per_second`.
 - `1_compute_mm/test_compute_mm.cpp` ships no reference cycles. Its ~20
@@ -3686,7 +3686,7 @@ that made every other term unobservable, and it was un-measured. It is now
 measured. This section says exactly what that buys.
 
 The measurement is `perfbench/riscvbench` on a Blackhole card, 2026-08-05, two
-runs, banked in `tt_sim/perf/datasets/`. The design, the method and the full
+runs, banked in `framework/perf/datasets/`. The design, the method and the full
 running record are in
 [`riscv-front-end-benchmark.md`](riscv-front-end-benchmark.md); the findings
 that are about the *chip* rather than about this model are collected in
@@ -3702,7 +3702,7 @@ end"*. `TensixFrontend.push_mop_instruction` is an unbounded list append and
 `RV_TT_ISA.run` writes the rotated instruction word and returns in the same
 tick, so **no Tensix unit can back-pressure the core that fed it**, whatever
 occupancy the tables charge it. `tensixbench` says the same thing from the
-measurement side: against tt-sim, every phase A probe of every unit at every
+measurement side: against Wolfpine, every phase A probe of every unit at every
 data format reads exactly 1.000 cycles per instruction, a number its own harness
 calls *forced* rather than informative.
 
@@ -3807,12 +3807,12 @@ to wait.
 ### Is the ~377-cycles-in-flight figure solid enough to build on?
 
 It is the number the previous instalment quoted as this gap's headline, and it
-came from **tt-sim, not silicon** — the simulator, with the cost model on, at a
+came from **Wolfpine, not silicon** — the simulator, with the cost model on, at a
 128-instruction burst: 128 cycles seen by the core against 505 for the work.
 Silicon's equivalent is **~92 cycles**, about 31 instructions, and the two are
 not comparable in the way the phrasing invites:
 
-- tt-sim's 377 is what an **unbounded** queue does. It is a lower bound on
+- Wolfpine's 377 is what an **unbounded** queue does. It is a lower bound on
   nothing and an upper bound on nothing; it grows linearly with the burst
   because the list has no end, and it would have been 3,000 at a 1,024-burst.
 - Silicon's 92 is what a **real** queue does at the longest burst this benchmark
@@ -3822,7 +3822,7 @@ not comparable in the way the phrasing invites:
 **So: build on the direction, not on the figure.** What is solid is that the
 in-flight work is *large and grows with the burst* on both, i.e. the gap is real
 and is not a rounding artefact; and that on silicon it *stops* growing once
-enough threads are issuing, which tt-sim can never reproduce. What is not solid
+enough threads are issuing, which Wolfpine can never reproduce. What is not solid
 is any specific capacity. A model calibrated to 377 would be calibrated to the
 simulator's own unboundedness, which is the thing being fixed.
 
@@ -3860,7 +3860,7 @@ then rather than by drift now. Nothing in this instalment pre-empts it.
 
 ### What changed in the repository
 
-- Two datasets tracked in `tt_sim/perf/datasets/`, each with card, firmware, KMD
+- Two datasets tracked in `framework/perf/datasets/`, each with card, firmware, KMD
   (**2.10.0**, against 2.9.0 on the `tensixbench` datasets — the driver moved
   between campaigns), flags, row count and **per-phase validity** in its own `#`
   header. `riscvbench-blackhole-blocks8.csv` is tracked *because every one of
@@ -3888,7 +3888,7 @@ Two more Blackhole runs, on the corrected geometry the previous instalment's
 complaints in both**, which is what the previous campaign — eight mismatched
 rows out of 79, four of its eight shared-link counts wrong — could not say. The
 measurements are banked in `docs/bh_arch.md` §4 and the datasets in
-`tt_sim/perf/datasets/`; this section is the running record of what they are
+`framework/perf/datasets/`; this section is the running record of what they are
 allowed to change here, and the answer is **one verdict and no cycles**.
 
 The two runs are two *different plans* and are never averaged:
@@ -3970,7 +3970,7 @@ rest. That is a materially different position from the previous instalment's,
 which expected any congestion term to be `vendor_source` at best.
 
 **Is it wired? No.** Not because a number is missing but because three
-structural things in `tt_sim/network/tt_noc.py` are, and they are named here so
+structural things in `framework/network/tt_noc.py` are, and they are named here so
 that the next instalment is a build rather than a rediscovery:
 
 1. **There is no per-link state, anywhere.** `send_to` computes a flight time
@@ -3982,11 +3982,11 @@ that the next instalment is a build rather than a rediscovery:
    order.** A link's identity needs one. Dimension-ordered X-then-Y on a
    directional torus is what the docs describe and what
    `noc_congestion_plan.route_links` already implements and tests — but it is
-   implemented in `tt_sim/perf/`, for planning an experiment, and promoting it
+   implemented in `framework/perf/`, for planning an experiment, and promoting it
    into the network layer makes the routing order load-bearing for every
    simulated cycle for the first time.
 3. **Multicast would over-charge, and it is the tree's most common packet.**
-   tt-sim models a multicast write as N unicasts; claiming link occupancy once
+   Wolfpine models a multicast write as N unicasts; claiming link occupancy once
    per destination would invent serialisation the hardware does not have, on
    the launch-message path every tt-metal program uses. That is the exact
    over-charge `claim_injection_port` was given its odd signature to avoid, and
@@ -4065,10 +4065,10 @@ EFFECT`, unchanged, which is the forced null it has always been.
 
 ### What changed in the repository
 
-- Three datasets tracked in `tt_sim/perf/datasets/` — the two silicon runs and
+- Three datasets tracked in `framework/perf/datasets/` — the two silicon runs and
   the card's own core map — each with its harvesting, its campaign and the
   (11, 2) clock offset in its own `#` header.
-  `python3 -m tt_sim.perf.noc_congestion_sweep` now defaults to the main run,
+  `python3 -m framework.perf.noc_congestion_sweep` now defaults to the main run,
   so the analysis reproduces with no hardware.
 - One `corroboration`, on `arch_overrides.blackhole.noc`: 64 B/cycle per link,
   measured twice off two different resources (the NIU's own port and a
@@ -4194,7 +4194,7 @@ of those: two masters reading one subordinate contend on that tile's injection
 port *and* on the first link out of it, and the model charges only the port,
 because packets leaving one NIU are already spaced by it. On silicon those two
 resources are one reading; here they are separable, and this says which one
-tt-sim is spending.
+Wolfpine is spending.
 
 A second run at 32 transactions per flow sweeps the shared-link count:
 **75.1 / 132.1 / 137.8 / 138.0** cycles/tx at 0 / 1 / 2 / 3 shared links. The
@@ -4239,7 +4239,7 @@ all three counters stay at zero.
 ### What broke
 
 Three pieces of prose that were true when written and became false the moment
-the term was wired, all of them saying "against tt-sim a shared-link reading
+the term was wired, all of them saying "against Wolfpine a shared-link reading
 MUST be flat":
 
 - `noc_congestion_sweep`'s module docstring and its `NO CONGESTION EFFECT`
@@ -4259,13 +4259,13 @@ Nothing else broke. 983 tests pass (967 before, 16 added), ruff is clean, and
 
 ### What changed in the repository
 
-- `NocLinkRegistry` and `noc_route_links` in `tt_sim/network/tt_noc.py`;
+- `NocLinkRegistry` and `noc_route_links` in `framework/network/tt_noc.py`;
   `NUI.route_links_to` / `claim_route_links`; `send_to` and `_bandwidth_delay`
   gained a `link_wait`; the multicast path claims its tree once.
 - `TT_Device.noc_link_registries`, handed out in `_register_tile_internals`.
-- `tt_sim/perf/noc_congestion_plan.route_links` is now the simulator's
+- `framework/perf/noc_congestion_plan.route_links` is now the simulator's
   function rather than a second copy of it.
-- `tt_sim/network/noc_link_congestion_test.py` — 16 tests: one per blocker,
+- `framework/network/noc_link_congestion_test.py` — 16 tests: one per blocker,
   the inertness property, the opt-in, the registry's own arithmetic, and the
   three measurement shapes (step, absence below the issue loop, flatness
   beyond the first link).
@@ -4292,7 +4292,7 @@ extension and a plain `sw` to the push buffer, which already had the
 same instruction with the PC unmoved. The mechanism is **active regardless of
 `TT_SIM_COST_MODEL`**, because it is a correctness property first: on silicon
 a thread's FIFO fills behind a permanently blocked backend instruction and
-the core wedges; tt-sim used to run the kernel to completion past the wedged
+the core wedges; Wolfpine used to run the kernel to completion past the wedged
 unit (the `UNPACR_NOP` acquire-without-release case).
 
 **The bound is a mechanism parameter, not a calibration, and its comment says
@@ -4375,7 +4375,7 @@ end-of-thread sync until the coprocessor is done), so the *total* was already
 charged; what the bound changes is when the **core** retires its
 instructions, i.e. what a kernel's own timed region sees. That is precisely
 the quantity `tensixbench` phase A measures — the row that read a forced
-1.000 against tt-sim now reads the unit's occupancy, which was the entire
+1.000 against Wolfpine now reads the unit's occupancy, which was the entire
 point of ROADMAP item 1. The instalment that makes a *total* move is item 5
 (unpacker and mover occupancy), which this unblocks: those units' costs land
 on the dataflow path, not behind a drain the total already waits for.
@@ -4394,15 +4394,15 @@ example replay, unmodified), all 26 Blackhole value guards.
 
 ### What changed in the repository
 
-- `tt_sim/pe/tensix/frontend.py` — `CORE_PUSH_INFLIGHT_BOUND` (the documented
+- `framework/pe/tensix/frontend.py` — `CORE_PUSH_INFLIGHT_BOUND` (the documented
   uncalibrated bound) and the refusing `TensixFrontend.write`.
-- `tt_sim/pe/rv/isa/tt_isa.py` — a `.ttinsn` store whose write returns
+- `framework/pe/rv/isa/tt_isa.py` — a `.ttinsn` store whose write returns
   `MemoryStall` returns `PEStall`; the `sw` path already did.
-- `tt_sim/pe/tensix/backends/backend_base.py` — acceptance-anchored occupancy
+- `framework/pe/tensix/backends/backend_base.py` — acceptance-anchored occupancy
   arming; round-robin grant under contention.
-- `tt_sim/device/deadlock.py` — `UnitWedgedError`, raised by the terminal
+- `framework/device/deadlock.py` — `UnitWedgedError`, raised by the terminal
   wedge check after its report.
-- `tt_sim/pe/tensix/frontend_backpressure_test.py` — 9 tests: the bound, the
+- `framework/pe/tensix/frontend_backpressure_test.py` — 9 tests: the bound, the
   never-refused internal pushes, the PEStall translation, the ROADMAP-named
   dvalid-twice-blocks-the-core case, and the licensed arithmetic (push at
   1.000, ThCon at 3.0, model-off control at 1.0, three threads at ~3× each).
@@ -4414,7 +4414,7 @@ example replay, unmodified), all 26 Blackhole value guards.
 Landed 2026-08-06 — ROADMAP item "Silicon-backed RV cost fixes", the three
 under-charges `perfbench/riscvbench` found on Blackhole silicon
 (`docs/plans/riscv-front-end-benchmark.md`). Each is small, each is in
-`tt_sim/pe/rv/cost.py` territory, and they share one gate run because they
+`framework/pe/rv/cost.py` territory, and they share one gate run because they
 share one instalment; nothing else moved. All three are Blackhole-scoped by
 *data* rather than by an arch string: each mechanism engages only where the
 tables publish what it needs, and Wormhole publishes none of it — its
@@ -4529,7 +4529,7 @@ Against the silicon rows the three probes now read, in simulation:
 still 6 at any magnitude (silicon 33.001 at the benchmark's operand,
 deliberately). `riscv_bench_sweep`'s predictions are unchanged by
 construction — they read the YAML, which gained no number — and its two
-notes claiming tt-sim under-charges the first two rows are updated to say
+notes claiming Wolfpine under-charges the first two rows are updated to say
 the simulator now agrees.
 
 ### The gate
@@ -4539,7 +4539,7 @@ all 36 budget-independent value guards (`six` PCC 0.9982 unmoved, both
 `pipestall`s, `twolaunch` clean), and all three budget-dependent guards
 proven clean on the poll-budget ladder (`dramtop` at 1×, `two` at 2×,
 `blackhole/offline` at 4× — the same multiples as the previous instalment).
-Model off: the full `pytest tt_sim/ driver/` run is untouched — 39 driver
+Model off: the full `pytest framework/ driver/` run is untouched — 39 driver
 guards, every byte-identical Wormhole replay unmodified. One repair to the
 gate's own instrument, found because this run tripped it:
 `test_the_cost_tables_have_exactly_the_consumers_we_expect` filtered agent
@@ -4550,25 +4550,25 @@ always meant.
 
 ### What changed in the repository
 
-- `tt_sim/perf/model.py` — `RiscvCostModel.multiply_latency`,
+- `framework/perf/model.py` — `RiscvCostModel.multiply_latency`,
   `l0_lines` / `l0_line_bytes` / `l1_load_miss_latency` (each `None` where
   unpublished); the `_LOAD_LATENCY_KEYS` / `_L1_DCACHE_MISS_KEYS` comments
   now describe the residency split.
-- `tt_sim/pe/rv/cost.py` — the four-tag L0 line model (`_l0_load`, store
+- `framework/pe/rv/cost.py` — the four-tag L0 line model (`_l0_load`, store
   invalidation, fence/atomic flush, `l0_hits`/`l0_misses` in `summary()`),
   the multiply scoreboard entry, and the re-search of the divide formula
   recorded in the module docstring.
-- `tt_sim/pe/rv/cost_test.py` / `tt_sim/perf/model_test.py` — pins for all
+- `framework/pe/rv/cost_test.py` / `framework/perf/model_test.py` — pins for all
   three: chain at 2 on BH and unchanged on WH; cold miss / warm hit / 5-line
   chase always-miss / 4-line loop always-hit / store flush / fence flush /
   WH untouched; divide at the floor at the benchmark's own 29-bit operand.
-- `tt_sim/perf/unit_costs.yaml` — prose only (the `l0_data_cache` note's
+- `framework/perf/unit_costs.yaml` — prose only (the `l0_data_cache` note's
   "NOTHING CHARGES THIS" is no longer true and now names both consumers; the
   multiply and L1-row corroborations record what the simulator now reads
   against them). **No cycle count, bound or provenance changed.**
-- `tt_sim/perf/riscv_bench_sweep.py` prose, `docs/bh_arch.md` §1.6 — the
+- `framework/perf/riscv_bench_sweep.py` prose, `docs/bh_arch.md` §1.6 — the
   under-charge notes updated to "the simulator now agrees".
-- `tt_sim/perf/costs_test.py` — the worktree-path repair to the
+- `framework/perf/costs_test.py` — the worktree-path repair to the
   consumer-pinning scan described under "The gate".
 
 ## Unpacker and mover occupancy: the last two units, and the first cost that is a function of the transfer
@@ -4576,7 +4576,7 @@ always meant.
 Landed 2026-08-06 — ROADMAP item "Unpacker and mover occupancy", the two
 Tensix backend units the cost tables have carried data for since the
 beginning and deliberately not charged. `UNWIRED_UNITS` in
-`tt_sim/perf/costs_test.py` is now **one entry** (`TDMA`, all-1-cycle by one
+`framework/perf/costs_test.py` is now **one entry** (`TDMA`, all-1-cycle by one
 blanket sentence, out on purpose), and eight of the nine units read their own
 costs. Both wirings needed something the six before them did not: neither
 unit's cost is a per-opcode constant, so neither could use the flat lookup
@@ -4598,7 +4598,7 @@ sentences, and the wiring charges both, serially:
 - **Address phase: 2 cycles.** The table's existing `occupancy: { cycles: 2,
   bound: at_least }` (`isa_doc`), charged at its low end like every other
   bound. Here the low end is not merely a floor: 2 is the *exact* published
-  figure for uncompressed data, and uncompressed is the only kind tt-sim
+  figure for uncompressed data, and uncompressed is the only kind Wolfpine
   unpacks (`get_isUncompressed` returns `True` unconditionally and the
   compressed walk raises).
 - **Data phase: `ceil(transfer_bytes / rate)`.** `rate` is the throttle mode in
@@ -4618,7 +4618,7 @@ than inheriting the regular form's two cycles.
 
 **Two forced modes and one arch difference, all transcribed rather than
 inferred.** The doc constrains the throttle in five cases; four of them force
-modes of unpacks tt-sim rejects before moving a datum (compressed data,
+modes of unpacks Wolfpine rejects before moving a datum (compressed data,
 `UpsampleZeroes`, BFP2), so exactly one is reachable and it is charged:
 "tileize always runs at x4, regardless of `Throttle_mode`". Blackhole's
 differences come from the same file — the BlackholeA0 tree holds a stub saying
@@ -4654,7 +4654,7 @@ tt-metal, with the ISA docs' L1 page supplying the "five 128-bit reads per
 cycle" half) and a *qualitative* 3×3 table of what each unpacker gets when both
 are streaming at once. Neither is an arbitration rule: the 3×3 table gives
 sustained rates for two simultaneously-streaming units, not a per-transfer
-division, and tt-sim charges each transfer once at issue with no notion of two
+division, and Wolfpine charges each transfer once at issue with no notion of two
 overlapping streams. Inventing the division would be exactly the failure the
 provenance convention exists to prevent. So **each unpacker is charged its own
 uncontended rate**, the ceiling is recorded in the table as unconsumed *with
@@ -4677,7 +4677,7 @@ initial input address", *then* the L1 fetch), so
 - the 2-cycle address phase is charged **once**, at the cycle the unpack was
   accepted, even when the unpack then blocks;
 - every blocked re-run charges **nothing** — that is the unit waiting on
-  somebody else, which tt-sim already models functionally;
+  somebody else, which Wolfpine already models functionally;
 - the data phase is charged from the cycle the transfer actually starts, i.e.
   when the bank comes back.
 
@@ -4737,7 +4737,7 @@ two newly wired units, and issue attempts they refused.
 | `wormhole/softplus` | 19,880 | **19,910** | **+30** | 80 (+ 57 mover) | 43 | bit-exact, unmoved |
 
 Model off: `blackhole/six` reads 27,170 before and after, and the whole
-`pytest tt_sim/ driver/` run is untouched.
+`pytest framework/ driver/` run is untouched.
 
 **This is less movement than the item predicted, and the instrumentation says
 why.** The ROADMAP expected this to be the first change to move a total
@@ -4777,38 +4777,38 @@ was verified to be true of the unchanged tree as well (both fail at 1× with the
 model on before this change, and the gate passes both at their usual multiple
 after it).
 
-Model off: the full `pytest tt_sim/ driver/` run is unchanged — 1,003 unit
+Model off: the full `pytest framework/ driver/` run is unchanged — 1,003 unit
 tests, all 39 driver guards, every byte-identical Wormhole replay unmodified —
 and `blackhole/six` reads the same 27,170 cycles before and after.
 
 ### What changed in the repository
 
-- `tt_sim/pe/tensix/tensix_instruction_costs.yaml` — `UNPACK`'s
+- `framework/pe/tensix/tensix_instruction_costs.yaml` — `UNPACK`'s
   `l1_bandwidth` gains `tileize_forced_mode` and, under
   `arch_overrides.blackhole`, the `blackhole_throttle` block (x8, the x4 "2x"
   upgrade, the default-mode pair), each with its own quoted line;
   `joint_bandwidth` gains the note saying it is unconsumed and why; the
   `UNPACR` and `XMOV` entries record what is now charged and what is
   deliberately not.
-- `tt_sim/perf/unit_costs.yaml` — prose only: `mover` now names its consumer
+- `framework/perf/unit_costs.yaml` — prose only: `mover` now names its consumer
   and says the ideal column is charged and the contended one is not. **No
   cycle count, bound or provenance changed anywhere in either file.**
-- `tt_sim/perf/model.py` — `UnitCostModel.unpack_data_phase_cycles` (the
+- `framework/perf/model.py` — `UnitCostModel.unpack_data_phase_cycles` (the
   throttle-rate selection, transcribed in the pseudocode's own order) and the
   new `MoverCostModel` / `mover_cost_model`.
-- `tt_sim/pe/tensix/backends/unpacker.py` — the cost model, the declined
+- `framework/pe/tensix/backends/unpacker.py` — the cost model, the declined
   pre-handler hook, the charge computed at decode and armed at retire, the
   once-only address phase across a block, and the expired-hold release on the
   blocked path.
-- `tt_sim/pe/tensix/backends/mover.py` — the two models, the mode→transfer-kind
+- `framework/pe/tensix/backends/mover.py` — the two models, the mode→transfer-kind
   map, the occupancy on both the XMOV and TDMA paths, and the in-flight
   transfer reading as outstanding work.
-- `tt_sim/pe/tensix/unpacker_cost_model_test.py` (27 tests) and
-  `tt_sim/pe/tensix/mover_cost_model_test.py` (13 tests) — the charge
+- `framework/pe/tensix/unpacker_cost_model_test.py` (27 tests) and
+  `framework/pe/tensix/mover_cost_model_test.py` (13 tests) — the charge
   arithmetic at every throttle rate on both arches, the forced modes, the
   blocking composition, the back-pressure, the TDMA queue, and the two
   deliberate under-charges pinned by name.
-- `tt_sim/perf/costs_test.py` — `UNWIRED_UNITS` down to `TDMA`; four new
+- `framework/perf/costs_test.py` — `UNWIRED_UNITS` down to `TDMA`; four new
   entries on the consumer allow-list.
 
 ## The scoreboard learns to be read as a schedule, so parking reaches the model
@@ -4823,7 +4823,7 @@ guard for guard.
 
 ### What the previous version got wrong about its own reason
 
-Firmware-loop parking (`tt_sim/pe/rv/spin.py`, `docs/plans/event-driven-pump.md`)
+Firmware-loop parking (`framework/pe/rv/spin.py`, `docs/plans/event-driven-pump.md`)
 was switched off whenever `TT_SIM_COST_MODEL` was set, and the recorded reason
 was that `RiscvCostState` carries **absolute cycle numbers** — `ready[rd] =
 cycle + latency`, `_stall_until`, `_store_ready` — so restoring a recorded
@@ -4936,7 +4936,7 @@ budget either way.
 
 ### The gate, and what it does and does not establish
 
-`driver/tests/cost_model_gate.py` **PASS** on every stage. `pytest tt_sim
+`driver/tests/cost_model_gate.py` **PASS** on every stage. `pytest framework
 driver` 1,060 passed with the model off and again with `TT_SIM_COST_MODEL=1`.
 All 26 Blackhole replay guards pass standalone; Wormhole `offline_replay_test`
 reproduces its data READs as before.
@@ -5081,7 +5081,7 @@ handshaking, and its barrier polling sits off the critical path entirely.
 
 ### What this does not change: firmware-loop parking
 
-The parking recogniser (`tt_sim/pe/rv/spin.py`) rejects any candidate loop
+The parking recogniser (`framework/pe/rv/spin.py`) rejects any candidate loop
 containing a load outside plain RAM, at RECORD, before a watch set is built —
 "MMIO is rejected wholesale, which is what keeps a wall-clock timeout loop, a
 mailbox pop, **an NIU-counter poll** or a PC-buffer wait from ever parking". So
@@ -5105,7 +5105,7 @@ keeping.
 - **Both `BabyRISCV/README.md` pages** (WH and BH) — the answer, above. Also
   `MemoryOrdering.md` on both, which adds an *unclaimed* term rather than a
   number: "Each memory region can process at most one request per cycle" for
-  every region but L1. That is a throughput bound on the NIU block, tt-sim
+  every region but L1. That is a throughput bound on the NIU block, Wolfpine
   models no per-region request queue, and it is now named in ROADMAP item 2.
 - **`NoC/MemoryMap.md`, `NoC/Counters.md`, `NoC/README.md`** (WH and BH): no
   register-access latency anywhere. `NoC/README.md`'s hop table does give
@@ -5143,7 +5143,7 @@ keeping.
   shape as every other `at_least` in these files: the low end is charged and
   the tail is unquantified.
 - **Per-region request throughput** (one request per cycle, from
-  `MemoryOrdering.md`). tt-sim has no queue in front of an MMIO region, so two
+  `MemoryOrdering.md`). Wolfpine has no queue in front of an MMIO region, so two
   cores hammering the same NIU cost what one does.
 - **`max_loads_in_flight`: 4 in aggregate**, which is in the YAML and read by
   nothing. Re-reading the table for this change also corrected the note beside
@@ -5159,7 +5159,7 @@ keeping.
 
 ### The gate
 
-`driver/tests/cost_model_gate.py` **PASS**, every stage. `pytest tt_sim/ driver/`
+`driver/tests/cost_model_gate.py` **PASS**, every stage. `pytest framework/ driver/`
 1,062 passed with the model off and again with `TT_SIM_COST_MODEL=1` (1,060
 before; two new tests). All 26 Blackhole replay guards pass standalone.
 `blackhole/six`'s PCC is **0.9982 at every charge in the sensitivity table**,
@@ -5172,20 +5172,20 @@ is off.
 
 ### What changed in the repository
 
-- `tt_sim/pe/rv/cost.py` — `classify_address` gains `0xFFB20000-0xFFB3FFFF`
+- `framework/pe/rv/cost.py` — `classify_address` gains `0xFFB20000-0xFFB3FFFF`
   and extends the overlay to its published `0xFFB7FFFF`; `_TILE_CTRL_END`
   extended over the PIC's 4 KiB for the same reason; the docstring's "not
   modelled" list loses the NIU entry and gains the account above.
-- `tt_sim/perf/model.py` — `RV_REGION_TILECTRL_PIC_OVERLAY` →
+- `framework/perf/model.py` — `RV_REGION_TILECTRL_PIC_OVERLAY` →
   `RV_REGION_TILECTRL_PIC_NOC`, both `_LOAD_LATENCY_KEYS` entries renamed,
   `RV_UNNAMED_REGIONS` down to three entries with the retraction recorded.
-- `tt_sim/perf/unit_costs.yaml` — the two row keys renamed and both notes
+- `framework/perf/unit_costs.yaml` — the two row keys renamed and both notes
   extended. **No cycle count, bound or provenance changed.**
-- `tt_sim/pe/rv/cost_test.py` — two new tests (the NIU rows on both arches by
+- `framework/pe/rv/cost_test.py` — two new tests (the NIU rows on both arches by
   counter address; the overlay's published extent), the unnamed-region tests
   re-pointed at what is actually unnamed, and the PIC added to the memory-map
   test.
-- `tt_sim/perf/noc_dataset_sweep.py`, `driver/tests/cost_model_gate.py` — prose
+- `framework/perf/noc_dataset_sweep.py`, `driver/tests/cost_model_gate.py` — prose
   that named the NIU block as uncosted.
 - `ROADMAP.md` — item 2 replaced by its successor (the load/store unit's
   published queue limits and per-region throughput); the conditional NIU probe
@@ -5360,7 +5360,7 @@ Against that, the cost of building it, which is the second reason:
   and threaded through `BabyRISCV.__init__` → `make_cost_state` on both
   arches, plus a decision about eth tiles and about cores built outside a
   device.
-- **It puts cost state outside the parking proof.** `tt_sim/pe/rv/spin.py`
+- **It puts cost state outside the parking proof.** `framework/pe/rv/spin.py`
   parks a firmware loop by proving its state is a one-tick fixed point, over
   a signature that is by construction the *core's own* state
   (`RiscvCostState.spin_signature`). A charge that depends on what another
@@ -5425,7 +5425,7 @@ discovers, and every poll-budget multiplier is the one recorded before it:
 moved onto a higher rung — the ladder is the gate's only measure of how much
 slower a run got, and it did not register this change at all.
 
-`pytest tt_sim/ driver/` 1,071 passed both with the model off and with
+`pytest framework/ driver/` 1,071 passed both with the model off and with
 `TT_SIM_COST_MODEL=1` (1,063 before; eight new tests).
 
 Run outside the gate, each of the 30 Blackhole guards as its own standalone
@@ -5441,18 +5441,18 @@ inside `RiscvCostState`, which is `None` when the model is off.
 
 ### What changed in the repository
 
-- `tt_sim/perf/model.py` — `RiscvCostModel._load_throughput`, giving
+- `framework/perf/model.py` — `RiscvCostModel._load_throughput`, giving
   `load_slots`, `load_slot_cycles` (per region) and `l1_miss_slot_cycles`;
   the class docstring's third bullet.
-- `tt_sim/pe/rv/cost.py` — the slot check in `can_issue`, the `load_rate`
+- `framework/pe/rv/cost.py` — the slot check in `can_issue`, the `load_rate`
   stall reason, `_l0_load` split into `_l0_probe` / `_l0_commit`, the slots in
   the spin signature and its restore, and a docstring that now carries the
   double-count argument and the two declined terms.
-- `tt_sim/perf/unit_costs.yaml` — `load_throughput` marked consumed with the
+- `framework/perf/unit_costs.yaml` — `load_throughput` marked consumed with the
   measured worth, `load_latency`'s in-flight note rewritten as a decision, and
   a Blackhole note recording what that page does and does not print. **No
   cycle count, bound or provenance changed.**
-- `tt_sim/pe/rv/cost_test.py`, `tt_sim/perf/model_test.py` — the new charge's
+- `framework/pe/rv/cost_test.py`, `framework/perf/model_test.py` — the new charge's
   arithmetic on both arches, the fast-row exemption, the stalled-load tag
   invariant, and the two published fours asserted equal.
 - `ROADMAP.md` — item 2 rewritten to what is actually left.
@@ -5573,10 +5573,10 @@ below is named and not charged.
 
 ### The one thing that is genuinely unmodelled, newly measured
 
-Reads do not fit, and the misfit is the finding. tt-sim's read issue loop costs
+Reads do not fit, and the misfit is the finding. Wolfpine's read issue loop costs
 18 (Wormhole) and 19 (Blackhole); the dataset measures 27 and 35 per
 transaction at N ≥ 64. That excess — **9 cycles on Wormhole, 16 on Blackhole**
-— is the initiator's outstanding-read-request credit limit. tt-sim's NIU
+— is the initiator's outstanding-read-request credit limit. Wolfpine's NIU
 imposes no limit at all: `add_outstanding_noc_request` appends to a queue.
 
 It is a different term from the one the roadmap named, it is now sized on both
@@ -5589,7 +5589,7 @@ reason written next to them.
 
 ### What was built
 
-`tt_sim/perf/noc_issue_loop.py`: the per-transaction store list transcribed
+`framework/perf/noc_issue_loop.py`: the per-transaction store list transcribed
 from both architectures' `noc_nonblocking_api.h`, plus enough RV32I encoders to
 assemble the loop and its barrier. `predict_timed_region` in the sweep loads it
 onto the initiator tile's BRISC, releases the core and times the core's own
@@ -5603,7 +5603,7 @@ closed-form test that pins the network composition still points at it.
 and that is why it is a harness and not a cost entry. The measured
 per-transaction cost is the cost of *some* compilation of a vendor inline
 function; a different compiler or a different tt-metal release would move it.
-The chip has no opinion. What tt-sim does — execute whatever instructions the
+The chip has no opinion. What Wolfpine does — execute whatever instructions the
 kernel actually contains — is already the right answer, and adding a table
 entry for the issue loop would double-charge every real workload.
 
@@ -5667,27 +5667,27 @@ is the most that can be said without a second instrument.
 budgets all unmoved, all 44 guards' values unchanged, all 30 Blackhole replay
 guards pass, 1145 tests green with the model off and on. Every one of those is
 a formality here and saying so is the point — **nothing outside
-`tt_sim/perf/` was touched**, so no guard's cycle count could have moved, and
+`framework/perf/` was touched**, so no guard's cycle count could have moved, and
 none did. This is the first rung-2 instalment for which "the gate cannot
 fail" is a claim about the change's shape rather than a hope.
 
 ### What changed in the repository
 
-- `tt_sim/perf/noc_issue_loop.py` — **new**. The store lists, the encoders, the
+- `framework/perf/noc_issue_loop.py` — **new**. The store lists, the encoders, the
   program, and the arithmetic that predicts its cost.
-- `tt_sim/perf/noc_issue_loop_test.py` — **new**. Encoders checked against
+- `framework/perf/noc_issue_loop_test.py` — **new**. Encoders checked against
   words from the reference build; the store lists checked against the headers;
   the 22 / 23 / 18 / 19 claim run on both arches; flatness in N and in size;
   and a model-off control proving the six cycles are the model's.
-- `tt_sim/perf/noc_dataset_sweep.py` — `predict_timed_region` alongside the
+- `framework/perf/noc_dataset_sweep.py` — `predict_timed_region` alongside the
   unchanged `predict_cycles`; the N > 1 exclusion narrowed to everything
   outside the reconstructed L1 write path, with each of its three remaining
   reasons written out; `RESIDUAL_EXPECTATION` rewritten, including a retraction
   of its own "unmodelled issuing-core path" wording; a burst axis and a
   both-predictors readout in the report.
-- `tt_sim/perf/noc_dataset_sweep_test.py` — one renamed rule.
+- `framework/perf/noc_dataset_sweep_test.py` — one renamed rule.
 - **No change to `unit_costs.yaml`, `costs.py`, `model.py` or anything under
-  `tt_sim/network/`, `tt_sim/device/` or `tt_sim/pe/`.**
+  `framework/network/`, `framework/device/` or `framework/pe/`.**
 
 ## The read floor: the number was wrong on one arch, and the name was wrong on both
 
@@ -5851,7 +5851,7 @@ not because it yields a number.
 `NUM_NOC_CMD_BUFS` is 4 on both. No `*_DEPTH`, `*_ENTRIES` or `*_SLOTS`
 constant exists in either file. The read path differs by exactly one store
 (Blackhole adds `NOC_TARG_ADDR_MID`), which is the 5 → 6 already transcribed in
-`tt_sim/perf/noc_issue_loop.py`.
+`framework/perf/noc_issue_loop.py`.
 
 **Verdict: there is no published bound, and no arithmetic on published numbers
 produces a per-architecture pair.** Every candidate is either identical across
@@ -5925,13 +5925,13 @@ one C++ host that builds against `TT::Metalium`, one data-movement kernel, one
 CSV with **the physical coordinates recorded in every row**, and a `run_card.sh`
 that prints a verdict and names the file to send back. It is checked in with
 its Wormhole simulator CSV, whose reading is a **known null and not a result** —
-tt-sim's NIU appends to an unbounded queue, so the counter reads 0 and every
+Wolfpine's NIU appends to an unbounded queue, so the counter reads 0 and every
 axis is flat by construction. It is run only to prove the harness executes,
 exactly the role `nocbench`'s `INVALID` verdict plays for congestion.
 
 ### What was deliberately not built
 
-**No credit-limit mechanism was added to `tt_sim/network/tt_noc.py`**, not even
+**No credit-limit mechanism was added to `framework/network/tt_noc.py`**, not even
 one defaulting to unlimited. The roadmap has precedent for shape-first work —
 item 2's endpoint occupancy — but that precedent holds because the *shape* is
 known to be right and only the number is missing. (That item landed on
@@ -5990,7 +5990,7 @@ silicon.
 
 **PASS, exit 0.** Byte-identical by construction: this instalment changes **no
 executable code at all** — the new tree is C++ that only a card or an explicit
-`perfbench/run.sh` invocation compiles, and nothing under `tt_sim/` or `driver/`
+`perfbench/run.sh` invocation compiles, and nothing under `framework/` or `driver/`
 was touched. `dramtop` 1×, `two` 2× and `offline` 4× poll budgets unmoved, all
 44 guards' values unchanged, model on and off identical.
 
@@ -6005,7 +6005,7 @@ was touched. `dramtop` 1×, `two` 2× and `offline` 4× poll budgets unmoved, al
 - `perfbench/README.md` — the new tree in the tree diagram and the table.
 - `docs/plans/cost-model.md` — this section.
 - **No change to `unit_costs.yaml`, `costs.py`, `model.py`, or anything under
-  `tt_sim/` or `driver/`.**
+  `framework/` or `driver/`.**
 
 ## The second rung-3 sample: sixteen probes corroborate, three contradict, and a retraction goes back in play
 
@@ -6354,7 +6354,7 @@ and the warm run alike.
 
 - `docs/plans/cost-model.md` — this section.
 - **No change to `unit_costs.yaml`, `costs.py`, `model.py`,
-  `tensix_instruction_costs.yaml`, or anything under `tt_sim/`, `driver/` or
+  `tensix_instruction_costs.yaml`, or anything under `framework/`, `driver/` or
   `perfbench/`.** No provenance entry was added, no coefficient was fitted into
   a table, and no `estimated` entry exists anywhere as a result of this
   session.
@@ -6394,7 +6394,7 @@ End to end, four concurrent 4 KiB reads from one Tensix tile landed 128 cycles
 apart — `ceil(4096 / 32)`, the **NoC link's** rate, because the only queue on
 the return path was the DRAM NIU's own injection port.
 
-So the endpoint was not merely uncontended: **a tt-sim Wormhole DRAM channel
+So the endpoint was not merely uncontended: **a Wolfpine Wormhole DRAM channel
 sustained 32 B/cycle, above the 24 GB/s the ISA docs publish for it**, and the
 model was over-predicting DRAM throughput by a third while under-predicting
 every latency around it. That is a sharper statement of the gap than "occupancy
@@ -6444,10 +6444,10 @@ confirms is where an `isa_doc` figure belongs, not what it is.
 ### One tile is two channels, and modelling it as one would over-charge
 
 The premise check turned up a second thing, and it is the reason this instalment
-touches `ArchProfile`. A tt-sim `DRAMTile` is not a GDDR6 channel. `wh_dram`:
+touches `ArchProfile`. A Wolfpine `DRAMTile` is not a GDDR6 channel. `wh_dram`:
 *"There are 18 DRAM tiles per Wormhole ASIC, collectively exposing 12x 1 GiB
 channels of GDDR6 ... DRAM tiles occur in groups of three, with two channels of
-GDDR6 present in each group."* tt-sim models a group as one tile covering the
+GDDR6 present in each group."* Wolfpine models a group as one tile covering the
 group's whole 2 GiB, and the group's NoC address map names the halves: *"GDDR6
 Channel 0 data"* from `0x0_0000_0000`, *"GDDR6 Channel 1 data"* from
 `0x0_4000_0000`.
@@ -6468,7 +6468,7 @@ right, not because it moved a number.
 
 ### What was built, and where
 
-- `DramChannels` (`tt_sim/device/tiles.py`) — one free-cycle watermark per
+- `DramChannels` (`framework/device/tiles.py`) — one free-cycle watermark per
   physical GDDR6 channel, plus `claims` / `waits` / `cycles_waited`.
   Structurally the same object as `NocLinkRegistry` and `NUI._tx_free_cycle`,
   and owned by the **tile** rather than an NIU for `NocLinkRegistry`'s reason
@@ -6498,8 +6498,8 @@ occupancy term at once.
 
 ### No new consumer, and no new rank
 
-`tt_sim/device/tiles.py` was already on `EXPECTED_CONSUMERS`; the new tests went
-into `tt_sim/device/dram_cost_model_test.py`, also already on it. `PROVENANCE_
+`framework/device/tiles.py` was already on `EXPECTED_CONSUMERS`; the new tests went
+into `framework/device/dram_cost_model_test.py`, also already on it. `PROVENANCE_
 RANK` is untouched, `estimated` still has zero entries, and the only YAML edits
 are notes that asserted the opposite of what the code now does.
 
@@ -6550,7 +6550,7 @@ something slower.
 
 ### Rung 2: byte-identical, and that is the result
 
-`python3 -m tt_sim.perf.noc_dataset_sweep` produces **byte-identical output**
+`python3 -m framework.perf.noc_dataset_sweep` produces **byte-identical output**
 before and after — all 148 retained points, every residual, every percentile,
 every fitted slope and every sustained-rate line. Not one statistic improved
 and not one worsened.
@@ -6581,7 +6581,7 @@ instalment's base commit too**, on two stage-1 unit tests that have nothing to
 do with the cost model: `riscv_bench_sweep_test::test_the_tracked_datasets_
 carry_their_own_provenance` and `tensix_bench_sweep_test::test_the_tracked_
 dataset_carries_its_own_provenance`. The eleven 2026-08-09 campaign CSVs added
-under `tt_sim/perf/datasets/` carry `device=blackhole-silicon` but none of the
+under `framework/perf/datasets/` carry `device=blackhole-silicon` but none of the
 `firmware_bundle=` / `kmd=` / `ONE RUN, ON ONE CARD` / `valid:` lines those
 tests require. **Fixing it means writing down a card's firmware and KMD
 versions, which is provenance and cannot be invented**, so it is left for
@@ -6591,17 +6591,17 @@ passed` -> `2 failed, 1132 passed`).
 
 ### What changed in the repository
 
-- `tt_sim/device/tiles.py` — `DramChannels`; `DRAMEndpointNUI._channel_wait`
+- `framework/device/tiles.py` — `DramChannels`; `DRAMEndpointNUI._channel_wait`
   and its `channels` argument; `DRAMTile` builds the set from the profile.
-- `tt_sim/arch/profile.py`, `tt_sim/arch/wormhole.py` —
+- `framework/arch/profile.py`, `framework/arch/wormhole.py` —
   `dram_gddr_channel_size` and `dram_gddr_channels_per_tile`.
-- `tt_sim/perf/model.py` — `occupancy_modelled` becomes a per-arch consequence,
+- `framework/perf/model.py` — `occupancy_modelled` becomes a per-arch consequence,
   `device_occupancy_modelled` is the remaining named gap, and two prose blocks
   that asserted the opposite were rewritten rather than deleted.
-- `tt_sim/perf/unit_costs.yaml` — notes only, on `dram.channel_serialisation`
+- `framework/perf/unit_costs.yaml` — notes only, on `dram.channel_serialisation`
   and both arches' `dram.access_latency`. **No number changed, no entry was
   added, no provenance moved.**
-- `tt_sim/device/dram_cost_model_test.py` — nine new tests: the premise as a
+- `framework/device/dram_cost_model_test.py` — nine new tests: the premise as a
   regression, the inertness control, the per-channel split, and the two gap
   flags.
 - `docs/plans/cost-model.md` — this section.
@@ -6633,7 +6633,7 @@ readers; the run's own summary line reads 47.171 for its last repeat).
 
 Rung 2 derives Blackhole's DRAM read rate from tt-metal's 8,140-point measured
 NoC dataset, by fitting the large-transfer slope of the diff-axis series. Run
-today, `python3 -m tt_sim.perf.noc_dataset_sweep --arch blackhole` prints:
+today, `python3 -m framework.perf.noc_dataset_sweep --arch blackhole` prints:
 
 ```
   implied sustained bandwidth, from the large-transfer slope
@@ -6781,7 +6781,7 @@ what a 16 B fetch line delivered with one bubble per line would give. The
 measurement cannot distinguish that from 1.253 exactly, and nothing in this file
 should treat it as though it could.
 
-`tt_sim` charges no instruction-fetch term on either architecture, so none of
+`framework` charges no instruction-fetch term on either architecture, so none of
 this contradicts a charged cost. What it does is turn a "there is a step
 somewhere above 4 KiB" note into a two-parameter shape with a capacity, a
 ceiling, and five measured points between them.
@@ -6789,7 +6789,7 @@ ceiling, and five measured points between them.
 ### The congestion pair, and the epoch that was never absent
 
 Both 22:24 congestion CSVs were collected and marked DEFERRED, because the
-report generator needs `tt_sim/` and the card box does not have it. Run here they
+report generator needs `framework/` and the card box does not have it. Run here they
 say two things, one confirming and one correcting.
 
 **The shape reproduces across sessions.** Four independent nocbench invocations
@@ -6934,7 +6934,7 @@ time. Of everything above:
   nothing; `dram.bandwidth` stays unchargeable on Blackhole.
 - The congestion slopes are unchanged from the readings already recorded, and
   no congestion coefficient is charged anywhere.
-- The fetch ramp measures a term `tt_sim` does not model on either
+- The fetch ramp measures a term `framework` does not model on either
   architecture, so there is no charged value to contradict.
 - `RDCFG` returned a null, which leaves its `>= 2` exactly as unchecked as it
   was.
@@ -6945,21 +6945,21 @@ Two *tools* were wrong and are fixed; no measured or charged number was.
 
 ### What changed in the repository
 
-- `tt_sim/perf/noc_congestion_sweep.py` — `_elapsed_span`, and the session-span
+- `framework/perf/noc_congestion_sweep.py` — `_elapsed_span`, and the session-span
   guard in `clock_skew_report` now uses it. **No coefficient, threshold or
   verdict rule changed**; a modular quantity is computed modularly.
-- `tt_sim/perf/noc_congestion_sweep_test.py` — two tests: the wrap in the
+- `framework/perf/noc_congestion_sweep_test.py` — two tests: the wrap in the
   abstract, and the banked 22:24 file as a real fixture.
 - `perfbench/card_session_verdicts.sh` — `_rv_q_worst_n` grades a phase-Q
   complaint by the smaller burst in its pair. The `n <= 16` threshold is
   untouched.
 - `perfbench/card_session_verdicts_test.sh` — the 22:24 `rv-cross` line as a
   regression.
-- `tt_sim/perf/datasets/` — four new files: the 22:24 congestion pair
+- `framework/perf/datasets/` — four new files: the 22:24 congestion pair
   (`nocbench-blackhole-2026-08-09-2224.csv` and `-2224-epoch.csv`, the second
   being the wrap fixture) and the two new footprints
   (`riscvbench-blackhole-2026-08-09-gset3.csv`, `-gset4.csv`, 4608 and 5632 B).
-- `tt_sim/perf/datasets/nocbench-blackhole-2026-08-09-repeat.csv` — header
+- `framework/perf/datasets/nocbench-blackhole-2026-08-09-repeat.csv` — header
   corrected. It asserted the file was INVALID and that (11,2) had no epoch;
   both were artefacts of the wrap bug and the file reads clean.
 - `docs/plans/cost-model.md` — this section.
@@ -6972,7 +6972,7 @@ and neither could be expressed by the machinery that existed: `is_occupied`
 refuses the unit an instruction was *offered to*, and the instruction a
 held thread wants to issue next is usually offered somewhere else entirely.
 **Both are now charged.** The second could not be until a *functional* bug was
-fixed first — tt-sim handed a Src bank to the Matrix Unit in the tick the
+fixed first — Wolfpine handed a Src bank to the Matrix Unit in the tick the
 `UNPACR` retired, where the documents put the hand-over at the end of the
 transfer — and fixing that turned out to expose a second latent race in the
 unpacker's counter update. Both fixes are below; neither changes a number in
@@ -7059,7 +7059,7 @@ where the margin comes from.** Three places, all agreeing:
 > proceeds in a pipelined fashion, with the primary bottleneck being the
 > fetching of bytes from L1."
 
-tt-sim moved every datum in the retire tick — which is unobservable, since
+Wolfpine moved every datum in the retire tick — which is unobservable, since
 nothing may read the bank until it changes hands — but flipped `AllowedClient`
 there too, letting the Matrix Unit start consuming a bank up to a whole data
 phase before the transfer that fills it has finished. `UnPackerUnit` now owes
@@ -7111,7 +7111,7 @@ The mechanism, again at one-cycle resolution:
 ```
 
 `_llk_unpack_reduce_` opens each call with a `SETADCZW` that zeroes the Z
-counter. tt-sim applied an `UNPACR`'s `Ch0.Z += Ch0ZInc` when the *transfer*
+counter. Wolfpine applied an `UNPACR`'s `Ch0.Z += Ch0ZInc` when the *transfer*
 completed, so an `UNPACR` still waiting on a Src bank when that reset landed
 put the counter back — and the next reduction read every face one tile-row up
 L1. `handle_regular` already latches the *configuration* at decode for the
@@ -7218,24 +7218,24 @@ not offered to at all, which nothing else in the model can do.
 - **The MOP Expander's one-cycle transition penalty** ("After expanding a
   `MOP` instruction, if the next instruction is _not_ a `MOP` instruction,
   there is a one cycle transition penalty") is documented, exact, and
-  unobservable here: tt-sim's expander emits a whole template in one tick and
+  unobservable here: Wolfpine's expander emits a whole template in one tick and
   the rate downstream is set by the Replay Expander and the Wait Gate, which
   already move one instruction per cycle. Charging it would model a bubble in
   a stage that has no rate to bubble. Recorded, not wired.
 
 ### What changed in the repository
 
-- `tt_sim/pe/tensix/backend.py` — `thread_issue_block` / `block_thread_issue`,
+- `framework/pe/tensix/backend.py` — `thread_issue_block` / `block_thread_issue`,
   with both sentences quoted at the state they justify.
-- `tt_sim/pe/tensix/frontend.py` — the Wait Gate's check, first among the
+- `framework/pe/tensix/frontend.py` — the Wait Gate's check, first among the
   gate's refusal branches because the interlock outranks them all.
-- `tt_sim/pe/tensix/backends/thcon.py` — the Scalar Unit's arming site.
-- `tt_sim/pe/tensix/backends/unpacker.py` — the unpacker's arming site; the
+- `framework/pe/tensix/backends/thcon.py` — the Scalar Unit's arming site.
+- `framework/pe/tensix/backends/unpacker.py` — the unpacker's arming site; the
   deferred Src hand-over (`_deferred_dvalid` / `_hand_over_src_bank`); and the
   counter update moved into `read_unpack_state`.
-- `tt_sim/trace/events.py`, `docs/trace-schema.md` — the
+- `framework/trace/events.py`, `docs/trace-schema.md` — the
   `thread_issue_block` stall reason.
-- `tt_sim/pe/tensix/tensix_instruction_costs.yaml` — two `note:` fields
+- `framework/pe/tensix/tensix_instruction_costs.yaml` — two `note:` fields
   recording what is now consumed. **No number changed.**
 - Tests: three in `frontend_backpressure_test.py` (the interlock reaches a
   different unit, holds only the issuing thread, and is absent with the model
@@ -7281,7 +7281,7 @@ is this unit and no other, deliberately**: occupancy is throughput
 back-pressure, and for a pipelined unit that is not residency — an instruction
 can sit in a stage long after the unit will accept the next one. The unpacker
 is the case where the two coincide, because the doc's bottleneck *is* the
-transfer and tt-sim charges address+data as one hold. Reading another unit's
+transfer and Wolfpine charges address+data as one hold. Reading another unit's
 `busy_until` as residency would need that unit's own latency and is not done.
 
 ### And the same table's C2 asked the wrong unpacker
@@ -7369,7 +7369,7 @@ off.**
 > same latencies against a prose Throughput column.
 
 So `WRCFG` is **latency 2 at one instruction per cycle**: the unit accepts the
-next instruction a cycle *before* the previous one has left. Until now tt-sim
+next instruction a cycle *before* the previous one has left. Until now Wolfpine
 read only the IPC column, and the Latency column had no consumer anywhere in
 the tree. The consequence was at the Wait Gate:
 
@@ -7664,7 +7664,7 @@ the Matrix Unit pipeline) and C5/C6 (`SrcA`/`SrcB` not yet handed back to the
 now per-arch. No number moves: across every replay guard, every latched
 `STALLWAIT` condition mask is non-zero, because tt-metal's LLK always passes an
 explicit `p_stall::`-derived mask. `SEMWAIT`'s zero-condition arm is
-`UndefinedBehavior()` on both arches, so tt-sim's choice there is its own; it
+`UndefinedBehavior()` on both arches, so Wolfpine's choice there is its own; it
 follows the same constant rather than always Wormhole's.
 
 ## Blackhole's DRAM channel rate: the block was never the missing page
@@ -7698,7 +7698,7 @@ vendor arithmetic that reaches it?", and there is.
 
 ### The derivation, and it is the one that was already there
 
-`tt_sim.perf.noc_dataset_sweep` has printed this since 2026-08-08, unchanged,
+`framework.perf.noc_dataset_sweep` has printed this since 2026-08-08, unchanged,
 for every series on both arches at once, under "implied sustained bandwidth,
 from the large-transfer slope":
 
@@ -7858,15 +7858,15 @@ with all 44 traces 100 % bit-for-bit at 1×, so the flag-off path is untouched.
 
 ### Files
 
-- `tt_sim/perf/unit_costs.yaml` — the Blackhole `channel_serialisation`
+- `framework/perf/unit_costs.yaml` — the Blackhole `channel_serialisation`
   override (the only new number), its `bandwidth` note demoted from a blocker
   to a record of why it was thought to be one, and the header's count of
   `vendor_source_derived` entries.
-- `tt_sim/perf/model.py` — per-direction rates and the replace-not-fall-back
+- `framework/perf/model.py` — per-direction rates and the replace-not-fall-back
   rule.
-- `tt_sim/device/tiles.py` — `DramChannels` and `DRAMEndpointNUI` per direction;
+- `framework/device/tiles.py` — `DramChannels` and `DRAMEndpointNUI` per direction;
   an ATOMIC counts as a read, because it reads the array before modifying it.
-- `tt_sim/perf/dram_rate_sweep.py`, `tt_sim/perf/noc_dataset_sweep.py` — the
+- `framework/perf/dram_rate_sweep.py`, `framework/perf/noc_dataset_sweep.py` — the
   attribution and the reference readout, both of which had the old rule wired
   into their prose.
 - Tests: `costs_test.py` (the anti-laundering guard extended, not weakened, and
@@ -7876,7 +7876,7 @@ with all 44 traces 100 % bit-for-bit at 1×, so the flag-off path is untouched.
 ## Using it, when the time comes
 
 ```python
-from tt_sim.perf.costs import load_costs
+from framework.perf.costs import load_costs
 
 costs = load_costs("blackhole")
 mvmul = costs.instruction("MATH", "MVMUL")   # or costs.find("MVMUL")
@@ -7896,7 +7896,7 @@ Two things a consumer should do rather than assume:
   for an opcode not in the table at all. Falling back to "1 cycle" silently is
   a choice, and it should be made explicitly and once, not per call site.
 
-Both of those are now made once, in `tt_sim/perf/model.py`, and a unit should
+Both of those are now made once, in `framework/perf/model.py`, and a unit should
 reach the tables through it rather than call `load_costs` itself — otherwise it
 is making the same judgement calls again, differently.
 `test_the_cost_tables_have_exactly_the_consumers_we_expect` pins the list of

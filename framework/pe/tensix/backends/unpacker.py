@@ -2,18 +2,18 @@ from math import ceil, floor
 
 import numpy as np
 
-from tt_sim.network.tt_noc import NoCOverlay
-from tt_sim.pe.tensix.backends.backend_base import (
+from framework.network.tt_noc import NoCOverlay
+from framework.pe.tensix.backends.backend_base import (
     DATA_FORMAT_TO_BITS,
     DATA_FORMAT_TO_NAME,
     DataFormat,
     TensixBackendUnit,
 )
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.util import DataFormatConversions
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.bits import get_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.util import DataFormatConversions
+from framework.perf.model import unit_cost_model
+from framework.util.bits import get_bits, get_nth_bit
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 
 class UnPackerUnit(TensixBackendUnit):
@@ -131,7 +131,7 @@ class UnPackerUnit(TensixBackendUnit):
         residency -- an instruction can be in a stage of the pipeline long
         after the unit will accept the next one. The unpacker is the case
         where the two coincide, because the doc's bottleneck *is* the transfer
-        and tt-sim charges the whole address+data phase as one hold, so
+        and Wolfpine charges the whole address+data phase as one hold, so
         "occupied by this thread" and "this thread's instruction is in a stage"
         are the same statement. Nothing here licenses reading another unit's
         ``busy_until`` as residency; that would need each unit's own latency.
@@ -152,7 +152,7 @@ class UnPackerUnit(TensixBackendUnit):
         on Blackhole silicon the *next* execution of that setup -- the next
         program launch in the same process, or the first launch of the next
         process on the same card -- waits at the unpacker for ever and only a
-        board reset clears it. tt-sim reached the identical blocked state and
+        board reset clears it. Wolfpine reached the identical blocked state and
         ran to completion anyway. See ROADMAP.md, "Unpacker dvalid deadlock".
         """
         if self._occupied_thread == from_thread and self.is_occupied():
@@ -274,7 +274,7 @@ class UnPackerUnit(TensixBackendUnit):
         ``address phase + data phase`` cycles after the ``UNPACR`` was accepted
         -- precisely the occupancy the unit charges itself.
 
-        tt-sim moves every datum in the retire tick, which is unobservable
+        Wolfpine moves every datum in the retire tick, which is unobservable
         (nothing may read the bank until it changes hands) -- but flipping
         ``AllowedClient`` there too let the matrix unit start consuming the
         bank up to a whole data phase early. That is not a small error in one
@@ -302,7 +302,7 @@ class UnPackerUnit(TensixBackendUnit):
         """The UNPACR entry's own occupancy: the >= 2-cycle address phase.
 
         Charged at its low end by the model (2, exact for uncompressed data —
-        the only kind tt-sim unpacks), and 0 with no model or no entry.
+        the only kind Wolfpine unpacks), and 0 with no model or no entry.
         """
         model = self.cost_model
         if model is None:
@@ -1006,7 +1006,7 @@ class UnPackerUnit(TensixBackendUnit):
         Deliberately *not* suppressible by an environment variable, unlike the
         NoC alignment checks: those guard against hardware ``UndefinedBehavior``
         that a user may legitimately want to explore, whereas these are simply
-        "tt-sim does not implement this", where carrying on reads the wrong L1
+        "Wolfpine does not implement this", where carrying on reads the wrong L1
         addresses or writes the wrong Src/Dst rows with nothing to notice it by.
 
         ``RowStride`` itself is now modelled (see ``perform_unpack``), so what
@@ -1111,7 +1111,7 @@ class UnPackerUnit(TensixBackendUnit):
                 raise NotImplementedError(
                     f"Unpacker 0 (SrcA) reached output address {outAddr} "
                     f"(row {start_row}). **Check your kernel's init sequence "
-                    f"before suspecting tt-sim.**\n"
+                    f"before suspecting Wolfpine.**\n"
                     "\n"
                     "outAddr 0 means THCON_SEC0_REG5_Dest_cntx*_address is "
                     "unset, and the usual cause is that the unpack hardware "

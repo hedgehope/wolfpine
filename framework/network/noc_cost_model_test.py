@@ -14,13 +14,13 @@ flight*, and they divide in two:
    architectures, because Wormhole and Blackhole differ in grid width and a
    model that hardcoded one would still pass every guard on the other.
 2. **Flight time is the cost table**, reached only through
-   ``tt_sim/perf/model.py`` so the file's three policies apply here as they do
+   ``framework/perf/model.py`` so the file's three policies apply here as they do
    everywhere else.
 
 And, above all of it, the opt-in: with ``TT_SIM_COST_MODEL`` unset a packet is
 delivered on the next cycle exactly as it always was.
 
-Runs standalone (``python3 -m tt_sim.network.noc_cost_model_test``) or under
+Runs standalone (``python3 -m framework.network.noc_cost_model_test``) or under
 pytest.
 """
 
@@ -29,12 +29,12 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.noc_coords import WormholeNocCoords
-from tt_sim.network.tt_noc import noc_hop_count
-from tt_sim.perf.model import dram_cost_model, noc_cost_model
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.noc_coords import WormholeNocCoords
+from framework.network.tt_noc import noc_hop_count
+from framework.perf.model import dram_cost_model, noc_cost_model
 
 _L1_SRC = 0x20000
 _L1_DST = 0x21000
@@ -83,7 +83,7 @@ def test_an_nui_built_without_an_architecture_never_opts_in():
     """``driver/simple`` and the NoC unit tests construct NUIs directly. They
     pass no arch, so they cannot be slowed down by an environment variable set
     for something else in the same process."""
-    from tt_sim.network.tt_noc import NUI
+    from framework.network.tt_noc import NUI
 
     with _env("1"):
         assert NUI(0, 1, 1, None).noc_latency is None
@@ -129,7 +129,7 @@ def test_hops_are_not_symmetric_and_a_round_trip_costs_a_whole_ring():
 
 @pytest.mark.parametrize("grid_x,grid_y", [(10, 12), (17, 12)])
 def test_noc1_is_noc0_reversed_because_both_ends_are_mirrored(grid_x, grid_y):
-    """NoC 1's origin is the opposite corner, which tt-sim models by giving an
+    """NoC 1's origin is the opposite corner, which Wolfpine models by giving an
     ``NUI`` on NoC 1 the mirrored coord. Mirroring *both* endpoints negates dx
     and dy, which is exactly the reversal of routing direction — so the single
     formula gives NoC 1's opposite-direction hop count with no special case."""
@@ -245,7 +245,7 @@ def test_a_dram_read_lands_on_the_cycle_the_hop_model_predicts():
     initiator = _read_from_dram(device, tile, dst.id_pair, noc=0)
     landed = _cycles_until_landed(device, tile, initiator, _PAYLOAD, budget=2000)
     # The DRAM endpoint's own service time is deliberately *not* part of the
-    # flight (see ``tt_sim/device/tiles.py``), so it is added here rather than
+    # flight (see ``framework/device/tiles.py``), so it is added here rather than
     # folded into either leg — a round trip is what the two models sum to. The
     # channel term rides with it: one cycle at this 32-byte payload, which the
     # 24 B/cycle channel needs two cycles for and the 32 B/cycle link one.
@@ -328,7 +328,7 @@ def test_bandwidth_is_the_flit_rate_and_the_two_recorded_figures_agree(
     ``link_bandwidth_gb_per_s`` of 32 — and the two agree exactly: at the
     ``clock`` section's 1 GHz, 32 bytes per cycle *is* 32 GB/s. That is a
     property of the data rather than of this consumer, so the cross-check
-    lives in ``tt_sim/perf/costs_test.py``, where reading the raw tables is
+    lives in ``framework/perf/costs_test.py``, where reading the raw tables is
     what the file is for. (No Blackhole GB/s figure is published; its override
     marks the field ``unknown`` rather than scaling Wormhole's.)
     """
@@ -418,7 +418,7 @@ def test_the_injection_port_is_held_for_the_whole_packet():
 
 
 def _write_packet(nui, payload):
-    from tt_sim.network.tt_noc import NUI
+    from framework.network.tt_noc import NUI
 
     return NUI.NoCDataRequest(
         0x1000,
@@ -434,7 +434,7 @@ def _write_packet(nui, payload):
 def test_a_multicast_is_injected_once_however_wide_the_rectangle():
     """The place this model could easily over-charge, and the policy says not
     to. A multicast write leaves the NIU as **one** packet that the routers
-    split across the destination rectangle; tt-sim models the fan-out as N
+    split across the destination rectangle; Wolfpine models the fan-out as N
     unicasts, so charging each of them the full injection time would invent
     serialisation the hardware does not have. The port is claimed once."""
     with _env("1"):
@@ -536,9 +536,9 @@ def test_a_response_that_overtakes_an_older_one_still_lands_where_it_belongs():
 def test_a_response_no_request_accounts_for_is_a_loud_failure():
     """The other half of dropping the FIFO. Matching on the issue number means
     a response can fail to match — a duplicate, or one for a trid this NIU
-    never used — and there is nothing sensible to return for it. tt-sim's
+    never used — and there is nothing sensible to return for it. Wolfpine's
     established answer for a case it cannot model is to say so."""
-    from tt_sim.network.tt_noc import NUI, NoCResponseError
+    from framework.network.tt_noc import NUI, NoCResponseError
 
     with _env("1"):
         device, tile, dram = _wormhole_worker_and_dram()
@@ -631,11 +631,11 @@ def test_an_extra_batched_read_costs_bandwidth_and_nothing_else():
     NIU and response reordering are all charged at zero, so a batch gets the
     theoretical maximum benefit that latency-hiding can ever deliver.
 
-    That makes tt-sim **systematically optimistic about batched dataflow**,
+    That makes Wolfpine **systematically optimistic about batched dataflow**,
     which is a floor violation in spirit even though every term charged is
     itself a floor: the *comparison* between two dataflows is not bounded the
     way a single total is. The nekbone team measured the consequence on
-    silicon (2026-08-21) — tt-sim predicts a batched-read/write variant wins
+    silicon (2026-08-21) — Wolfpine predicts a batched-read/write variant wins
     pass 1 by 1.05-1.12x; an n300 has it losing or tying at 0.93-1.00x.
 
     The test exists so the gap is visible in the suite and so closing it is a
@@ -692,8 +692,8 @@ _CAPTURE = None
 
 @contextmanager
 def _captured_noc_events():
-    from tt_sim.trace.bus import get_bus
-    from tt_sim.trace.events import EventCategory
+    from framework.trace.bus import get_bus
+    from framework.trace.events import EventCategory
 
     global _CAPTURE
     bus = get_bus()
@@ -732,7 +732,7 @@ def test_the_three_legs_of_a_flight_telescope_to_the_flight_total():
     A consumer can therefore validate the decomposition against the number it
     already had instead of trusting this file.
     """
-    from tt_sim.trace.events import noc_flight_split
+    from framework.trace.events import noc_flight_split
 
     with _env("1"), _captured_noc_events() as events:
         device, tile, dram = _wormhole_worker_and_dram()
@@ -750,7 +750,7 @@ def test_endpoint_queueing_is_modelled_at_zero_away_from_a_dram_channel():
     """**This pins what is *not* modelled, and the zero is the deliverable.**
 
     ``arrival -> service`` is the time a packet spends at its destination after
-    it has arrived. tt-sim charges it in exactly one place — a DRAM tile's
+    it has arrived. Wolfpine charges it in exactly one place — a DRAM tile's
     channel, where it is the documented service time plus whatever the channel
     is still streaming for someone else. Everywhere else it is **zero**, and
     that is a statement about coverage rather than about hardware: arrival
@@ -764,7 +764,7 @@ def test_endpoint_queueing_is_modelled_at_zero_away_from_a_dram_channel():
     term ever lands, this test should fail and be rewritten deliberately, the
     same contract as ``test_an_extra_batched_read_costs_bandwidth_and_nothing_else``.
     """
-    from tt_sim.trace.events import noc_flight_split
+    from framework.trace.events import noc_flight_split
 
     with _env("1"):
         model = dram_cost_model("wormhole")
@@ -801,7 +801,7 @@ def test_the_first_leg_is_the_time_the_injection_port_was_still_busy():
     pushed onto the wire. The first waits for nothing, so its own first leg is
     zero — which is what stops this reading as a per-packet latency.
     """
-    from tt_sim.trace.events import noc_flight_split
+    from framework.trace.events import noc_flight_split
 
     nbytes = 2048
     with _env("1"), _captured_noc_events() as events:
@@ -824,7 +824,7 @@ def test_an_unmodelled_flight_is_reported_whole_rather_than_split_three_ways():
     pipeline. There is no injection, no wire and no endpoint in it to
     apportion, so it is reported entirely as transit — the alternative would be
     to invent a shape for a flight nothing modelled."""
-    from tt_sim.trace.events import noc_flight_split
+    from framework.trace.events import noc_flight_split
 
     with _env(None), _captured_noc_events() as events:
         device, tile, dram = _wormhole_worker_and_dram()

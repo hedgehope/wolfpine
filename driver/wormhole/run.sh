@@ -8,7 +8,7 @@
 #   TT_SIM_CYCLES_PER_POLL=N  cycles to run after each message (default 100)
 #   TT_SIM_MOCK_TENSIX=1      skip building Wormhole; every core is NullCore
 #   TT_SIM_TENSIX_COORDS=1-1,2-1  PIN the worker set to exactly these physical
-#                                 coords. Unset, tt-sim builds 1-1 up front and
+#                                 coords. Unset, Wolfpine builds 1-1 up front and
 #                                 materialises any other worker the program
 #                                 launches on (or a peer addresses) on demand.
 #   TT_SIM_TENSIX_CORES=N         pin N workers at default coords (column-major
@@ -30,5 +30,5 @@ extra=()
 [ -n "${TT_SIM_MOCK_TENSIX:-}" ] && extra+=(--mock-tensix)
 [ -n "${TT_SIM_RUN_TAG:-}" ] && extra+=(--run-tag "$TT_SIM_RUN_TAG")
 
-echo "[run.sh] starting tt-sim server on $NNG_SOCKET_ADDR" >&2
+echo "[run.sh] starting Wolfpine server on $NNG_SOCKET_ADDR" >&2
 exec python3 -u -m driver.wormhole.server "${extra[@]}" "$@"

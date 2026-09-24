@@ -1,8 +1,8 @@
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.trace import EventCategory, SyncEvent, get_bus
-from tt_sim.util.bits import get_bits
-from tt_sim.util.conversion import (
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory import MemoryStall
+from framework.trace import EventCategory, SyncEvent, get_bus
+from framework.util.bits import get_bits
+from framework.util.conversion import (
     conv_to_bytes,
     conv_to_uint32,
 )
@@ -12,7 +12,7 @@ class TTSync(MemMapable):
     """The blocking words of a TRISC's PC buffer.
 
     A TRISC's PC buffer starts at ``0xFFE80000``; word 0 is the plain
-    BRISC->TRISC FIFO (:class:`~tt_sim.pe.pcbuf.PCBuf`) and this object is
+    BRISC->TRISC FIFO (:class:`~framework.pe.pcbuf.PCBuf`) and this object is
     mapped over the words above it, so **the offsets here are one word lower
     than the PC-buffer word index**: offset ``0x0`` is ``pc_buf_base[1]``,
     ``0x4`` is ``pc_buf_base[2]``.
@@ -32,12 +32,12 @@ class TTSync(MemMapable):
       instruction FIFO -- and its ``TENSIX_PC_BUF_MOP_SYNC`` case returns
       immediately (that simulator expands MOPs instantly).
 
-    Historically tt-sim had both checks one word too high: the FIFO-drain check
+    Historically Wolfpine had both checks one word too high: the FIFO-drain check
     sat on ``pc_buf_base[2]`` (so it answered ``mop_sync()``), the MOP-expander
     check on the unused ``pc_buf_base[3]``, and ``pc_buf_base[1]`` -- the word
     every ``tensix_sync()`` in the LLKs and in the TRISC firmware reads -- was
     an unconditional immediate return. ``tensix_sync()`` was therefore a no-op
-    against tt-sim, and any kernel using it purely for ordering was unverifiable
+    against Wolfpine, and any kernel using it purely for ordering was unverifiable
     here. See ``docs/plans/matrix-unit-thread-contention.md``.
 
     Based on descriptions at

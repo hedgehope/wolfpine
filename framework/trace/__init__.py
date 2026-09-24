@@ -1,8 +1,8 @@
-from tt_sim.trace.auto import enable_from_env
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.counters import CounterAggregator
-from tt_sim.trace.dwarf import DwarfIndex, SourceLoc
-from tt_sim.trace.events import (
+from framework.trace.auto import enable_from_env
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.counters import CounterAggregator
+from framework.trace.dwarf import DwarfIndex, SourceLoc
+from framework.trace.events import (
     BACKEND_UNIT_ALIASES,
     MATRIX_BOOKKEEPING_OPS,
     MATRIX_DATAPATH_OPS,
@@ -21,9 +21,9 @@ from tt_sim.trace.events import (
     Unit,
     noc_flight_split,
 )
-from tt_sim.trace.hotspots import Hotspot, HotspotAggregator, HotspotTable
-from tt_sim.trace.ids import IDRegistry, UnitID, get_registry
-from tt_sim.trace.invariants import (
+from framework.trace.hotspots import Hotspot, HotspotAggregator, HotspotTable
+from framework.trace.ids import IDRegistry, UnitID, get_registry
+from framework.trace.invariants import (
     DEFAULT_INVARIANTS,
     Invariant,
     InvariantRunner,
@@ -33,14 +33,14 @@ from tt_sim.trace.invariants import (
     PCAlignmentInvariant,
     Violation,
 )
-from tt_sim.trace.state_dump import StateDumpWriter, dump_device_state
-from tt_sim.trace.writers.cachegrind import MemoryTraceWriter
-from tt_sim.trace.writers.commitlog import SpikeCommitlogWriter
-from tt_sim.trace.writers.jsonl import JSONLLogger
-from tt_sim.trace.writers.lcov import LCOVWriter
-from tt_sim.trace.writers.noc_parquet import NoCParquetWriter
-from tt_sim.trace.writers.parquet import ParquetCounterWriter
-from tt_sim.trace.writers.perfetto import PerfettoWriter
+from framework.trace.state_dump import StateDumpWriter, dump_device_state
+from framework.trace.writers.cachegrind import MemoryTraceWriter
+from framework.trace.writers.commitlog import SpikeCommitlogWriter
+from framework.trace.writers.jsonl import JSONLLogger
+from framework.trace.writers.lcov import LCOVWriter
+from framework.trace.writers.noc_parquet import NoCParquetWriter
+from framework.trace.writers.parquet import ParquetCounterWriter
+from framework.trace.writers.perfetto import PerfettoWriter
 
 __all__ = [
     "BACKEND_UNIT_ALIASES",

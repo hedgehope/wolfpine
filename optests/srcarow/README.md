@@ -21,7 +21,7 @@ record).
 
 ## Why this is a regression test and not a bug report
 
-The refusal was reported to us as a tt-sim limit blocking a configuration that
+The refusal was reported to us as a Wolfpine limit blocking a configuration that
 silicon accepts. It was not. The kernel that hit it had **never configured its
 unpack hardware**, and on silicon that same kernel ran to completion returning
 a constant `1.0f` for every element. Hardware accepting the configuration was

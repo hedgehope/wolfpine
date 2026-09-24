@@ -13,7 +13,7 @@
 // inputs are all non-negative.
 //
 // Dumped as `OPDIFF_RESULT:<hex>`; optests/diff.sh runs this same binary on
-// tt-sim and on ttsim and compares. ttsim is the oracle — no local golden.
+// Wolfpine and on ttsim and compares. ttsim is the oracle — no local golden.
 //
 // Add an op: append a RUN_REDUCE(...) in the compute kernel and bump NUM_OPS.
 

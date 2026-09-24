@@ -1,9 +1,9 @@
-from tt_sim.memory.memory import VisibleMemory
-from tt_sim.misc.perf_counters import TensixPerfCounters
-from tt_sim.pe.pe import ProcessingElement
-from tt_sim.pe.tensix.backend import TensixBackend
-from tt_sim.pe.tensix.frontend import TensixFrontend
-from tt_sim.pe.tensix.util import TensixCoprocessorDiagnostics
+from framework.memory.memory import VisibleMemory
+from framework.misc.perf_counters import TensixPerfCounters
+from framework.pe.pe import ProcessingElement
+from framework.pe.tensix.backend import TensixBackend
+from framework.pe.tensix.frontend import TensixFrontend
+from framework.pe.tensix.util import TensixCoprocessorDiagnostics
 
 
 class TensixCoProcessor(ProcessingElement):

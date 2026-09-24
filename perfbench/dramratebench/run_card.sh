@@ -41,7 +41,7 @@ export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 # requires slow dispatch; a card defaults to FAST dispatch, so without this every
 # run aborts with rc=134 before doing any work. Measured on a Blackhole p150,
 # 2026-08-17, when nocevbench hit exactly this. The simulator runners have always
-# set it (tt-sim supports no other flow), which is why the gap survived in every
+# set it (Wolfpine supports no other flow), which is why the gap survived in every
 # card runner: the sim side cannot reproduce the failure.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
@@ -90,5 +90,5 @@ echo
 echo "The SUSTAINED RATE table above the verdict is the level, and the prediction"
 echo "it is to be read against was recorded before this run:"
 echo "  $HERE/prediction-sustained.csv"
-echo "At home: python3 -m tt_sim.perf.dram_rate_sweep --measured <the CSV>"
+echo "At home: python3 -m framework.perf.dram_rate_sweep --measured <the CSV>"
 exit "$rc"

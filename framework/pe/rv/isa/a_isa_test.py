@@ -2,9 +2,9 @@
 
 import pytest
 
-from tt_sim.pe.rv.isa.a_isa import RV_ZAAMO_ISA
-from tt_sim.pe.rv.isa.guard_isa import RV_F_GUARD_ISA, RV_V_GUARD_ISA
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.a_isa import RV_ZAAMO_ISA
+from framework.pe.rv.isa.guard_isa import RV_F_GUARD_ISA, RV_V_GUARD_ISA
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 M = 0xFFFFFFFF
 

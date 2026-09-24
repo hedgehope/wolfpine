@@ -2,7 +2,7 @@
 // Float32 input tile through a sequence of SFPU math ops (see
 // kernels/compute/compute_kernel.cpp), one output tile per op. The output tiles
 // are read back and dumped as `OPDIFF_RESULT:<hex>`; optests/diff.sh runs the
-// same binary on tt-sim and on ttsim and compares the dumps (ttsim is the
+// same binary on Wolfpine and on ttsim and compares the dumps (ttsim is the
 // oracle — the SFPU approximations must match bit-for-bit, not just numerically).
 //
 // Add an op: append a RUN_OP(...) in the compute kernel and bump NUM_OPS here.

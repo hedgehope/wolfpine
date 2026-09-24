@@ -8,8 +8,8 @@ UMD's simulation wire protocol is strictly host-initiated: the host sends
 There is no "the simulator gave up" message, and UMD sets no receive timeout
 (``simulation_host.cpp`` binds an nng ``pair1`` listener and calls
 ``nng_recvmsg`` with no deadline). So when the simulator stops answering — for
-any reason — **the host waits forever**. It is not a tt-sim bug and it cannot
-be fixed from the tt-sim side of the wire.
+any reason — **the host waits forever**. It is not a Wolfpine bug and it cannot
+be fixed from the Wolfpine side of the wire.
 
 It can be fixed from the *process* side. UMD spawns the simulator
 (``rtl_sim_communicator.cpp`` → ``uv_spawn`` of ``run.sh``), so the simulator is

@@ -1,6 +1,6 @@
 """Tests for the per-unit cycle-cost tables and their loader.
 
-Runs standalone (``python3 -m tt_sim.perf.costs_test``) or under pytest.
+Runs standalone (``python3 -m framework.perf.costs_test``) or under pytest.
 
 Three things are pinned here, in decreasing order of how much they matter:
 
@@ -8,7 +8,7 @@ Three things are pinned here, in decreasing order of how much they matter:
    every sourced entry names a document that the file actually declares, and
    every unsourced entry explains itself in prose and carries no numbers. This
    is the property the whole exercise exists for -- see ROADMAP.md
-   "Positioning": tt-sim is a cycle-*approximate* estimator, so a table that
+   "Positioning": Wolfpine is a cycle-*approximate* estimator, so a table that
    could not distinguish a documented constant from a placeholder would be
    unimprovable.
 2. **The loader returns what the file says.** Spot checks against the ISA docs'
@@ -26,7 +26,7 @@ import re
 
 import yaml
 
-from tt_sim.perf.costs import (
+from framework.perf.costs import (
     ARCHITECTURES,
     BOUNDS,
     ENTRY_KEYS,
@@ -42,10 +42,12 @@ from tt_sim.perf.costs import (
 )
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_TENSIX_YAML = _REPO_ROOT / "tt_sim" / "pe" / "tensix" / "tensix_instruction_costs.yaml"
-_UNIT_YAML = _REPO_ROOT / "tt_sim" / "perf" / "unit_costs.yaml"
+_TENSIX_YAML = (
+    _REPO_ROOT / "framework" / "pe" / "tensix" / "tensix_instruction_costs.yaml"
+)
+_UNIT_YAML = _REPO_ROOT / "framework" / "perf" / "unit_costs.yaml"
 _INSTRUCTIONS_YAML = (
-    _REPO_ROOT / "tt_sim" / "pe" / "tensix" / "tensix_instructions.yaml"
+    _REPO_ROOT / "framework" / "pe" / "tensix" / "tensix_instructions.yaml"
 )
 
 
@@ -130,9 +132,9 @@ def test_every_tensix_instruction_declares_a_provenance():
     for unit_name, unit in tensix["units"].items():
         for name, entry in (unit.get("instructions") or {}).items():
             assert "provenance" in entry, f"{unit_name}.{name} has no provenance"
-            assert entry["provenance"] in PROVENANCE_RANK, (
-                f"{unit_name}.{name} has unknown provenance {entry['provenance']!r}"
-            )
+            assert (
+                entry["provenance"] in PROVENANCE_RANK
+            ), f"{unit_name}.{name} has unknown provenance {entry['provenance']!r}"
 
 
 def test_every_provenanced_mapping_anywhere_uses_the_vocabulary():
@@ -141,9 +143,9 @@ def test_every_provenanced_mapping_anywhere_uses_the_vocabulary():
     Mover transfer rates. None of them may opt out."""
     for raw in _load_raw():
         for path, node in _walk_provenanced(raw):
-            assert node["provenance"] in PROVENANCE_RANK, (
-                f"{'.'.join(path)} has unknown provenance {node['provenance']!r}"
-            )
+            assert (
+                node["provenance"] in PROVENANCE_RANK
+            ), f"{'.'.join(path)} has unknown provenance {node['provenance']!r}"
 
 
 def test_sourced_entries_name_a_declared_document():
@@ -180,9 +182,7 @@ def test_unknown_entries_carry_no_numbers():
                 for k, v in node.items()
                 if k not in {"provenance", "note", "source", "arch"}
             }
-            assert not numeric, (
-                f"{'.'.join(path)} claims unknown provenance but carries {sorted(numeric)}"
-            )
+            assert not numeric, f"{'.'.join(path)} claims unknown provenance but carries {sorted(numeric)}"
 
 
 def test_derived_entries_show_their_working():
@@ -195,9 +195,9 @@ def test_derived_entries_show_their_working():
             if node["provenance"] not in PROVENANCE_REQUIRING_DERIVATION:
                 continue
             where = ".".join(path) or "<root>"
-            assert node.get("derivation"), (
-                f"{where} is derived but does not say from what"
-            )
+            assert node.get(
+                "derivation"
+            ), f"{where} is derived but does not say from what"
 
 
 def test_vendor_derived_entries_are_exactly_the_ones_we_expect():
@@ -336,7 +336,7 @@ def test_a_corroboration_says_how_many_runs_on_how_many_parts():
         for entry in load_costs(arch).corroborated():
             text = entry.corroboration
             assert RUNS_AND_PARTS.search(text), entry.name
-            assert "tt_sim/perf/datasets/" in text, entry.name
+            assert "framework/perf/datasets/" in text, entry.name
 
 
 def test_the_math_format_corroboration_keeps_both_of_its_caveats():
@@ -363,7 +363,7 @@ def test_the_math_format_corroboration_keeps_both_of_its_caveats():
 def test_the_divide_corroboration_keeps_both_of_its_silicon_points():
     """A corroboration that quoted only the 33-cycle point would misread.
 
-    On its own, "silicon costs 33 where tt-sim charges 6" reads as a model
+    On its own, "silicon costs 33 where Wolfpine charges 6" reads as a model
     defect with an obvious fix, and the obvious fix -- a dividend-magnitude
     term -- is precisely what no document licenses. The 12-bit point is what
     turns that reading around: with both, ``cycles = bits + k`` needs one k
@@ -407,7 +407,7 @@ def test_an_extras_corroboration_is_held_to_the_same_rules():
     for arch in ARCHITECTURES:
         for unit, path, text in load_costs(arch).corroborated_extras():
             assert RUNS_AND_PARTS.search(text), (unit, path)
-            assert "tt_sim/perf/datasets/" in text, (unit, path)
+            assert "framework/perf/datasets/" in text, (unit, path)
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +474,7 @@ def test_a_section_corroboration_is_held_to_the_same_rules():
     tracked dataset a reader can go and look at."""
     for path, text in _sections_with("corroboration").items():
         assert RUNS_AND_PARTS.search(text), path
-        assert "tt_sim/perf/datasets/" in text, path
+        assert "framework/perf/datasets/" in text, path
 
 
 def _resolved_block(arch, path):
@@ -550,7 +550,7 @@ def test_a_contradiction_records_rather_than_resolves():
         assert node["provenance"] in SOURCED_PROVENANCE, path
         assert node["source"], path
         assert RUNS_AND_PARTS.search(text), path
-        assert "tt_sim/perf/datasets/" in text, path
+        assert "framework/perf/datasets/" in text, path
         assert "DIFFERENT QUANTITIES" in text.upper(), path
     # And specifically: the fusion claim's numbers are untouched by the run
     # that disagrees with them.
@@ -697,9 +697,9 @@ def test_bounds_are_from_the_vocabulary():
             for key in ("latency", "occupancy"):
                 value = node.get(key)
                 if isinstance(value, dict):
-                    assert value.get("bound", "exact") in BOUNDS, (
-                        f"{'.'.join(path)}.{key} has unknown bound"
-                    )
+                    assert (
+                        value.get("bound", "exact") in BOUNDS
+                    ), f"{'.'.join(path)}.{key} has unknown bound"
 
 
 # ---------------------------------------------------------------------------
@@ -910,7 +910,7 @@ def test_the_nocs_two_bandwidth_figures_are_one_fact_and_agree():
     the same number written two ways, and the file records both without either
     citing the other: 256 bits per cycle at the ``clock`` section's 1 GHz is
     exactly 32 GB/s. Cheap, and it is the check that says the flit rate is safe
-    to spend as bandwidth (``tt_sim/perf/model.py``'s ``NocCostModel``) rather
+    to spend as bandwidth (``framework/perf/model.py``'s ``NocCostModel``) rather
     than being a packet-format detail that happens to be in the same block."""
     wh = load_costs("wormhole")
     bytes_per_cycle = wh.section("noc")["flit_bits"] / 8
@@ -983,9 +983,9 @@ def test_a_unit_disagreeing_with_ex_resource_is_explained_not_silent():
                     "without explaining why"
                 )
             if entry.has_costs:
-                assert name not in costed_in, (
-                    f"{name} is costed twice: {costed_in[name]} and {unit_name}"
-                )
+                assert (
+                    name not in costed_in
+                ), f"{name} is costed twice: {costed_in[name]} and {unit_name}"
                 costed_in[name] = unit_name
     assert costed_in["DMANOP"] == "THCON"
 
@@ -1008,29 +1008,29 @@ def test_unsourced_lists_exactly_the_entries_without_numbers_we_expect():
 # 6. Who consumes the tables, and nobody else.
 # ---------------------------------------------------------------------------
 
-#: Every module outside ``tt_sim/perf/`` that may name the cost tables. This
+#: Every module outside ``framework/perf/`` that may name the cost tables. This
 #: list started empty — the tables were dead data by design until Phase 5 of
 #: ``docs/plans/event-driven-pump.md`` — and it grows one unit at a time,
 #: deliberately. The matrix unit was the first, and everything any of them
-#: needs lives in ``tt_sim/perf/model.py``, so the next unit adds itself here
+#: needs lives in ``framework/perf/model.py``, so the next unit adds itself here
 #: rather than growing its own reading of the YAML.
 EXPECTED_CONSUMERS = {
     # The FPU: MVMUL and friends charged the table's occupancy, fidelity-phase
     # aware. See MatrixUnit.instruction_occupancy.
-    "tt_sim/pe/tensix/backends/matrix.py",
+    "framework/pe/tensix/backends/matrix.py",
     # The SFPU. Best-sourced unit in the file (a published latency for all 42
     # opcodes) and every one of them is a 1-cycle *occupancy*: the sub-units
     # are pipelined, so latency 2 is time-to-result, not time-held.
-    "tt_sim/pe/tensix/backends/vector.py",
+    "framework/pe/tensix/backends/vector.py",
     # ThCon. The only unit whose ISA-doc table is already an occupancy table,
-    # and the first place in tt-sim where an op costs more than one cycle.
-    "tt_sim/pe/tensix/backends/thcon.py",
+    # and the first place in Wolfpine where an op costs more than one cycle.
+    "framework/pe/tensix/backends/thcon.py",
     # The packers: PACR's documented one-cycle *issue* cost only. The drain has
     # no published figure and is charged nothing.
-    "tt_sim/pe/tensix/backends/packer.py",
+    "framework/pe/tensix/backends/packer.py",
     # The sync unit: one cycle throughout; the real costs are wait-gate stalls,
     # which are not occupancy.
-    "tt_sim/pe/tensix/backends/sync.py",
+    "framework/pe/tensix/backends/sync.py",
     # The config unit, wired last and the only one that had to be wired twice.
     # It charges nothing on Wormhole (all ones) and does charge on Blackhole,
     # whose CFGSHIFTMASK is 2 cycles and runs 32 times in the `untilize` guard
@@ -1038,53 +1038,53 @@ EXPECTED_CONSUMERS = {
     # no-op on the other, and it was gated as such. The reordering bug that kept
     # it off this list is fixed in TensixBackendUnit.clock_tick; the divergence
     # that bug exposed is merely unreachable, which config.py says out loud.
-    "tt_sim/pe/tensix/backends/config.py",
+    "framework/pe/tensix/backends/config.py",
     # The unpackers, and the only unit whose charge is a *function of the
     # transfer* rather than of the opcode: a >= 2-cycle address phase plus a
     # data phase of transfer-bytes over the throttle rate in effect, priced at
     # decode from the config this UNPACR latched. The joint 80 B/cycle ceiling
     # is deliberately not charged -- see UnitCostModel.unpack_data_phase_cycles.
-    "tt_sim/pe/tensix/backends/unpacker.py",
+    "framework/pe/tensix/backends/unpacker.py",
     # The mover, and the first unit to read a *bandwidth* table rather than an
     # occupancy one: the XMOV entry's 1 is the issue cost, and the background
     # transfer's duration comes from ``mover.transfer`` in unit_costs.yaml.
-    "tt_sim/pe/tensix/backends/mover.py",
+    "framework/pe/tensix/backends/mover.py",
     # Only mentions the model in prose: the ``cost_model`` attribute and the
     # ``instruction_occupancy`` hook every unit inherits, whose default is now
     # the straight table lookup the five constant-cost units above rely on.
-    "tt_sim/pe/tensix/backends/backend_base.py",
-    "tt_sim/pe/tensix/matrix_cost_model_test.py",
-    "tt_sim/pe/tensix/backend_cost_model_test.py",
-    "tt_sim/pe/tensix/unpacker_cost_model_test.py",
-    "tt_sim/pe/tensix/mover_cost_model_test.py",
+    "framework/pe/tensix/backends/backend_base.py",
+    "framework/pe/tensix/matrix_cost_model_test.py",
+    "framework/pe/tensix/backend_cost_model_test.py",
+    "framework/pe/tensix/unpacker_cost_model_test.py",
+    "framework/pe/tensix/mover_cost_model_test.py",
     # The baby RISC-V cores' load/store path — the first consumer outside the
     # Tensix coprocessor, and the first to read the tables as something other
     # than a per-opcode occupancy: ``riscv.load_latency`` is a latency table
     # driving a load-use scoreboard, not a table of cycles a unit is held.
     # ``rv32.py``, ``babyriscv.py`` and ``cost_test.py`` deliberately do not
-    # appear here; they reach the model only through ``tt_sim/pe/rv/cost.py``,
+    # appear here; they reach the model only through ``framework/pe/rv/cost.py``,
     # which is the single point where the RV side names the tables at all.
-    "tt_sim/pe/rv/cost.py",
+    "framework/pe/rv/cost.py",
     # The NoC, and the first consumer that is not a *unit* at all: the cost is
     # a function of the distance between two endpoints, so ``NUI`` reads the
     # ``noc.hops`` block and spends it as flight time on a packet rather than
     # as occupancy on anything. Hop counting is topology and stays here, in
     # ``noc_hop_count``; the table only supplies the two constants.
-    "tt_sim/network/tt_noc.py",
-    "tt_sim/network/noc_cost_model_test.py",
+    "framework/network/tt_noc.py",
+    "framework/network/noc_cost_model_test.py",
     # Not a cost consumer either: the endpoint-consistency audit names
-    # ``tt_sim.perf.noc_congestion_plan`` only to assert that its
+    # ``framework.perf.noc_congestion_plan`` only to assert that its
     # ``route_links`` *is* ``noc_route_links``, so the planner inherits the
     # simulator's out-of-grid guard. It reads no table and charges nothing.
-    "tt_sim/network/noc_endpoint_consistency_test.py",
+    "framework/network/noc_endpoint_consistency_test.py",
     # DRAM, and the first cost charged at an *endpoint* rather than to a unit
     # or to a flight: ``DRAMEndpointNUI`` holds an arriving request for the
     # device's own service time before the channel answers it. Separate from
     # the NoC consumer above on purpose — a flight time is a property of the
     # distance, this is a property of the device, and keeping them apart is
     # what lets the number be derived without double-counting the hops.
-    "tt_sim/device/tiles.py",
-    "tt_sim/device/dram_cost_model_test.py",
+    "framework/device/tiles.py",
+    "framework/device/dram_cost_model_test.py",
     # The trace writers, and the only consumers that read the tables to
     # *describe* a run rather than to charge it: nothing here can move a cycle.
     # They ask ``cost_model_enabled()`` one question — which timing regime
@@ -1092,21 +1092,21 @@ EXPECTED_CONSUMERS = {
     # figure or the flat 1 an un-modelled unit really did retire in. That
     # distinction is the whole reason they appear here: a writer that guessed
     # would fabricate performance data, which is worse than emitting none.
-    "tt_sim/trace/writers/perfetto.py",
-    "tt_sim/trace/writers/noc_parquet.py",
+    "framework/trace/writers/perfetto.py",
+    "framework/trace/writers/noc_parquet.py",
     # Same question, asked at exit rather than at open: the ranked bottleneck
     # report stamps the regime into its own header, and says in its body that
     # an un-modelled run has no stall rows rather than zeroed ones. It reads
     # no cost and runs after the last cycle.
-    "tt_sim/trace/auto.py",
+    "framework/trace/auto.py",
     # Prose only — ``ComputeEvent.duration`` documents which table its cycles
     # came from. No import; the event is a plain dataclass field populated by
     # ``TensixBackendUnit.clock_tick``, which is already on this list.
-    "tt_sim/trace/events.py",
+    "framework/trace/events.py",
     # Prose only, and the furthest thing from a cost consumer on this list: the
     # energybench card-side aggregator turns tt-smi telemetry into a power CSV.
-    # It is standard-library only — it runs on a card box that has no ``tt_sim``
-    # to import — and it names ``tt_sim.perf.energy_rank`` solely to say which
+    # It is standard-library only — it runs on a card box that has no ``framework``
+    # to import — and it names ``framework.perf.energy_rank`` solely to say which
     # module reads its output at home. Nothing in the energy work may ever reach
     # these tables: its coefficients are FITTED, which is weaker than the
     # ``estimated`` provenance they forbid, and ``energy_quarantine_test.py``
@@ -1114,16 +1114,16 @@ EXPECTED_CONSUMERS = {
     "perfbench/energybench/aggregate_power.py",
     # Prose only, and for the same reason as the entry above: nocevbench's
     # arm check is standard-library only -- it runs on a card box with no
-    # ``tt_sim`` to import -- and names ``tt_sim.perf.noc_events`` solely to say
+    # ``framework`` to import -- and names ``framework.perf.noc_events`` solely to say
     # which module consumes the traces it guards. It reads no table and charges
     # nothing; it is here because the scan below is a text match on the package
     # name.
     "perfbench/nocevbench/check_arm.py",
     # Not a cost consumer at all: the profiler-readback guard borrows five
-    # RV32I *encoders* from ``tt_sim.perf.noc_issue_loop`` to build the stand-in
+    # RV32I *encoders* from ``framework.perf.noc_issue_loop`` to build the stand-in
     # firmware tail it loads onto BRISC. It reads no table and imports no cost;
     # it is here because the scan above is a text match on the package name.
-    "tt_sim/bridge/profiler_readback_test.py",
+    "framework/bridge/profiler_readback_test.py",
 }
 
 #: The Tensix backend units that are *not* wired to the tables, and why. Kept
@@ -1138,7 +1138,7 @@ UNWIRED_UNITS = {
     # Every Miscellaneous Unit op is one cycle by one blanket sentence, so
     # wiring it would charge nothing; left out to keep the allow-list honest
     # about which units the model has actually been reasoned about for.
-    "TDMA": "tt_sim/pe/tensix/backends/misc.py",
+    "TDMA": "framework/pe/tensix/backends/misc.py",
 }
 
 
@@ -1150,7 +1150,7 @@ def test_the_cost_tables_have_exactly_the_consumers_we_expect():
     consumers = set()
     for path in sorted(_REPO_ROOT.rglob("*.py")):
         relative = path.relative_to(_REPO_ROOT)
-        if "tt_sim/perf/" in relative.as_posix():
+        if "framework/perf/" in relative.as_posix():
             continue
         # ``.claude`` can hold agent worktrees — whole copies of this repo —
         # whose files are not new consumers, just this tree seen twice. The
@@ -1164,19 +1164,19 @@ def test_the_cost_tables_have_exactly_the_consumers_we_expect():
         ):
             continue
         text = path.read_text(errors="ignore")
-        if "tt_sim.perf" in text or "tensix_instruction_costs" in text:
+        if "framework.perf" in text or "tensix_instruction_costs" in text:
             consumers.add(relative.as_posix())
     assert consumers == EXPECTED_CONSUMERS
 
 
 def test_the_consumers_only_reach_the_tables_through_the_model():
-    """``tt_sim/perf/model.py`` is where the three judgement calls live (no
+    """``framework/perf/model.py`` is where the three judgement calls live (no
     entry means no opinion, a bound is not an equals sign, derived is not
     measured). A unit that loaded ``load_costs`` itself would be making them
     again, differently."""
     for relative in EXPECTED_CONSUMERS:
         text = (_REPO_ROOT / relative).read_text()
-        assert "tt_sim.perf.costs" not in text, relative
+        assert "framework.perf.costs" not in text, relative
 
 
 def test_every_unit_with_a_backend_is_either_wired_or_named_as_unwired():

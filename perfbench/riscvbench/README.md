@@ -1,7 +1,7 @@
 # riscvbench — running it on real hardware
 
 **You have a Tenstorrent card. This page is everything you need; you do not need
-to know anything about tt-sim.** It asks you to build one program, run it seven
+to know anything about Wolfpine.** It asks you to build one program, run it seven
 times, and send back seven CSV files. Budget **20 minutes**, most of it the
 build: the two main runs are a minute or two each and the two extra phase G runs
 and the phase-Q drain run are seconds.
@@ -123,7 +123,7 @@ noise; on silicon they cost milliseconds.
 > phase that cannot be read whatever the probes did. Its numbers agreed with the
 > `--blocks 32` run's to a few thousandths of a cycle anyway, which is a useful
 > reminder that agreement is not validity. Both are tracked in
-> `tt_sim/perf/datasets/` and the second one's header explains why it is kept.
+> `framework/perf/datasets/` and the second one's header explains why it is kept.
 > The minimum usable block count is somewhere above 8 and at or below 32.
 >
 > **Phase Q is the exception and it matters.** `--blocks` sets the four fitted
@@ -407,7 +407,7 @@ identical dynamic instruction sequence — a branch whose target is the address
 the not-taken path falls through to — and differ in exactly one bit. The tables
 record a mispredict as a 2-cycle bubble on Wormhole and 4 on Blackhole, which is
 how much one *costs*; how *often* one happens is undescribed, which is why
-tt-sim charges nothing for branches at all. A non-zero delta here would supply
+Wolfpine charges nothing for branches at all. A non-zero delta here would supply
 the missing half.
 
 **4. The phase F row, and phase G's three narrowing points.** Six loop bodies
@@ -501,7 +501,7 @@ It is in
 it scores what came back.
 
 **It has run** (2026-08-05, Blackhole, banked as
-`tt_sim/perf/datasets/riscvbench-qdrain.csv`), so what follows is the recipe for
+`framework/perf/datasets/riscvbench-qdrain.csv`), so what follows is the recipe for
 reproducing it rather than a request. Seconds on the card, one launch of phase Q
 and one of phase S:
 
@@ -513,12 +513,12 @@ cd perfbench/riscvbench/src
 Then, back in this repo:
 
 ```bash
-python3 -m tt_sim.perf.riscv_bench_sweep --measured riscvbench-qdrain.csv
+python3 -m framework.perf.riscv_bench_sweep --measured riscvbench-qdrain.csv
 ```
 
 and read the raw t1 rows plus `Do the two burst forms agree about the depth?`.
 **What confirmed it**, against the pre-drain run banked in
-`tt_sim/perf/datasets/riscvbench-blackhole.csv`:
+`framework/perf/datasets/riscvbench-blackhole.csv`:
 
 | probe (t1) | n = 16 | 32 | 64 | 128 | 256 | 512 | 1024 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -565,18 +565,18 @@ check cannot run against it.
 Back on a machine with this repo:
 
 ```bash
-export PYTHONPATH=/path/to/tt-sim
-python3 -m tt_sim.perf.riscv_bench_sweep --measured riscvbench-blackhole.csv
+export PYTHONPATH=/path/to/wolfpine
+python3 -m framework.perf.riscv_bench_sweep --measured riscvbench-blackhole.csv
 
 # With no --measured it sweeps the tracked 2026-08-05 Blackhole run instead,
 # which is how to see what a good run looks like before comparing your own.
-python3 -m tt_sim.perf.riscv_bench_sweep
+python3 -m framework.perf.riscv_bench_sweep
 ```
 
 and, to diff hardware against the simulator running the same binary:
 
 ```bash
-python3 -m tt_sim.perf.riscv_bench_sweep \
+python3 -m framework.perf.riscv_bench_sweep \
     --measured riscvbench-blackhole.csv \
     --reference sim-blackhole.csv
 ```
@@ -584,7 +584,7 @@ python3 -m tt_sim.perf.riscv_bench_sweep \
 The sweep prints its expectations before any number, declares its exclusion
 criteria before any residual, reports a per-series resolution below which a
 negative residual is the instrument rather than a finding, and breaks the
-residuals down by phase, unit, bound, prediction kind and whether tt-sim charges
+residuals down by phase, unit, bound, prediction kind and whether Wolfpine charges
 the term at all.
 
 ## Running it against the simulator instead
@@ -595,7 +595,7 @@ TT_METAL_HOME=/path/to/tt-metal ./perfbench/run.sh riscvbench -- --blocks 2
 
 `TT_SIM_ARCH=wormhole` picks the other simulator; `TT_SIM_COST_MODEL=1` turns
 the cycle cost model on — and for this benchmark that flag is the whole point,
-because with it **off** tt-sim charges nothing anywhere and every probe reads
+because with it **off** Wolfpine charges nothing anywhere and every probe reads
 exactly 1.000, including the four that are supposed to be the instrument's own
 control. Keep `--blocks` small: the simulator runs a few tens of thousands of
 cycles per second.
@@ -607,8 +607,8 @@ takes about twenty minutes against the simulator.
 `--phase s --variants t1,t2` is about a minute and `--phase g --variants t1
 --blocks 1` a couple.
 
-Against tt-sim the phase T, C, Q, F, S and G verdicts are **forced** and mean
-nothing about any hardware: tt-sim has no instruction cache, no branch
+Against Wolfpine the phase T, C, Q, F, S and G verdicts are **forced** and mean
+nothing about any hardware: Wolfpine has no instruction cache, no branch
 predictor, and an unbounded Tensix instruction queue, so a null in each of those
 is guaranteed by its own construction. Specifically, and verified:
 
@@ -618,7 +618,7 @@ is guaranteed by its own construction. Specifically, and verified:
 - **Phase S** refuses a depth in every slot — the backlog is still growing at
   n = 512 because `TensixFrontend.push_mop_instruction` is a list append — and
   therefore prints **NO VERDICT** on the sharing question rather than a
-  plausible-looking "per-thread". A shared-versus-private answer from tt-sim
+  plausible-looking "per-thread". A shared-versus-private answer from Wolfpine
   would be a bug in the read-out, not a finding.
 
 The "Did the new probes run at all?" section exists for exactly this: a probe

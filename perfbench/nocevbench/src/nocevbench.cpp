@@ -4,9 +4,9 @@
 // movement kernels, a round trip, and an exact host-side check (the bytes that
 // come back must be the bytes that went out, compared word for word).
 //
-// It exists to be run twice -- once on silicon and once against tt-sim, under
+// It exists to be run twice -- once on silicon and once against Wolfpine, under
 // TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1 both times -- so that the NoC event
-// trace each side produces can be compared by tt_sim.perf.noc_events. No
+// trace each side produces can be compared by framework.perf.noc_events. No
 // profiler markers are placed by this program: the recorder is compiled into
 // tt-metal's own dataflow API by -DPROFILE_NOC_EVENTS (jit_build/build.cpp:188)
 // and the zone endpoints come from the firmware.

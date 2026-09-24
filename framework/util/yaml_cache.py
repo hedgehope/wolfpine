@@ -18,7 +18,7 @@ import pickle
 
 import yaml
 
-_CACHE_SUBDIR = os.path.join("tt-sim", "yaml")
+_CACHE_SUBDIR = os.path.join("wolfpine", "yaml")
 
 
 def _cache_dir():

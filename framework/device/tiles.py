@@ -1,7 +1,7 @@
 """Arch-agnostic device tiles: ``DRAMTile``, ``EthTile``, ``TensixTile``.
 
 These build a single tile's memory, NoC routers, baby cores and (for Tensix)
-the coprocessor from an :class:`~tt_sim.arch.profile.ArchProfile`, so the same
+the coprocessor from an :class:`~framework.arch.profile.ArchProfile`, so the same
 classes back both Wormhole and Blackhole — the arch differences arrive through
 the required ``profile`` argument, never a hard-coded default. The per-arch
 ``Wormhole`` / ``Blackhole`` devices (``wormhole.py`` / ``blackhole.py``) just
@@ -11,23 +11,23 @@ assemble these into a netlist. See ``docs/plans/blackhole-support.md``.
 import math
 import threading
 
-from tt_sim.device.tt_device import (
+from framework.device.tt_device import (
     TTDeviceTile,
 )
-from tt_sim.memory.memory import DRAM, SparseDRAM, TensixMemory, TileMemory
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.misc.mailbox import Mailbox
-from tt_sim.misc.tile_ctrl import TensixTileControl
-from tt_sim.misc.ttsync import TTSync
-from tt_sim.network.tt_noc import NUI, NoCOverlay
-from tt_sim.pe.pcbuf import PCBuf
-from tt_sim.pe.pe import PEMemory
-from tt_sim.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
-from tt_sim.pe.tensix.tdma import TDMA
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.perf.model import dram_cost_model
-from tt_sim.trace import Unit, get_registry
-from tt_sim.util.conversion import conv_to_bytes
+from framework.memory.memory import DRAM, SparseDRAM, TensixMemory, TileMemory
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.misc.mailbox import Mailbox
+from framework.misc.tile_ctrl import TensixTileControl
+from framework.misc.ttsync import TTSync
+from framework.network.tt_noc import NUI, NoCOverlay
+from framework.pe.pcbuf import PCBuf
+from framework.pe.pe import PEMemory
+from framework.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
+from framework.pe.tensix.tdma import TDMA
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.perf.model import dram_cost_model
+from framework.trace import Unit, get_registry
+from framework.util.conversion import conv_to_bytes
 
 #: "No write rate was passed, so use the read one" — distinct from ``None``,
 #: which means "this direction is not modelled at all".
@@ -38,7 +38,7 @@ class DramChannels:
     """The GDDR6 channels behind one DRAM tile: the endpoint's occupancy.
 
     One free-cycle watermark per physical channel — structurally identical to
-    :class:`~tt_sim.network.tt_noc.NocLinkRegistry` and to
+    :class:`~framework.network.tt_noc.NocLinkRegistry` and to
     ``NUI._tx_free_cycle``, "the cycle this resource finishes what is already
     on it" — and it exists for the reason a router-to-router link got one: a
     second request really does wait. Until 2026-08-09 a DRAM endpoint served
@@ -58,7 +58,7 @@ class DramChannels:
       channel is free, so nothing issuing one transfer at a time can move and
       rung 2's single-transaction rows are untouched by construction. What it
       changes is a *sustained* rate, which is what was wrong.
-    * **There is more than one channel, and they do not contend.** A tt-sim
+    * **There is more than one channel, and they do not contend.** A Wolfpine
       ``DRAMTile`` is what ``wh_dram`` calls a *group*: "DRAM tiles occur in
       groups of three, with two channels of GDDR6 present in each group", and
       the group's NoC address map splits them at 1 GiB — "GDDR6 Channel 0 data"
@@ -316,7 +316,7 @@ class DRAMEndpointNUI(NUI):
         self.service_cycles_write = (
             service_cycles if service_cycles_write is None else service_cycles_write
         )
-        #: The :class:`~tt_sim.perf.model.DramCostModel`, or ``None``. Only its
+        #: The :class:`~framework.perf.model.DramCostModel`, or ``None``. Only its
         #: channel rate is read here; the service time is unpacked above so the
         #: hot path is one attribute read rather than a method call.
         self.dram_cost = dram_cost
@@ -406,7 +406,7 @@ class DRAMEndpointNUI(NUI):
         ``endpoint_delay`` is passed on so the trace can tell the two apart:
         everything up to ``delay`` is time the packet spent getting here, and
         the ``service`` added below is time it spends *at* this endpoint — the
-        one place in tt-sim where the arrival-to-service leg of the flight
+        one place in Wolfpine where the arrival-to-service leg of the flight
         split is anything but zero.
         """
         service = self.service_cycles
@@ -577,7 +577,7 @@ class EthTile(TTDeviceTile):
 
     Per the WormholeB0 EthernetTile ISA docs: 256 KiB L1, one RV32IM baby
     core (ERisc), two NoC connections. The ethernet MAC/PHY and chip-to-
-    chip routing are *not* modelled (no second chip exists in tt-sim yet),
+    chip routing are *not* modelled (no second chip exists in Wolfpine yet),
     but the L1 + ERisc are enough for single-chip kernels that hardcode an
     eth coord (e.g. ``hello_world_datatypes_kernel`` reading ``(1, 0)``) to
     see deterministic memory-backed state instead of the former
@@ -803,7 +803,7 @@ class TensixTile(TTDeviceTile):
 
         # The coprocessor is the third condition of a BRISC PCBuf read (the
         # thread's Tensix instructions must all have retired) -- see
-        # tt_sim/pe/pcbuf.py.
+        # framework/pe/pcbuf.py.
         self.pc_buf_0 = PCBuf(self.tile_ctrl, 0, self.tensix_coprocessor)
         self.pc_buf_1 = PCBuf(self.tile_ctrl, 1, self.tensix_coprocessor)
         self.pc_buf_2 = PCBuf(self.tile_ctrl, 2, self.tensix_coprocessor)
@@ -1064,7 +1064,7 @@ class TensixTile(TTDeviceTile):
         # Fast reject first: a tile with any baby core genuinely running needs
         # the very next cycle, and a few attribute reads settle that. A core
         # the firmware-loop recogniser has parked (``spin_parked`` — see
-        # ``tt_sim/pe/rv/spin.py``) is exempt: its own ``next_wake_cycle``
+        # ``framework/pe/rv/spin.py``) is exempt: its own ``next_wake_cycle``
         # probe in the generic sweep below verifies the watched memory and
         # decides. ``spin_parked`` is False for any running core, so the
         # common live-tile path still short-circuits on the first conjunct.

@@ -5,7 +5,7 @@ tt-metal host program (the same binary runs on either arch depending on
 ``TT_METAL_SIMULATOR``) that validates its own results and exits non-zero on
 mismatch. This harness is the "run it like hardware, but the simulator route"
 test: it builds each example with CMake (``find_package(TT-Metalium)``) and runs
-the resulting binary against tt-sim via UMD's simulation backend, asserting the
+the resulting binary against Wolfpine via UMD's simulation backend, asserting the
 process exits 0 and prints its success line.
 
 It is the **Wormhole** live runner: the ``EXAMPLES`` table below carries the
@@ -50,7 +50,7 @@ RUN_TIMEOUT = int(os.environ.get("TT_SIM_EXAMPLE_TIMEOUT", "260"))
 # default single tile "1-1" except ``nine`` and ``pipestall``, which bridge a CB
 # across two tiles (logical (0,0)+(1,0) -> physical 1-1 and 2-1).
 #
-# The coords are a *pin*, not a requirement: tt-sim materialises the workers a
+# The coords are a *pin*, not a requirement: Wolfpine materialises the workers a
 # program uses whether or not they are named. They are given here so the ladder
 # keeps covering the pinned path (which the replay guards and the cost-model
 # gate depend on), and ``None`` in that field means "pin nothing", which is what
@@ -212,7 +212,7 @@ def _ancestry():
 
 
 def _server_pids(match=None):
-    """pids of real tt-sim server processes, optionally filtered by a substring."""
+    """pids of real Wolfpine server processes, optionally filtered by a substring."""
     skip = _ancestry()
     out = []
     for entry in Path("/proc").iterdir():
@@ -290,7 +290,7 @@ def _run_env(home, coords, extra=None):
     env["LD_LIBRARY_PATH"] = f"{_build_dir(home)}/lib:" + env.get("LD_LIBRARY_PATH", "")
     # Pin exactly the physical tiles this example launches on. The two knobs are
     # mutually exclusive, so drop any inherited count. ``coords=None`` pins
-    # nothing, leaving tt-sim to materialise workers on demand — the default a
+    # nothing, leaving Wolfpine to materialise workers on demand — the default a
     # user gets, and worth exercising live rather than only in unit tests.
     env.pop("TT_SIM_TENSIX_CORES", None)
     if coords is None:
@@ -375,12 +375,12 @@ try:
         if reason:
             pytest.skip(reason)
         proc = run_example(name, coords, extra_env)
-        assert proc.returncode == 0, (
-            f"{label} exited {proc.returncode}\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
-        )
-        assert SUCCESS_LINE in proc.stdout, (
-            f"{label} missing success line\n{proc.stdout[-2000:]}"
-        )
+        assert (
+            proc.returncode == 0
+        ), f"{label} exited {proc.returncode}\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
+        assert (
+            SUCCESS_LINE in proc.stdout
+        ), f"{label} missing success line\n{proc.stdout[-2000:]}"
 
 except ImportError:
     pass

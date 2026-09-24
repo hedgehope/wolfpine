@@ -1,17 +1,17 @@
 """The Wormhole B0 device.
 
-``Wormhole`` (a :class:`~tt_sim.device.tt_device.TT_Device`) assembles the
+``Wormhole`` (a :class:`~framework.device.tt_device.TT_Device`) assembles the
 Wormhole netlist: six ``DRAMTile``s, the ethernet tiles, and one or more
 ``TensixTile``s, wired into both NoC directories. The per-arch constants come
 from ``WORMHOLE_PROFILE``. The tile classes themselves are arch-agnostic and
-live in ``tt_sim/device/tiles.py`` (shared with Blackhole); the base device
-classes live in ``tt_sim/device/tt_device.py``. See
+live in ``framework/device/tiles.py`` (shared with Blackhole); the base device
+classes live in ``framework/device/tt_device.py``. See
 ``docs/plans/blackhole-support.md``.
 """
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.device.tiles import DRAMTile, EthTile, TensixTile
-from tt_sim.device.tt_device import TT_Device
+from framework.arch import WORMHOLE_PROFILE
+from framework.device.tiles import DRAMTile, EthTile, TensixTile
+from framework.device.tt_device import TT_Device
 
 
 class Wormhole(TT_Device):
@@ -80,7 +80,7 @@ class Wormhole(TT_Device):
         """Map a unified worker coord (18..25, 16..25) to SoC-physical NoC 0.
 
         The inverse of ``server/coords.py:_build_tensix_map`` — exposed in
-        tt-sim core so ``NUI``s can be keyed by canonical NoC 0 coord without
+        Wolfpine core so ``NUI``s can be keyed by canonical NoC 0 coord without
         the Python-driver path having to round-trip through the wire bridge.
         """
         ux, uy = unified

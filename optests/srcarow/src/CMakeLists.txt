@@ -3,7 +3,7 @@ project(nekbone CXX)
 
 # Locate the TT-Metalium CMake package exported by the tt-metal build tree.
 # Everything is resolved from TT_METAL_HOME (or TT_METAL_RUNTIME_ROOT, which the
-# tt-sim venv sets); there are no per-machine paths in this file. Searches
+# Wolfpine venv sets); there are no per-machine paths in this file. Searches
 # build/ then build_Release/ for the exported config and puts that build prefix
 # on CMAKE_PREFIX_PATH so TT-Metalium's transitive dependencies (fmt, spdlog,
 # Tracy, umd, reflect, enchantum, ...) resolve too.

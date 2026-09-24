@@ -76,12 +76,12 @@ r="$(noc_epoch_verdict "$CARD/noc-epoch.report.txt" 1)"
 check "noc-epoch on a report that is a traceback" FAILED "$r"
 check_says "noc-epoch retires nothing" "in either direction" "$r"
 
-# With tt_sim absent the probe must say the analysis is deferred, not write an
+# With framework absent the probe must say the analysis is deferred, not write an
 # error file and grade it.
 r="$(noc_verdict "$TMP/absent.report.txt" 0)"
-check "noc with no tt_sim on the box" DEFERRED "$r"
+check "noc with no framework on the box" DEFERRED "$r"
 r="$(noc_epoch_verdict "$TMP/absent.report.txt" 0)"
-check "noc-epoch with no tt_sim on the box" DEFERRED "$r"
+check "noc-epoch with no framework on the box" DEFERRED "$r"
 check_says "noc-epoch defers without a claim" "NEITHER confirmed NOR retired" "$r"
 
 # The primary rv run failed phase Q and nothing else, and every complaint is at
@@ -316,7 +316,7 @@ check_says "tensix-rdcfg says C12 observed nothing" "say nothing about RDCFG at 
 # The C12 control has its own run and its own gate, because it needs a t3
 # launch and t3 series are contended by construction. Two untrustworthy slopes
 # differenced are not evidence for either explanation -- and this fires on real
-# output: the tt-sim validation run at --blocks 1 came back nonlinear at t3.
+# output: the Wolfpine validation run at --blocks 1 came back nonlinear at t3.
 { _mk_c12 "$TMP/c12_ungated.out" 1.970 41.200
   sed -i 's/TTBENCH_VALID_A: yes/TTBENCH_VALID_A: no (2 checks failed)/' "$TMP/c12_ungated.out"; }
 r="$(tensix_rdcfg_verdict "$TMP/rdcfg_ok.out" "$TMP/c12_ungated.out")"
@@ -462,7 +462,7 @@ r="$(dram_verdict "$TMP/dram.out" "$TMP/dram_refutes.csv")"
 check "dram when one channel scales too" MEANINGFUL "$r"
 check_says "dram states the term is refuted" "NOT serialised by it" "$r"
 
-# THE CASE AN ABSOLUTE THRESHOLD GETS WRONG, and these are tt-sim's own numbers:
+# THE CASE AN ABSOLUTE THRESHOLD GETS WRONG, and these are Wolfpine's own numbers:
 # Wormhole with the cost model on, four readers, onechan x2.21 against fanchan
 # x3.97. The concentrated arm reaches 56% of what the same readers reach fanned
 # out -- the endpoint plainly costing something -- and a rule of "onechan must
@@ -475,7 +475,7 @@ check_says "dram states the term is refuted" "NOT serialised by it" "$r"
   echo "fanchan,0,5,4,16,512,8192,32768,944,936,34.7119,0.000,8.6780,4,4,4,21,4"
 } > "$TMP/dram_underpowered.csv"
 r="$(dram_verdict "$TMP/dram.out" "$TMP/dram_underpowered.csv")"
-check "dram on tt-sim's own Wormhole cost-model numbers" MEANINGFUL "$r"
+check "dram on Wolfpine's own Wormhole cost-model numbers" MEANINGFUL "$r"
 check_says "dram reads a partial bound as a bound" "endpoint is what cost the difference" "$r"
 
 # One reader count only -- the shape a simulator run has, because only the tiles

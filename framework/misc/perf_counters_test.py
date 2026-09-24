@@ -3,22 +3,22 @@
 The point of these guards is the one the roadmap names: a kernel reading
 ``RISCV_DEBUG_REG_PERF_CNT_*`` used to get zero from a permissive generic
 store, and zero decodes as "nothing ever stalled". Two things therefore have
-to hold — a counter tt-sim *does* source must report the quantity tt-sim
+to hold — a counter Wolfpine *does* source must report the quantity Wolfpine
 tracks, and a counter it does *not* source must say so rather than pass for a
 measurement.
 
-Run standalone (``python3 -m tt_sim.misc.perf_counters_test``) or under pytest.
+Run standalone (``python3 -m framework.misc.perf_counters_test``) or under pytest.
 """
 
 import pytest
 
-from tt_sim.misc.perf_counters import (
+from framework.misc.perf_counters import (
     BANK_REGISTERS,
     PERF_CNT_MUX_CTRL,
     TensixPerfCounters,
 )
-from tt_sim.misc.tile_ctrl import TensixTileControl
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.misc.tile_ctrl import TensixTileControl
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 INSTRN_BASE, INSTRN_OUT_L, INSTRN_OUT_H = BANK_REGISTERS["INSTRN_THREAD"]
 FPU_BASE, FPU_OUT_L, FPU_OUT_H = BANK_REGISTERS["FPU"]
@@ -66,7 +66,7 @@ def _read(ctrl, sel):
     return ref_cnt, value
 
 
-def test_counter_read_returns_the_quantity_tt_sim_tracks():
+def test_counter_read_returns_the_quantity_framework_tracks():
     """THREAD_STALLS_1 reports the stalled cycles the wait gate recorded.
 
     **This test fails on the unfixed tree**, where ``TensixTileControl.read``
@@ -91,9 +91,9 @@ def test_src_valid_and_clear_are_opposite_directions():
 
     The tech report's own wording: ``WAITING_FOR_SRCA_VALID`` is "cycles
     waiting for source register data to become valid (unpacker hasn't filled
-    it yet)" — tt-sim's ``src_reserved_by_unpacker`` — while
+    it yet)" — Wolfpine's ``src_reserved_by_unpacker`` — while
     ``WAITING_FOR_SRCA_CLEAR`` is "cycles waiting for source register to be
-    cleared (math is still using the previous data)" — tt-sim's
+    cleared (math is still using the previous data)" — Wolfpine's
     ``src_reserved_by_matrix``.
     """
     ctrl, counters = _ctrl()
@@ -205,8 +205,8 @@ def test_mux_ctrl_round_trips():
 
 def test_counters_are_live_on_a_real_tensix_tile():
     """End to end through the tile's own memory map, at the real addresses."""
-    from tt_sim.arch.wormhole import WORMHOLE_PROFILE
-    from tt_sim.device.tiles import TensixTile
+    from framework.arch.wormhole import WORMHOLE_PROFILE
+    from framework.device.tiles import TensixTile
 
     tile = TensixTile(18, 18, 1, 1, profile=WORMHOLE_PROFILE)
     base = 0xFFB12000

@@ -30,7 +30,7 @@
 # Cleanup only touches the sim servers this run started (they carry its
 # TT_SIM_RUN_TAG) plus orphans left by an earlier run of this script whose
 # owner is gone, so a concurrent run in another terminal is never disturbed.
-# Set TT_SIM_KILL_ALL_SERVERS=1 to instead kill every tt-sim server on the
+# Set TT_SIM_KILL_ALL_SERVERS=1 to instead kill every Wolfpine server on the
 # machine at startup — the way to clear up after manual runs, which carry no
 # tag.
 
@@ -137,7 +137,7 @@ for name in "${ORDER[@]}"; do
   else
     echo "FAIL  $name  (coords=${COORDS[$name]}, full log: $log)"
     fail=$((fail+1)); failed+=("$name")
-    # Show the most informative lines: any tt-sim NotImplementedError / assert,
+    # Show the most informative lines: any Wolfpine NotImplementedError / assert,
     # else the last few lines before the abort banner.
     grep -iE "NotImplementedError|AssertionError|Error:|not.*supported|does not match|mismatch|IndexError" "$log" | head -3 | sed 's/^/      > /'
     echo "      ...tail:"; grep -vE "End of error message|Backtrace|^\s*#[0-9]" "$log" | tail -6 | sed 's/^/      | /'

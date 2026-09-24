@@ -1,4 +1,4 @@
-# nocevbench — checking tt-sim's NoC timing against a card's, by mechanism
+# nocevbench — checking Wolfpine's NoC timing against a card's, by mechanism
 
 Rung 4's **NoC-bound leg**, and the sibling of
 [`perfbench/mechbench`](../mechbench/README.md). Where that leg looks inside a
@@ -17,9 +17,9 @@ one disagreement. [The experimental arms](#the-experimental-arms-and-the-confoun
 are what a second session would run to say whether that disagreement is about a
 *direction* or about a *NoC*, which the first one structurally cannot.
 
-## The headline: tt-sim already emits the artefact
+## The headline: Wolfpine already emits the artefact
 
-The pivotal question for this leg was whether tt-sim could produce the artefact
+The pivotal question for this leg was whether Wolfpine could produce the artefact
 at all, and the answer, verified end to end on 2026-08-16, is **yes, with no
 bridge work**:
 
@@ -29,7 +29,7 @@ TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1 ./build/nocevbench 4096 8
   -> .logs/topology.json, cluster_coordinates.json
 ```
 
-on **both** Blackhole and Wormhole. Nothing in `tt_sim/bridge/` needed changing:
+on **both** Blackhole and Wormhole. Nothing in `framework/bridge/` needed changing:
 the profiler readback path fixed on 2026-08-13 (`Device.settle_profiler_flush`)
 already covers it, because NoC events are written into the *same* per-RISC L1
 profiler vector as the zone markers — there is no separate buffer and no
@@ -68,13 +68,13 @@ The roadmap's phrasing for this leg — "agreement with `noc_flight_cycles` plus
 queueing to ± 25 %" — presupposes a hardware per-packet flight time. There isn't
 one. So the correspondence is not forced, and two things are done instead:
 
-1. **The comparison is between two instances of the same artefact.** tt-sim
+1. **The comparison is between two instances of the same artefact.** Wolfpine
    produces `noc_trace_dev*.json` exactly as a card does, so one parser reads
    both and there is no translation step in which a units mistake could hide.
    That is the same discipline as `mechbench`, for the same reason.
 2. **`noc_flight_cycles` is reported on the simulator side only, as a
    diagnostic, and never as a gate** (`--sim-internal`). It is also **not** a
-   quantity to which queueing should be added: tt-sim's `noc_flight_cycles` is
+   quantity to which queueing should be added: Wolfpine's `noc_flight_cycles` is
    `arrival - issue_cycle`, and `issue_cycle` is stamped inside `NUI.transmit`
    *after* `NUI.send_to` has computed a delay of
    `flight + injection-port queueing + link-contention wait + serialisation - 1`
@@ -193,7 +193,7 @@ all six runs. Exactly one quantity failed: the DRAM **write** class at 256 B, at
 25.6 % against the 25.0 % bar, while the read class agreed with silicon at
 3–6.5 %. `unit_costs.yaml` already documents the suspect — `dram.access_latency`
 is derived from *read* rows and charged to `{READ, WRITE, ATOMIC}` alike — and
-`tt_sim/perf/noc_dataset_sweep_test.py` already pins it as its single
+`framework/perf/noc_dataset_sweep_test.py` already pins it as its single
 `KNOWN_OVER_CHARGED` row.
 
 **That session cannot convict it, because direction and NoC are fully
@@ -241,7 +241,7 @@ and the absolute prediction for arm C, from the model as it stands (no DRAM
 term, 29-hop round trip, ~65-cycle core residual): **~349 cycles at 256 B and
 ~409 at 4096 B, both directions.**
 
-### What tt-sim says, before any card time is spent
+### What Wolfpine says, before any card time is spent
 
 Blackhole, cost model on, `chunks 8`, worker `(1,2)`, arm C's peer logical
 `(1,1)` = NoC `(2,3)`. Observed issue-to-barrier-END mean, per class:
@@ -257,7 +257,7 @@ Blackhole, cost model on, `chunks 8`, worker `(1,2)`, arm C's peer logical
 
 Two things fall out, and both matter before the card runs.
 
-**tt-sim's arm B is numerically identical to its arm A, class for class.** The
+**Wolfpine's arm B is numerically identical to its arm A, class for class.** The
 swap changes the model's internals completely — the read's request leg goes from
 156 to 363 cycles at 256 B and the write's from 365 to 158, because both the
 NoC's direction and the cell of DRAM channel 0 it addresses change — and the
@@ -285,7 +285,7 @@ writes them through the same host-side `translateNocCoordinatesToNoc0`
 (`profiler.cpp:840-887`) in both cases, so they are directly comparable, and for
 the same arm-A program at 256 B:
 
-| leg | tt-sim | 2026-08-17 card |
+| leg | Wolfpine | 2026-08-17 card |
 | --- | --- | --- |
 | `NOC_0 WRITE_` destination | `(0, 11)` | `(0, 11)` |
 | `NOC_1 READ` destination | `(16, 10)` | `(0, 1)` |
@@ -298,7 +298,7 @@ where the other does not. The two sides' kernels are therefore putting
 
 **The round trip is 29 hops either way**, so no modelled latency moves, which is
 consistent with the read class agreeing with silicon at 3–6.5 %. But the split
-does move: on the coordinates each side recorded, tt-sim's NoC 1 read is 2 hops
+does move: on the coordinates each side recorded, Wolfpine's NoC 1 read is 2 hops
 out and 27 back, and the card's is **27 out and 2 back**. Recorded here because
 it is the only *falsifiable* thing the destination fields say, and because it
 bears directly on the one route this leg has ever checked against hardware.
@@ -321,7 +321,7 @@ disagree, in two opposite directions:
 | the run | trace destination | config `peer_noc` | what the old check said |
 | --- | --- | --- | --- |
 | translated (what a **card** does) | `(2, 2)` | `(19, 19)` | FAIL — and the run was correct |
-| untranslated (tt-sim's default) | `(2, 2)` and `(7, 9)` | `(2, 2)` | FAIL, naming no cause |
+| untranslated (Wolfpine's default) | `(2, 2)` and `(7, 9)` | `(2, 2)` | FAIL, naming no cause |
 
 The first is a **coordinate-space** difference and nothing else:
 `worker_core_from_logical_core` returns the *translated* coord while
@@ -335,7 +335,7 @@ worker coordinate on NoC 1, which is not the convention a card is in. So **the
 Wormhole simulator side of arm C must be run translated**:
 
 ```bash
-TT_METAL_MOCK_CLUSTER_DESC_PATH=~/tt-sim/driver/wormhole/cluster_descriptor.yaml \
+TT_METAL_MOCK_CLUSTER_DESC_PATH=~/wolfpine/driver/wormhole/cluster_descriptor.yaml \
   ./run_sim.sh --arch wormhole --arm C --peer 1,1 --out ~/nocev-sim-wh-C
 ```
 
@@ -346,11 +346,11 @@ with the fix in the message. The program prints `noc_grid=X,Y` on its config
 line (from `device->grid_size()`) so the mirror can be computed without knowing
 the part, and `arch=` on its `--describe` line — `run_card.sh` used to record
 `arch : unset` in every session's `env.txt`. Guarded in
-`tt_sim/perf/noc_events_test.py`.
+`framework/perf/noc_events_test.py`.
 
 **The 375-382 / 480-510 band below is BLACKHOLE's.** On a Wormhole part arm A
 *establishes* the control rather than reproducing one; `run_card.sh` says so at
-the card. tt-sim's Wormhole arm A reads `WRITE_ 256 = 390`, `READ 256 = 386`,
+the card. Wolfpine's Wormhole arm A reads `WRITE_ 256 = 390`, `READ 256 = 386`,
 `WRITE_ 4096 = 550`, `READ 4096 = 546`.
 
 The Wormhole programme this belongs to is
@@ -593,7 +593,7 @@ first time.
 ## The analysis
 
 ```bash
-python3 -m tt_sim.perf.noc_events \
+python3 -m framework.perf.noc_events \
     --sim  /tmp/nocevbench-sim/4096/.logs/noc_trace_dev0_ID0.json \
     --card ~/nocfixed-session/runs/A-4096-1/.logs/noc_trace_dev0_ID0.json \
     --expect-arm A \
@@ -602,7 +602,7 @@ python3 -m tt_sim.perf.noc_events \
 
 One arm and one size at a time — each arm is a different program by census, and
 the analysis refuses a trace with two windows. Add `--sim-internal
-/tmp/nocevbench-sim/4096-internal` for tt-sim's own modelled per-transaction
+/tmp/nocevbench-sim/4096-internal` for Wolfpine's own modelled per-transaction
 cycles, and `--decompose-only` to print the simulator side alone.
 
 **Read the per-class latency table against the pre-registered predictions above
@@ -633,7 +633,7 @@ this program.
 | `arm_matches` (opt-in) | each RISC's transactions are on the NoC the named arm asks for, on both sides | an arm-B run that silently kept arm A's pairing — well-formed, passes everything else, and supports the opposite conclusion |
 
 **A guard that cannot fail is as damaging as one that cannot pass.**
-`tt_sim/perf/noc_events_test.py` builds a passing case and a refusing case for
+`framework/perf/noc_events_test.py` builds a passing case and a refusing case for
 every one of them, from inputs a real session could plausibly produce.
 
 ### Synthetic card data, both directions
@@ -660,13 +660,13 @@ the decomposition sees it.
 
 **Will**, once a card session exists and the gates pass:
 
-* that tt-sim's NoC timing has been checked against silicon **through the same
+* that Wolfpine's NoC timing has been checked against silicon **through the same
   instrument and the same artefact**, decomposed by mechanism, per core and per
   RISC, at a stated `E_int` — with the compensation `E_int / E_total` quoted, so
   a reader can see how much of a matching total was luck;
 * the **first** check of any kind against hardware for the flight cycles the
   five NoC-coordinate commits of 2026-08-13/16 changed. Those were validated
-  against tt-sim's own endpoint-consistency invariant, which is a
+  against Wolfpine's own endpoint-consistency invariant, which is a
   self-consistency argument and cannot detect an error both sides of it share;
 * a value for the residual between observed latency and modelled flight — the
   DRAM service, NIU issue overhead and poll granularity the flight model does
@@ -703,7 +703,7 @@ is a statement about **this program's** NoC transactions on **this core**, at
 size or a transaction type these arms do not reach.
 
 And one that the arms add: **a simulator-side number is not a result.** Every
-figure in "What tt-sim says" above is the model predicting itself. Its only
+figure in "What Wolfpine says" above is the model predicting itself. Its only
 jobs are to bring the arms up before card time is spent, and to be the thing the
 card is compared *against* — including where it says the two arms should be
 indistinguishable, which is a prediction the card can falsify.

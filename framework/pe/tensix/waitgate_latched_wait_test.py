@@ -4,7 +4,7 @@
 blocked instructions is reached", and the Wait Gate "will then continuously
 re-evaluate the latched wait instruction until all of the selected conditions
 are simultaneously met, at which point the latched wait instruction will be
-forgotten". Both halves of that sentence are tested here, because tt-sim
+forgotten". Both halves of that sentence are tested here, because Wolfpine
 previously did neither on the cycles with nothing held at the gate:
 
 * the condition is **re-evaluated** with nothing blocked, so the latch is
@@ -16,17 +16,17 @@ The last test is the point of the whole exercise: it drives a real Tensix tile
 through its own instruction path and MMIO counter registers and reads back a
 window in which a reason counter *exceeds* the thread's stall count. That
 window is what
-``tt_sim/perf/stall_attribution_test.py::test_stall_reason_overlap_refuses...``
+``framework/perf/stall_attribution_test.py::test_stall_reason_overlap_refuses...``
 had to hand-build a counter bank for; the simulator can now produce one.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.waitgate_latched_wait_test``) or
+Run standalone (``python3 -m framework.pe.tensix.waitgate_latched_wait_test``) or
 under pytest.
 """
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.misc.perf_counters import BANK_REGISTERS
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.arch import WORMHOLE_PROFILE
+from framework.misc.perf_counters import BANK_REGISTERS
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 INSTRN_BASE, _INSTRN_OUT_L, INSTRN_OUT_H = BANK_REGISTERS["INSTRN_THREAD"]
 
@@ -183,7 +183,7 @@ def test_a_simulated_run_puts_a_reason_counter_above_thread_stalls():
     ``THREAD_STALLS_1`` -- the state the mechanism-attribution gate refuses,
     produced by the simulator rather than assembled by a test.
     """
-    from tt_sim.device.tiles import TensixTile
+    from framework.device.tiles import TensixTile
 
     tile = TensixTile(18, 18, 1, 1, profile=WORMHOLE_PROFILE)
     base = 0xFFB12000

@@ -15,7 +15,7 @@ using namespace tt::tt_metal;
 // the wait under the caller's control.
 //
 // Why it exists: the per-unit blocked-cycle detector
-// (`TT_SIM_UNIT_STALL`, tt_sim/device/deadlock.py) was calibrated on a survey
+// (`TT_SIM_UNIT_STALL`, framework/device/deadlock.py) was calibrated on a survey
 // of every in-tree workload, none of which pipelines core-to-core. The
 // legitimate bound on how long a Tensix unit may block is architecturally the
 // whole downstream pipeline — unpacker -> math -> Dst / output CB -> packer ->
@@ -77,7 +77,7 @@ static uint32_t env_u32(const char* name, uint32_t fallback) {
 }
 
 int main(int argc, char** argv) {
-    // tt-sim simulator hint: pre-construct both Tensix tiles we use. Wormhole
+    // Wolfpine simulator hint: pre-construct both Tensix tiles we use. Wormhole
     // *fallback* only — overwrite=0 lets a caller that already exported
     // TT_SIM_TENSIX_COORDS (the Blackhole run script uses "1-2,2-2") win.
     setenv("TT_SIM_TENSIX_COORDS", "1-1,2-1", 0);

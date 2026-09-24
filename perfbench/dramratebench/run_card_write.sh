@@ -2,7 +2,7 @@
 # dramratebench, WRITE DIRECTION, on a real card: is a DRAM endpoint's sustained
 # WRITE rate the same as its sustained READ rate?
 #
-# YOU DO NOT NEED TO KNOW ANYTHING ABOUT tt-sim TO RUN THIS. It builds one
+# YOU DO NOT NEED TO KNOW ANYTHING ABOUT Wolfpine TO RUN THIS. It builds one
 # normal tt-metal program, resets the board, runs the program twice, checks each
 # run proved where its bytes went, and leaves a directory to send home. No Tracy,
 # no tt-exalens, no root.
@@ -146,7 +146,7 @@ WHAT THE SIMULATOR SAYS, ON BOTH PARTS, AT FOUR TILES AND 4096 B TRANSACTIONS
              measurement, and a card that shows Blackhole writes at the read's
              rate would be saying the model under-charges there.
 
-  So tt-sim predicts OPPOSITE SIGNS on the two parts, and the Wormhole card's
+  So Wolfpine predicts OPPOSITE SIGNS on the two parts, and the Wormhole card's
   own latency data leans the third way (write dearer). Three positions, and
   this campaign can only adjudicate the occupancy one.
 
@@ -168,7 +168,7 @@ WORMHOLE, IF THE LATENCY RESULT WAS AN ARTEFACT OF THE BARRIER
     latency probe sees are issue- or completion-side -- how long
     noc_async_write_barrier takes to retire -- and not endpoint occupancy, so
     they belong nowhere near `dram.access_latency`. It also agrees with
-    tt-sim's Wormhole prediction, and would leave `unit_costs.yaml`'s decision
+    Wolfpine's Wormhole prediction, and would leave `unit_costs.yaml`'s decision
     to keep one figure for all three request actions standing on a second,
     independent kind of evidence.
 
@@ -176,7 +176,7 @@ WHAT WOULD MAKE THE RESULT UNINTERPRETABLE (any one of these; report it, do
 not re-run and keep the better session)
   * fanchan-write scales under x1.5. Something upstream of the endpoint caps
     both write arms and a flat concentrated arm says nothing. NOT hypothetical:
-    tt-sim does exactly this at four tiles, where the four workers share a
+    Wolfpine does exactly this at four tiles, where the four workers share a
     router row and the write control tops out near one link's rate. The card's
     64 workers are the reason to expect it to move here, and the read arm's own
     x5.74 on the same part is the evidence that it can.
@@ -221,7 +221,7 @@ cat <<'BHPRED'
   a DRAM write's SERVICE LATENCY is 22 cycles against a read's 126.
 
   What Blackhole is being asked is sharper, and it is about an ABSENCE.
-  tt-sim has NO Blackhole write rate at all: `write_bytes_per_cycle` is
+  Wolfpine has NO Blackhole write rate at all: `write_bytes_per_cycle` is
   None, so every write claim is a no-op and the write arm runs up on the
   64 B/cycle link. That is why the simulator predicts
 
@@ -446,7 +446,7 @@ cat <<EOF
 
   At home:
     python3 perfbench/dramratebench/check_run.py --measured run1.csv
-    python3 -m tt_sim.perf.dram_rate_sweep --measured run1.csv   # read arm only
+    python3 -m framework.perf.dram_rate_sweep --measured run1.csv   # read arm only
 EOF
 
 exit "$status"

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22...4.2)
 project(softplus CXX)
 
 # Locate the TT-Metalium CMake package exported by the tt-metal build tree.
-# Honours TT_METAL_RUNTIME_ROOT (set by the tt-sim venv), falling back to the
+# Honours TT_METAL_RUNTIME_ROOT (set by the Wolfpine venv), falling back to the
 # older TT_METAL_HOME. Searches build/ then build_Release/ for the exported
 # config, and puts that build prefix on CMAKE_PREFIX_PATH so TT-Metalium's
 # transitive dependencies (fmt, spdlog, Tracy, umd, ...) resolve too.

@@ -1,10 +1,10 @@
-from tt_sim.device.clock import Clock
-from tt_sim.device.device import Device, DeviceMemory
-from tt_sim.device.reset import Reset
-from tt_sim.memory.memory import DRAM
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.pe.rv.rv32 import RV32IM
-from tt_sim.util.conversion import conv_to_bytes, conv_to_int32
+from framework.device.clock import Clock
+from framework.device.device import Device, DeviceMemory
+from framework.device.reset import Reset
+from framework.memory.memory import DRAM
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.pe.rv.rv32 import RV32IM
+from framework.util.conversion import conv_to_bytes, conv_to_int32
 
 # This is very similar to ex3, but instantiates RV32IM (rather than RV32I) CPU
 # and the binary executable does integer multiplication and division

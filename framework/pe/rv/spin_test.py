@@ -1,6 +1,6 @@
-"""Firmware-loop recognition (``tt_sim/pe/rv/spin.py``).
+"""Firmware-loop recognition (``framework/pe/rv/spin.py``).
 
-Runs standalone (``python3 -m tt_sim.pe.rv.spin_test``) or under pytest.
+Runs standalone (``python3 -m framework.pe.rv.spin_test``) or under pytest.
 
 The claims, in the order the module's risk analysis makes them:
 
@@ -31,12 +31,12 @@ The claims, in the order the module's risk analysis makes them:
 import os
 from contextlib import contextmanager
 
-from tt_sim.memory.memory import DRAM, VisibleMemory
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.misc.tile_ctrl import TensixTileControl
-from tt_sim.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
-from tt_sim.pe.rv.spin import SPIN_PARKED
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.memory import DRAM, VisibleMemory
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.misc.tile_ctrl import TensixTileControl
+from framework.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
+from framework.pe.rv.spin import SPIN_PARKED
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 # -- instruction encoders ---------------------------------------------------
 
@@ -417,8 +417,8 @@ def test_soft_reset_unparks():
 def _spin_device_run(firmware_idle, cost_model=False, program=None, cycles=1000):
     """Boot a Blackhole worker whose BRISC runs ``program``, park (or not),
     write the flag, and return (dormant_cycles, marker_bytes, brisc_regs, tile)."""
-    from tt_sim.device.blackhole import Blackhole
-    from tt_sim.device.tt_device import DeviceTileDiagnostics
+    from framework.device.blackhole import Blackhole
+    from framework.device.tt_device import DeviceTileDiagnostics
 
     coord = (1, 2)
     program = POLL_PROGRAM if program is None else program

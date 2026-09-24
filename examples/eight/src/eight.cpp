@@ -10,8 +10,8 @@ using namespace tt::tt_metal;
 
 // Example eight — same elementwise-add as example one, but the BRISC reader
 // issues the two source reads with *distinct* NoC transaction IDs and barriers
-// on them out-of-order. Exercises the per-trid request lifecycle in tt-sim's
-// NoC (tt_sim/network/tt_noc.py): per-trid FIFO of return addresses,
+// on them out-of-order. Exercises the per-trid request lifecycle in Wolfpine's
+// NoC (framework/network/tt_noc.py): per-trid FIFO of return addresses,
 // per-trid `NIU_MST_REQS_OUTSTANDING_ID_<n>` counters, and the kernel-visible
 // `noc_async_read_barrier_with_trid` API.
 int main(int argc, char** argv) {

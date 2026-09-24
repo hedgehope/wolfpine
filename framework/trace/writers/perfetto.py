@@ -61,9 +61,9 @@ import json
 from pathlib import Path
 from typing import IO
 
-from tt_sim.perf.model import cost_model_enabled
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import Event, EventCategory
+from framework.perf.model import cost_model_enabled
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import Event, EventCategory
 
 
 class PerfettoWriter:
@@ -72,7 +72,7 @@ class PerfettoWriter:
     def __init__(self, path: Path | str, bus: EventBus | None = None):
         self._path = Path(path)
         # Read once, at open: the cost model is a construction-time decision
-        # (``tt_sim.perf.model.cost_model_enabled``), so a trace is captured
+        # (``framework.perf.model.cost_model_enabled``), so a trace is captured
         # wholly in one regime or the other.
         self._cost_model = cost_model_enabled()
         self._regime = "on" if self._cost_model else "off"

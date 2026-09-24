@@ -1,8 +1,8 @@
-# Profiling and analysing tt-sim runs
+# Profiling and analysing Wolfpine runs
 
 This is a walkthrough of every profiling and tracing output the
 simulator can produce. The intended user is someone running a real
-tt-metal program against tt-sim — i.e. a C++ binary built against
+tt-metal program against Wolfpine — i.e. a C++ binary built against
 `libtt_metal` that, instead of touching silicon, is transparently
 backed by the simulator. By the end you'll know what each output
 gives you, how to enable it, and which downstream tool to feed it
@@ -47,7 +47,7 @@ You need three things in place once before profiling any run:
    example links against `libtt_metal`. See the mesham fork of
    tt-metal for build instructions.
 
-2. **`tt-sim` installed.** From the repo root:
+2. **`Wolfpine` installed.** From the repo root:
 
    ```bash
    pip install -e .       # pulls numpy, pyyaml, pynng, flatbuffers,
@@ -79,7 +79,7 @@ For the downstream tools that consume each output, you'll also want
 
 UMD inside tt-metal decides between real silicon and a simulator
 based on the `TT_METAL_SIMULATOR` env var. If set to a directory
-containing a `run.sh` (the tt-sim repo provides one at
+containing a `run.sh` (the Wolfpine repo provides one at
 `driver/wormhole/run.sh`), UMD spawns it and connects over an `nng`
 IPC socket instead of opening a PCIe device. tt-metal then drives
 the simulator with exactly the same API calls it would use against
@@ -89,11 +89,11 @@ So the always-set-once-per-shell prep is:
 
 ```bash
 export TT_METAL_RUNTIME_ROOT=$HOME/tt-metal     # wherever you built tt-metal
-export TT_METAL_SIMULATOR=$HOME/tt-sim/driver/wormhole
+export TT_METAL_SIMULATOR=$HOME/wolfpine/driver/wormhole
 ```
 
 The first tells the example where the tt-metal headers/libraries
-live (used at build time); the second tells UMD to spawn tt-sim at
+live (used at build time); the second tells UMD to spawn Wolfpine at
 run time. After this, every run of `./one` is simulator-backed.
 
 ## A 30-second smoke test
@@ -166,15 +166,15 @@ not. Nothing is quietly dropped.
 Re-render at any time without re-running the simulator:
 
 ```bash
-python3 -m tt_sim.trace.report /tmp/myrun --top 40
-python3 -m tt_sim.trace.report /tmp/myrun --stdout | less
+python3 -m framework.trace.report /tmp/myrun --top 40
+python3 -m framework.trace.report /tmp/myrun --stdout | less
 ```
 
 ### Source attribution, and when it works
 
 Function and line names come from DWARF in the ELFs tt-metal builds.
 They **are** present in a default tt-metal build — no special flags —
-under `~/.cache/tt-metal-cache/<build-hash>/`. tt-sim finds them
+under `~/.cache/tt-metal-cache/<build-hash>/`. Wolfpine finds them
 itself: it takes the newest firmware and kernel ELF per baby core and
 then *proves* the choice by comparing the ELF's own bytes against what
 is resident in simulated L1. Kernels are relocated at load, so the
@@ -307,7 +307,7 @@ loads `.json.gz` natively.
    local — no upload).
 3. Use the **Query (SQL)** tab in the left sidebar for SQL-style
    analysis. Three canned queries in
-   `tt_sim/trace/queries/README.md`:
+   `framework/trace/queries/README.md`:
    - Top slices by duration.
    - Per-unit event count.
    - NoC roundtrip latency.
@@ -343,7 +343,7 @@ a register (stores, branches, jumps without link, writes to `x0`).
 
 **Why:** Differential testing against Spike — the standard tool for
 catching divergences between two RISC-V implementations. If a small
-pure-RV ELF runs differently on tt-sim vs. Spike, one of them has a
+pure-RV ELF runs differently on Wolfpine vs. Spike, one of them has a
 bug; both outcomes are valuable to surface.
 
 **Enable:**
@@ -360,7 +360,7 @@ spike --log-commits ./test_kernel.elf > /tmp/spike.log
 
 # Diff with the bundled helper, which reports the first divergence
 # with five lines of context
-python3 -m tt_sim.trace.diff_spike \
+python3 -m framework.trace.diff_spike \
     /tmp/out/commitlog/brisc.commitlog \
     /tmp/spike.log
 # files match (4300 lines)
@@ -430,7 +430,7 @@ df.groupby('counter_name')['value'].sum().sort_values(ascending=False)
 
 Four canned DuckDB queries (top counters, per-unit retirement,
 kernel-to-kernel diff, NoC hotspot) live in
-[`tt_sim/trace/queries/counters.sql`](../../../tt_sim/trace/queries/counters.sql).
+[`framework/trace/queries/counters.sql`](../../../framework/trace/queries/counters.sql).
 
 **Caveat:** counters that depend on cycle-accurate state (FPU stall
 reasons, packer back-pressure, L1 bank conflicts, NoC VC occupancy)
@@ -528,7 +528,7 @@ ELFs you point at. Consumable by `genhtml`, GitHub Codecov, the VS
 Code Coverage Gutters extension, and most CI coverage reporters.
 
 **Why:** This is the headline feature for kernel optimisation —
-when the closed simulator can't structurally offer it, tt-sim
+when the closed simulator can't structurally offer it, Wolfpine
 shows you which kernel source lines burned the most cycles. Hot
 lines stand out as a heatmap on your kernel source view.
 
@@ -637,9 +637,9 @@ versioned (`schema_version: 1`).
    known-good commit, capture one on a candidate commit, diff. Any
    divergence is either a regression or a real semantic change.
 2. **Cross-simulator differential testing** — the long-term goal is
-   to drive both tt-sim and `libttsim.so` (the official closed
+   to drive both Wolfpine and `libttsim.so` (the official closed
    simulator) on the same tt-metal binary and diff state dumps.
-   tt-sim ships the comparison primitive today; you provide the
+   Wolfpine ships the comparison primitive today; you provide the
    orchestration (swap `TT_METAL_SIMULATOR` accordingly).
 
 **Enable:**
@@ -659,7 +659,7 @@ ls /tmp/out/states/
 ```bash
 # Diff two state dumps with the bundled helper. Walks recursively
 # and pinpoints the first divergence with a readable path.
-python3 -m tt_sim.trace.diff_state \
+python3 -m framework.trace.diff_state \
     /tmp/dumps_before/kernel_done_0003.json \
     /tmp/dumps_after/kernel_done_0003.json
 # state matches
@@ -692,14 +692,14 @@ A useful "everything on" wrapper script for routine use:
 
 ```bash
 #!/usr/bin/env bash
-# profile-run.sh — run a tt-metal binary under tt-sim with every
+# profile-run.sh — run a tt-metal binary under Wolfpine with every
 # profiling writer enabled.
 set -euo pipefail
-OUT="${1:-/tmp/tt-sim-out}"
+OUT="${1:-/tmp/wolfpine-out}"
 shift || true   # remaining args are the binary to run
 mkdir -p "$OUT"
 
-# Required: where tt-sim's run.sh lives, so UMD spawns the simulator.
+# Required: where Wolfpine's run.sh lives, so UMD spawns the simulator.
 : "${TT_METAL_SIMULATOR:?TT_METAL_SIMULATOR must point at driver/wormhole}"
 
 export TT_SIM_TRACE="$OUT/events.jsonl"
@@ -723,9 +723,9 @@ Use it as e.g. `./profile-run.sh /tmp/myrun ./one` or
 
 ## How this works under the covers
 
-`Wormhole.__init__` (in `tt_sim/device/tt_device.py`) is the only
+`Wormhole.__init__` (in `framework/device/tt_device.py`) is the only
 place that reads any of the `TT_SIM_TRACE_*` environment variables,
-via the `enable_from_env()` helper in `tt_sim/trace/auto.py`. That
+via the `enable_from_env()` helper in `framework/trace/auto.py`. That
 constructor runs once when UMD spawns `run.sh` and `run.sh` execs
 the server, well before your tt-metal binary issues its first wire
 message. By the time the kernel starts retiring instructions, every
@@ -769,13 +769,13 @@ A rough mapping from question to writer:
 
 ## Further reading
 
-- [`tt_sim/trace/README.md`](../../../tt_sim/trace/README.md) —
+- [`framework/trace/README.md`](../../../framework/trace/README.md) —
   developer-side documentation: the event schema, how to add a
   publish call, how to add a new writer.
 - [`ROADMAP.md §H`](../../../ROADMAP.md) — the full design /
   history; covers what isn't yet modelled and why (cycle-accuracy-
   gated counters, multi-chip identity, etc.).
-- [`tt_sim/trace/queries/`](../../../tt_sim/trace/queries/) — canned
+- [`framework/trace/queries/`](../../../framework/trace/queries/) — canned
   SQL queries for both the Perfetto and Parquet outputs.
 - [`driver/wormhole/server/README.md`](../server/README.md) — how the
   wire-bridge server, UMD hand-off, and `TT_METAL_SIMULATOR`
@@ -783,7 +783,7 @@ A rough mapping from question to writer:
 
 ---
 
-# Appendix: where tt-sim's own wall clock goes
+# Appendix: where Wolfpine's own wall clock goes
 
 Everything above is about profiling *your kernel*. This appendix is
 about profiling *the simulator*, which is what [`ROADMAP.md`
@@ -825,7 +825,7 @@ rather than edit the tree:
   `py-spy` is **not installed** in this environment and nothing was
   installed system-wide to get it; the hand-rolled sampler stands in.
   Samples are attributed twice: to the leaf frame, and to the
-  outermost tt-sim subsystem on the stack ("who owns this cycle").
+  outermost Wolfpine subsystem on the stack ("who owns this cycle").
 - **Microbenchmarks** (`timeit`) isolating individual per-instruction
   costs, so the writeup can quote nanoseconds and not only percentages.
 
@@ -845,7 +845,7 @@ of device cycles the kernel needed.
 | `four` | Int8 add via FPU | 107,400 | 29.51 s | 3,639 | 524,956 |
 | `six` | **128³ bf16 matmul** | 27,500 | 35.68 s | **771** | 125,456 |
 
-**tt-sim currently runs at roughly 1–4 k simulated cycles per second**,
+**Wolfpine currently runs at roughly 1–4 k simulated cycles per second**,
 dropping to ~770 cycles/s when the Tensix matrix unit is busy. Per
 simulated RV instruction that is ~50 µs (`four`: 524,956 instructions
 in the 84 % of 29.5 s owned by the RV cores ⇒ ~21 k instr/s), and
@@ -1030,14 +1030,14 @@ Perfetto (`TT_SIM_TRACE_PERFETTO`) measures the same as counters
   plausibly usable at kernel scale — a 2× slowdown on a run that already
   takes an hour is a different proposition, but the dataset stays small.
 - **Caveat: `TT_SIM_TRACE_*` is Wormhole-only.**
-  `tt_sim.trace.auto.enable_from_env` is called from
-  `tt_sim/device/wormhole.py` and nowhere else, so a `Blackhole` device
+  `framework.trace.auto.enable_from_env` is called from
+  `framework/device/wormhole.py` and nowhere else, so a `Blackhole` device
   silently ignores every trace env var. The measurements above were
   obtained by calling `enable_from_env()` explicitly from the harness.
   Wiring it into `Blackhole.__init__` is a one-line fix and is a
   prerequisite for using any of §H's observability on Blackhole.
   (Since fixed — `enable_from_env` is called from `TT_Device.__init__`,
-  guarded by `tt_sim/device/parity_test.py`, so the numbers below were
+  guarded by `framework/device/parity_test.py`, so the numbers below were
   taken on Blackhole with no harness patching.)
 
 ### What §H's cycle-attributing fields cost (2026-08-03)
@@ -1174,7 +1174,7 @@ end of this document for the changes and the measured result.
   of RV time on their own.
 - **"MemoryMap lookup is the most-called function in the sim"** —
   *contradicted on call count, supported on cost class.* On `four` the
-  most-called tt-sim functions are `Register.read` (2.41 M) and
+  most-called Wolfpine functions are `Register.read` (2.41 M) and
   `RegisterFile.get` (2.83 M); `memory_map.locate` is 1.27 M. It is
   still 3–7 % of wall clock and still Numba-hostile, so the conclusion
   drawn from it (don't JIT it) stands.
@@ -1190,7 +1190,7 @@ The harnesses used here are deliberately throw-away (they monkeypatch;
 they do not modify the simulator). To repeat the baseline:
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # wall clock + simulated cycles for any replay guard
 time python3 -m driver.blackhole.server.six_replay_test
 
@@ -1202,7 +1202,7 @@ cProfile.run('m.main()', '/tmp/six.prof')
 pstats.Stats('/tmp/six.prof').sort_stats('tottime').print_stats(30)"
 
 # tracing overhead: same run, writers on (Wormhole; on Blackhole call
-# tt_sim.trace.enable_from_env() by hand first — see the caveat above)
+# framework.trace.enable_from_env() by hand first — see the caveat above)
 TT_SIM_TRACE_COUNTERS=/tmp/counters \
   python3 -m driver.wormhole.server.offline_replay_test
 ```
@@ -1291,7 +1291,7 @@ so it should be re-argued against the new baseline rather than assumed.
 Required, not approximated: this code feeds a bit-exact differential
 against the vendor simulator.
 
-- `tt_sim/pe/tensix/fpu_accumulate_test.py` keeps pinning the **scalar**
+- `framework/pe/tensix/fpu_accumulate_test.py` keeps pinning the **scalar**
   pair against the vectors generated from ttsim's C model for both
   architectures, and gains two fuzz tests that assert the batched pair is
   **equal**, not close, to the scalar one: 8,000 lane sets across all
@@ -1337,7 +1337,7 @@ of an MVMUL**. Per MVMUL `perform_mvmul_exact` still makes ~384 scalar
 `SrcRegister.__getitem__` calls and ~1,150 `DataFormatConversions` calls
 (`BF16InSrcToFP32` → `BF16InSrcToBF16` → `TF32InSrcToTF32`, three Python
 frames per lane), plus 256 `getDst16b`/`setDst16b` pairs. In the
-post-change cProfile of `six` those are the top tt-sim leaves after the
+post-change cProfile of `six` those are the top Wolfpine leaves after the
 batch methods themselves.
 
 That is a contained follow-up — `SrcRegister` already stores a numpy
@@ -1360,7 +1360,7 @@ retired, and the Src/Dst gather above enters roughly where item 2 was.
 The working tree had moved on since the baseline measurements — concurrent
 work in `tensix/backends/{matrix,vector}.py` had already roughly halved
 `six` — so every number here comes from an **interleaved A/B**: the same
-tree, with only `tt_sim/pe/rv/` + `tt_sim/pe/register/` swapped between
+tree, with only `framework/pe/rv/` + `framework/pe/register/` swapped between
 the pre-change and post-change versions, alternating variants round by
 round and taking the minimum over rounds. Absolute "before" figures
 therefore differ from the tables above; the ratios are the point.
@@ -1388,7 +1388,7 @@ of the pump floor rather than 7–30× below it, which moves targets 4
 
 ## The changes
 
-Six edits, all in `tt_sim/pe/rv/` and `tt_sim/pe/register/`. Per-change
+Six edits, all in `framework/pe/rv/` and `framework/pe/register/`. Per-change
 figures are single-run, taken in sequence during development (so they
 carry the machine's ±15 % run-to-run noise), on `four` / `nine`:
 
@@ -1449,7 +1449,7 @@ total calls **15.10 M → 7.69 M**; `MemorySpace.read` 241,307 →
 
 ## Behaviour deltas (all deliberate, all verified)
 
-Gates: `ruff` clean; `pytest tt_sim driver` 207 passed; 16/16 Blackhole
+Gates: `ruff` clean; `pytest framework driver` 207 passed; 16/16 Blackhole
 replay guards; `driver.wormhole.server.offline_replay_test` **126/126
 byte-identical**; `examples_replay_test` 11 passed. Snoop output
 (`driver/simple/ex2`, `ex5` with `snoop=True`, covering
@@ -1514,11 +1514,11 @@ Three things do change, none of them architectural state:
 ## Reproducing these numbers
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # per-workload wall clock; wrap MultiTileClock.run to get pump-only time
 time python3 -m driver.blackhole.server.four_replay_test
 
-# the A/B: snapshot tt_sim/pe/rv + tt_sim/pe/register at the two commits,
+# the A/B: snapshot framework/pe/rv + framework/pe/register at the two commits,
 # swap them into the same tree, alternate variants, take min over rounds.
 # Do not compare across sessions — the rest of the tree moves.
 ```
@@ -1651,8 +1651,8 @@ numbers rather than a crash. Gates, all on the final tree:
 - All **17** Blackhole replay guards pass; `six_replay_test` still reports
   **PCC = 0.9982**, to the digit. Any movement in that number would mean
   execution order changed.
-- `pytest tt_sim driver` — 236 passed (including a new
-  `tt_sim/device/clock_test.py`: dormancy engages, the always-list and
+- `pytest framework driver` — 236 passed (including a new
+  `framework/device/clock_test.py`: dormancy engages, the always-list and
   `on_tick` still see every cycle, and each of the three wake stimuli works).
 - `examples_replay_test` — 11 passed. `ruff` clean.
 
@@ -1675,7 +1675,7 @@ interleaving alone does not remove:
    always second, any monotone drift — the other agent's code getting faster,
    the machine getting quieter — lands entirely on `after`.
 
-The numbers above come from **two frozen full-tree snapshots** (`tt_sim/` +
+The numbers above come from **two frozen full-tree snapshots** (`framework/` +
 `driver/` copied wholesale, with only the 13 changed files reverted in one of
 them) and **alternating the order every round**. Under that protocol `four`
 came back at 1.16–1.27× and `two` at 1.29–1.45×. Anything measured on this
@@ -1689,7 +1689,7 @@ consistent 1.04–1.05×, which is exactly what the per-cycle accounting predict
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # idle floor: build a Blackhole device, materialise N Tensix tiles, run it
 # with every core in soft reset and time MultiTileClock.run.
 # real workloads: wrap MultiTileClock.run for pump-only time, e.g.
@@ -1792,7 +1792,7 @@ on the view-derived one, while the copy itself is free (15.5 vs 15.6 µs).
 Required, not approximated — this feeds the differential against the vendor
 simulator.
 
-- `tt_sim/pe/tensix/conversion_batch_test.py` (new) proves the array form of
+- `framework/pe/tensix/conversion_batch_test.py` (new) proves the array form of
   every conversion the batched path can reach equals the scalar form **over the
   whole input space**, not on a sample: all 2¹⁹ Src words for the six
   `*InSrcTo*` conversions, all 2¹⁶ Dst16b words for the four Dst ones, and for
@@ -1803,7 +1803,7 @@ simulator.
   Blackhole row-remap gates.
 - All **17** Blackhole replay guards pass, `driver.wormhole.server.offline_replay_test`
   reproduces **126/126** host READs bit-for-bit, `examples_replay_test` 11
-  passed, and `pytest tt_sim driver` is **228 passed** (207 + 21 new).
+  passed, and `pytest framework driver` is **228 passed** (207 + 21 new).
 - The live differential against the vendor simulator passes on **both**
   architectures: `./optests/diff.sh matmulidx` and the same under
   `TT_SIM_ARCH=wormhole`, 2,560 elements each, PASS.
@@ -1842,7 +1842,7 @@ shape of change as this one, in `backends/unpacker.py`.
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # per-workload A/B: two frozen worktrees, alternating, min of N rounds
 git worktree add --detach /tmp/gb_base HEAD    # and /tmp/gb_after + your diff
 time python3 -m driver.blackhole.server.six_replay_test
@@ -1990,7 +1990,7 @@ measurement of this change.
 
 Required, not approximated.
 
-- `tt_sim/pe/tensix/conversion_batch_test.py` gains the unpack direction: the
+- `framework/pe/tensix/conversion_batch_test.py` gains the unpack direction: the
   four to-Src conversions over their whole input space (2^19 for
   `TF32ToSrcTF32` / `TF32ToSrcFormatTF32`, 2^16 for `BF16ToSrcBF16` /
   `FP16ToSrcFP16`), **and `UnPackerUnit.formatConversion` itself end to end** —
@@ -2001,7 +2001,7 @@ Required, not approximated.
 - `registers_test.py` gains `writeDatums` against the scalar setter over the
   four index maps the unpacker builds (rectangle, wrapped SrcB rows, shifted
   column, haloize transpose).
-- `pytest tt_sim driver` is **267 passed** (236 + 31), all **17** Blackhole
+- `pytest framework driver` is **267 passed** (236 + 31), all **17** Blackhole
   replay guards pass, `driver.wormhole.server.offline_replay_test` reproduces
   **126/126** host READs bit-for-bit, `examples_replay_test` 11 passed.
 - `six` still reports `PCC(golden, device) = 0.9982`, unchanged to the last
@@ -2032,7 +2032,7 @@ Required, not approximated.
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # which formats a guard actually unpacks, and whether it unpacks at all:
 # wrap UnPackerUnit.perform_unpack and count its arguments.
 # per-UNPACR cost: wrap the same method with perf_counter.
@@ -2120,7 +2120,7 @@ point where the honest answer is "leave it alone".
 
 ## Gates (nothing changed, so these are a pin, not a check)
 
-`ruff check` / `ruff format` clean; `pytest tt_sim driver` **349 passed**;
+`ruff check` / `ruff format` clean; `pytest framework driver` **349 passed**;
 **22/22** Blackhole replay guards; `driver.wormhole.server.offline_replay_test`
 **126/126 byte-identical**; `pytest driver/wormhole/server/` **18 passed**;
 `six` reports `PCC(golden, device) = 0.9982`, unmoved.
@@ -2128,7 +2128,7 @@ point where the honest answer is "leave it alone".
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 git worktree add --detach /tmp/wt_pre  fe0d279
 git worktree add --detach /tmp/wt_head 0ac4b39
 # alternate the order every round, take the min, and check `uptime` while you
@@ -2143,7 +2143,7 @@ git worktree add --detach /tmp/wt_head 0ac4b39
 # What landed: the RISC-V cost model, and what it costs when it is off
 
 The §I cycle-cost model reached the baby RISC-V cores' load/store path
-(`tt_sim/pe/rv/cost.py`; write-up in
+(`framework/pe/rv/cost.py`; write-up in
 [`docs/plans/cost-model.md`](../../../docs/plans/cost-model.md#the-risc-v-cores-where-the-cycles-finally-moved)).
 It is not an optimisation, so the only question this document has to answer is
 the one the RV interpreter's history makes urgent: **the interpreter is the
@@ -2203,9 +2203,9 @@ performance path regardless.
 
 ## Gates
 
-`ruff check` / `ruff format` clean; `pytest tt_sim driver` **401 passed** (380
-before, +19 `tt_sim/pe/rv/cost_test.py`, +2
-`tt_sim/pe/tensix/sync_mixed_queue_test.py`); **22/22** Blackhole replay
+`ruff check` / `ruff format` clean; `pytest framework driver` **401 passed** (380
+before, +19 `framework/pe/rv/cost_test.py`, +2
+`framework/pe/tensix/sync_mixed_queue_test.py`); **22/22** Blackhole replay
 guards; `driver.wormhole.server.offline_replay_test` **126/126
 byte-identical**; `pytest driver/wormhole/server/` **18 passed**; `six` reports
 `PCC(golden, device) = 0.9982`, unmoved. All with `TT_SIM_COST_MODEL` unset,
@@ -2214,11 +2214,11 @@ which is the contract.
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 git worktree add --detach /tmp/bench/base HEAD
 cp -a /tmp/bench/base /tmp/bench/ctrl          # the control: identical code
-rsync -a --exclude .git ~/tt-sim/ /tmp/bench/new/
-diff -rq /tmp/bench/base/tt_sim /tmp/bench/ctrl/tt_sim   # verify the control
+rsync -a --exclude .git ~/wolfpine/ /tmp/bench/new/
+diff -rq /tmp/bench/base/framework /tmp/bench/ctrl/framework   # verify the control
 # then: 6 rounds, order alternated, median per variant. Report the control's
 # own deviation next to the change's — a change smaller than the control is a
 # non-result, not a win.
@@ -2237,7 +2237,7 @@ diff -rq /tmp/bench/base/tt_sim /tmp/bench/ctrl/tt_sim   # verify the control
 
 # What landed: the deadlock watchdog, sampled instead of polled
 
-The progress watchdog (`tt_sim/device/deadlock.py`, wired from
+The progress watchdog (`framework/device/deadlock.py`, wired from
 `Wormhole.__init__` as the pump's `on_tick`) took its whole progress signature
 **every cycle** — every tile, every baby core, every NIU, every Tensix thread —
 to find a condition whose window is 50,000 cycles and which fires a handful of
@@ -2370,7 +2370,7 @@ byte-identical report text. Nothing that used to be detected stops being
 detected — the signature, the reset gating and the report are unchanged; only
 *when it is looked at* has changed.
 
-`tt_sim/device/deadlock_test.py` pins all of this down: fires on a wedged
+`framework/device/deadlock_test.py` pins all of this down: fires on a wedged
 device, latency inside the stated bound, silent while every core is in reset,
 silent on a loop whose period is exactly the sample interval (the aliasing case
 the confirmation pass exists for), and one scan per interval rather than one
@@ -2385,7 +2385,7 @@ one sample in a 1,000,000-cycle `run`, and a wedged-but-dormant BRISC produced
 **zero** `[DEADLOCK]` lines over 400,000 cycles. That was previously argued
 unobservable, because dormancy implies every baby core is in soft reset, which
 is the one state the watchdog ignores by design — a true statement resting on
-an invariant in `tt_sim/device/tiles.py` rather than in the detector.
+an invariant in `framework/device/tiles.py` rather than in the detector.
 
 `DeadlockDetector.next_sample_cycle` is now handed to `MultiTileClock` as
 `on_tick_wake` and joins the stride computation alongside every tile clock's
@@ -2425,8 +2425,8 @@ and the upstream-examples status doc no longer has numbers behind it.
 
 ## Gates
 
-`ruff check` / `ruff format` clean; `pytest tt_sim driver` **408 passed** (401
-before, +7 `tt_sim/device/deadlock_test.py`); **22/22** Blackhole replay guards;
+`ruff check` / `ruff format` clean; `pytest framework driver` **408 passed** (401
+before, +7 `framework/device/deadlock_test.py`); **22/22** Blackhole replay guards;
 `driver.wormhole.server.offline_replay_test` **126/126 byte-identical** (and
 again at 8, 20 and 80 materialised workers); `pytest driver/wormhole/server/`
 **18 passed**; `six` reports `PCC(golden, device) = 0.9982`, unmoved.
@@ -2434,12 +2434,12 @@ again at 8, 20 and 80 materialised workers); `pytest driver/wormhole/server/`
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 # where the watchdog's time goes (idle, 8 tiles, striding off)
 TT_SIM_PUMP_STRIDE=0 python3 -c "
 import cProfile, pstats
 from driver.wormhole.server.coords import TENSIX_COORD_MAP, default_tensix_coords
-from tt_sim.device.wormhole import Wormhole
+from framework.device.wormhole import Wormhole
 d = Wormhole(tensix_coords=[TENSIX_COORD_MAP[p] for p in default_tensix_coords(8)])
 cProfile.run('d.clocks[0].run(4000)', '/tmp/idle8.prof')
 pstats.Stats('/tmp/idle8.prof').sort_stats('tottime').print_stats(8)"
@@ -2467,7 +2467,7 @@ win there is **caching the last-hit range, not a JIT** (the polymorphic
 
 ## The change
 
-Ten lines in `tt_sim/memory/memory_map.py`. `MemoryMap.locate` keeps a
+Ten lines in `framework/memory/memory_map.py`. `MemoryMap.locate` keeps a
 `_last_hit` tuple `(low, high, addr_range, value)` from the most recent
 successful lookup and answers from it when `low <= addr <= high`, before
 touching the `bisect_right` index. `_invalidate_index` clears it alongside
@@ -2525,7 +2525,7 @@ without interleaving.
 ## The A/B
 
 Two frozen `git archive` exports of `24403ae` differing **only** in
-`tt_sim/memory/memory_map.py` (`diff -r` verified), alternating order every
+`framework/memory/memory_map.py` (`diff -r` verified), alternating order every
 round, paired within-round. `%` is the paired median of
 `(change − base) / base`; the CI is on the paired mean.
 
@@ -2568,7 +2568,7 @@ two are untouched and remain available.
 
 ## Gates
 
-`pytest tt_sim/ driver/` **983 passed**; all **26/26** Blackhole replay guards
+`pytest framework/ driver/` **983 passed**; all **26/26** Blackhole replay guards
 pass standalone (each validates its own DRAM result, so identical output is
 proven, not asserted by eye); `ruff check` / `ruff format` clean.
 
@@ -2577,7 +2577,7 @@ proven, not asserted by eye); `ruff check` / `ruff format` clean.
 ```bash
 # two frozen trees differing only in memory_map.py
 git archive HEAD | tar -x -C /tmp/ab/base
-git archive HEAD | tar -x -C /tmp/ab/change && cp memory_map.py /tmp/ab/change/tt_sim/memory/
+git archive HEAD | tar -x -C /tmp/ab/change && cp memory_map.py /tmp/ab/change/framework/memory/
 
 # interleave: odd rounds base-first, even rounds change-first, pair within round
 for r in $(seq 1 9); do ...; done   # >=9 rounds; report the paired median
@@ -2626,7 +2626,7 @@ The simulator does the *same real work* either way, to within 0.2 %. The whole
 of the poll knob's effect is how many *dormant* tile visits it buys, and those
 are 0.5 s of an 81 s run. 105.6 vs 82.7 was machine drift, which is the third
 time this document has recorded that lesson. **The hour-long readback was
-killed by firmware-loop parking** (`tt_sim/pe/rv/spin.py`), exactly as the
+killed by firmware-loop parking** (`framework/pe/rv/spin.py`), exactly as the
 2026-08-03 prediction in `docs/upstream-examples-status.md` said it would be:
 a worker spinning on a go-message poll now parks, so the post-kernel grid is
 genuinely dormant and the readback pumps into a device that strides.
@@ -2641,7 +2641,7 @@ left the per-*call* one, which is what the wire bridge pays. `run()` ticks the
 window's opening cycle over every registered tile clock and then probes every
 tile for a deadline, so a host DMA readback — thousands of messages into a
 parked grid — cost O(tiles) per message whatever the poll budget. Two changes
-in `tt_sim/device/clock.py`, both cycle-neutral by construction:
+in `framework/device/clock.py`, both cycle-neutral by construction:
 
 - **`MultiTileClock.quiescent_until`** — the stride already computes "earliest
   cycle anything needs attention"; it is now kept rather than discarded, and a
@@ -2713,7 +2713,7 @@ End to end, 7 rounds, medians (s):
 
 | workload | base | head | delta | base spread / head spread |
 |---|---|---|---|---|
-| **control** (`pytest tt_sim/util tt_sim/memory`, no pump at all) | 1.14 | 1.19 | +4.4 % | [0.99–1.29] / [1.06–1.40] |
+| **control** (`pytest framework/util framework/memory`, no pump at all) | 1.14 | 1.19 | +4.4 % | [0.99–1.29] / [1.06–1.40] |
 | `blackhole/pad_multi_core` (2048 interleaved DRAM page reads) | 18.59 | 18.22 | −2.0 % | [16.94–20.67] / [15.08–19.03] |
 | `blackhole/six` (matmul) | 7.01 | 6.94 | −1.0 % | [6.35–9.37] / [6.15–9.97] |
 | `wormhole/examples` | 14.29 | 14.53 | +1.7 % | [13.53–23.38] / [14.15–20.04] |
@@ -2745,7 +2745,7 @@ what it exposes underneath is that the pump was no longer the problem.
 
 ## Gates
 
-`pytest tt_sim/ driver/` **1074 passed** (1071 + 3 new) with the model off and
+`pytest framework/ driver/` **1074 passed** (1071 + 3 new) with the model off and
 again with `TT_SIM_COST_MODEL=1`; **30/30** Blackhole replay guards standalone;
 `driver/tests/cost_model_gate.py --jobs 4` **PASS** over 44 discovered guards
 with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×, `offline`
@@ -2754,14 +2754,14 @@ with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×, `offline`
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 git archive fd4e806 | tar -x -C /tmp/ab/base     # frozen base
 
 # the premise check — the exact configuration the roadmap item cited
 cd "$TT_METAL_RUNTIME_ROOT/build/programming_examples"
 WH80=$(python3 -c "print(','.join(f'{x}-{y}' for y in [1,2,3,4,5,7,8,9,10,11] \
                              for x in [1,2,3,4,6,7,8,9]))")
-TT_METAL_SIMULATOR=~/tt-sim/driver/wormhole TT_METAL_SLOW_DISPATCH_MODE=1 \
+TT_METAL_SIMULATOR=~/wolfpine/driver/wormhole TT_METAL_SLOW_DISPATCH_MODE=1 \
 TT_SIM_TENSIX_COORDS=$WH80 ./metal_example_vecadd_multi_core   # no grid override
 
 # where its time goes: a sitecustomize.py on PYTHONPATH that wraps
@@ -2843,8 +2843,8 @@ work, and that is what this round takes out. Per `RV32I.clock_tick`
 
 ## What changed
 
-Four changes, no new behaviour, in `tt_sim/memory/memory.py`,
-`tt_sim/pe/rv/rv32.py` and `tt_sim/pe/rv/isa/i_isa.py`:
+Four changes, no new behaviour, in `framework/memory/memory.py`,
+`framework/pe/rv/rv32.py` and `framework/pe/rv/isa/i_isa.py`:
 
 - **An instruction-fetch fast path.** `RV32I` caches
   `(low, last, leaf, base)` for the plain-RAM span the PC sits in — the same
@@ -2904,7 +2904,7 @@ End-to-end guard wall time, 12 rounds, medians:
 
 | workload | base | ctrl | head |
 | --- | --- | --- | --- |
-| **control** (`pytest tt_sim/util tt_sim/memory`, no pump) | 1.263 s | +2.1 % | +2.0 % |
+| **control** (`pytest framework/util framework/memory`, no pump) | 1.263 s | +2.1 % | +2.0 % |
 | `blackhole/four` | 2.058 s | +0.1 % | **−12.4 %** |
 | `blackhole/nine` | 2.400 s | +0.1 % | **−10.4 %** |
 | `blackhole/vecadd_sharding` | 4.249 s | +0.2 % | **−11.2 %** |
@@ -2975,7 +2975,7 @@ deliberately *not* done:
 
 ## Gates
 
-`pytest tt_sim/ driver/` **1074 passed** with the model off and again with
+`pytest framework/ driver/` **1074 passed** with the model off and again with
 `TT_SIM_COST_MODEL=1`; **30/30** Blackhole replay guards standalone;
 `driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS** over 44 discovered
 guards with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×,
@@ -2984,7 +2984,7 @@ guards with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×,
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 git archive 0933ebc | tar -x -C /tmp/ab/base
 git archive 0933ebc | tar -x -C /tmp/ab/ctrl      # the verified-zero control
 
@@ -3088,13 +3088,13 @@ interpreter gets faster.
 
 Two new files and a seam, all optional:
 
-- **`tt_sim/pe/tensix/backends/fpu_jit_kernel.py`** — `mvmul_fused`, one
+- **`framework/pe/tensix/backends/fpu_jit_kernel.py`** — `mvmul_fused`, one
   `@njit(cache=True, nogil=True)` loop nest that is a line-by-line
   transliteration of the two batched methods with the numpy operations replaced
   by scalar arithmetic over the same indices. Fusing them also removes the
   `(2, rows, columns)` group-sum arrays entirely; every intermediate stays in a
   register and Dst is written once. **534 us -> 46 us, 13.3x.**
-- **`tt_sim/pe/tensix/backends/fpu_jit.py`** — the guard. Importing the kernel
+- **`framework/pe/tensix/backends/fpu_jit.py`** — the guard. Importing the kernel
   *is* the numba dependency, which is why it is a separate module: `fpu_jit`
   imports it lazily inside a `try`, and returns `None` for ever on any failure.
   `perform_mvmul_exact` then runs the numpy pair exactly as before.
@@ -3227,7 +3227,7 @@ into a win. **No free-threaded interpreter is needed to reach that conclusion**
 
 ## Gates
 
-`pytest tt_sim/ driver/` **1113 passed** with the model off and again with
+`pytest framework/ driver/` **1113 passed** with the model off and again with
 `TT_SIM_COST_MODEL=1`; **1112 passed, 1 skipped** for both of those with numba
 made *unimportable* by a `meta_path` blocker (the skip is the jit fuzz);
 **30/30** Blackhole replay guards standalone, with and without numba;
@@ -3239,7 +3239,7 @@ clean.
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 git archive cc0a72e | tar -x -C /tmp/ab/base
 git archive cc0a72e | tar -x -C /tmp/ab/ctrl      # the verified-zero control
 
@@ -3436,7 +3436,7 @@ verified-zero control arm and round counts in the report.
 This outlives the decision, and is the part to read if you ever *do* touch these
 paths.
 
-`optests/` differentially tests tt-sim against ttsim, which owns bit-exact
+`optests/` differentially tests Wolfpine against ttsim, which owns bit-exact
 functional correctness. Coverage of the two paths is very asymmetric:
 
 - **`PACR` is covered by 16 of the 17 optests** (all but `dramtop`, which runs no
@@ -3484,8 +3484,8 @@ and the error surfaces from `trisck.cc`.
 Pointed at the 0.74 tree, both build and pass:
 
 ```
-PASS  matmulblock: tt-sim matches ttsim (6144 elements)
-PASS  matmulidx:   tt-sim matches ttsim (2560 elements)
+PASS  matmulblock: Wolfpine matches ttsim (6144 elements)
+PASS  matmulidx:   Wolfpine matches ttsim (2560 elements)
 ```
 
 **MVMUL differential coverage was never lost.** Cost to "fix": set the variable
@@ -3516,7 +3516,7 @@ by-the-way change.
 
 ## Gates (nothing changed, so these are a pin, not a check)
 
-`ruff check` / `ruff format --check` clean; `pytest tt_sim/ driver/` **1120
+`ruff check` / `ruff format --check` clean; `pytest framework/ driver/` **1120
 passed** with the cost model off and again with `TT_SIM_COST_MODEL=1`; **1119
 passed, 1 skipped** with numba made unimportable by a `meta_path` blocker (the
 skip is the jit fuzz); **30/30** Blackhole replay guards standalone;
@@ -3531,7 +3531,7 @@ there is no `docs/plans/cost-model.md` entry and no provenance to record.
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 
 # the per-workload table. A shim module that wraps MatrixUnit.handle_elwadd,
 # PackerUnit.handle_pacr and Device.run with perf_counter_ns *before* importing
@@ -3701,7 +3701,7 @@ against ttsim — `matmulblock`, `matmulidx`, `matmultranspose`, `matmuluntilize
 `tilizematmul`, `transpose`, `reduce`, `reduceneg`, `untilize` — with
 `TT_METAL_HOME` pinned to the **v0.74.0** tree (verified: `version.txt` says
 v0.74.0 and `api/compute/matmul.h` declares `SrcOrder`; the 0.70.1 tree is what
-produces the phantom "'SrcOrder' has not been declared" break). **No tt-sim /
+produces the phantom "'SrcOrder' has not been declared" break). **No Wolfpine /
 ttsim disagreement was found anywhere.**
 
 Above that, three new pins in `fpu_accumulate_test.py` and six in
@@ -3740,7 +3740,7 @@ just the cycle count is hashed.
 
 ## Gates
 
-`ruff check` / `ruff format --check` clean; `pytest tt_sim/ driver/` **1137
+`ruff check` / `ruff format --check` clean; `pytest framework/ driver/` **1137
 passed** with the cost model off and again with `TT_SIM_COST_MODEL=1` (1120 at
 `97635b2` plus 17 new); **1136 passed, 1 skipped** with numba blocked by a
 `meta_path` finder, in both model states; **30/30** Blackhole replay guards
@@ -3772,7 +3772,7 @@ This is not a cost-model instalment: no charged cost changed, so there is no
 ## Reproducing
 
 ```bash
-export PYTHONPATH=~/tt-sim
+export PYTHONPATH=~/wolfpine
 
 # the interior profile: a shim that replaces MatrixUnit.perform_mvmul with a
 # copy instrumented between segments, plus MultiTileClock.run, then calls the
@@ -3966,7 +3966,7 @@ implementations *mid-workload* at MVMUL 475 of 1536.
 
 ## Gates
 
-`pytest tt_sim/ driver/` **1120 passed** with the model off and again with
+`pytest framework/ driver/` **1120 passed** with the model off and again with
 `TT_SIM_COST_MODEL=1`; **1119 passed, 1 skipped** with numba made unimportable
 by a `meta_path` blocker; **30/30** Blackhole replay guards standalone;
 `driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS**, exit 0, 44 guards,

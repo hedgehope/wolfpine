@@ -21,7 +21,7 @@ side of it, the signature changes, and the watchdog re-baselines for ever. That
 is exactly what a wedged tt-metal firmware looks like (the go-message wait loop
 spans two buckets), and it kept the watchdog silent through a two-launch hang
 that ran for 25 minutes at 95 % CPU — see
-``tt_sim/pe/tensix/sync_mutex_queue_test``.
+``framework/pe/tensix/sync_mutex_queue_test``.
 
 A footprint alone would be too eager — a small loop that is genuinely computing
 also revisits its own buckets — so the signature carries each active core's
@@ -279,7 +279,7 @@ ever ended a launch still blocked. Having run over the whole tree without a
 false positive, it now **raises** :class:`UnitWedgedError` after printing its
 report (ROADMAP item 1): a wedged unit must not let a run report success. Note
 that with the front-end FIFO bound in place
-(``tt_sim/pe/tensix/frontend.CORE_PUSH_INFLIGHT_BOUND``) most wedges never get
+(``framework/pe/tensix/frontend.CORE_PUSH_INFLIGHT_BOUND``) most wedges never get
 this far — the issuing core stalls on its next push and the *global* watchdog
 reports the deadlock, which is the silicon-matching behaviour; the terminal
 wedge remains the report path for a kernel with no further pushes behind the
@@ -296,9 +296,9 @@ import os
 import sys
 from collections import deque
 
-from tt_sim.pe.rv.babyriscv import BabyRISCV
-from tt_sim.util.bits import get_nth_bit
-from tt_sim.util.conversion import conv_to_uint32
+from framework.pe.rv.babyriscv import BabyRISCV
+from framework.util.bits import get_nth_bit
+from framework.util.conversion import conv_to_uint32
 
 DEFAULT_THRESHOLD = 50000
 # Consecutive cycles one backend unit may stay blocked on a single latched
@@ -554,7 +554,7 @@ class DeadlockDetector:
 
         The pump's ``on_tick_wake`` probe (see the module docstring): it is
         consulted alongside every tile clock's ``next_event_cycle`` when
-        :class:`~tt_sim.device.clock.MultiTileClock` computes a stride, so a
+        :class:`~framework.device.clock.MultiTileClock` computes a stride, so a
         scheduled sample is never jumped over however dormant the device is.
         ``None`` only when the detector is disabled, in which case it is not
         wired at all. Never returns a value ``<= cycle``, so it cannot stall
@@ -979,7 +979,7 @@ class DeadlockDetector:
             if not pcs:
                 continue
             if getattr(core, "spin_parked", False):
-                # The firmware-loop recogniser (tt_sim/pe/rv/spin.py) has this
+                # The firmware-loop recogniser (framework/pe/rv/spin.py) has this
                 # core parked in a verified pure poll loop, so its PC samples
                 # are frozen at one phase — say what is actually happening
                 # rather than reporting "frozen".
@@ -1020,7 +1020,7 @@ class DeadlockDetector:
         # request still awaiting a response (reads, non-posted writes and
         # atomics alike -- it is what a trid write barrier spins on), and the
         # second counts writes whose payload has not yet been read out of this
-        # tile's L1, which tt-sim does synchronously and so should never see
+        # tile's L1, which Wolfpine does synchronously and so should never see
         # standing at a sample. Saying so is the difference between a line that
         # names the stall and one that sends the reader after the wrong half of
         # the NoC.

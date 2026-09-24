@@ -2,7 +2,7 @@
 
 A NoC request names its destination tile by an (x, y) coordinate. *Where* that
 coordinate lives in the NIU command registers differs by architecture, so the
-:class:`~tt_sim.network.tt_noc.NUI.RequestInitiator` reads it through a strategy
+:class:`~framework.network.tt_noc.NUI.RequestInitiator` reads it through a strategy
 the architecture profile selects:
 
 - **Wormhole** packs the coordinate into the MID address register (X at bit 4,
@@ -16,7 +16,7 @@ Both take a request initiator and read its raw registers, so they stay decoupled
 from the NUI internals. See ``docs/plans/blackhole-support.md``.
 """
 
-from tt_sim.util.bits import extract_bits
+from framework.util.bits import extract_bits
 
 _COORD_BITS = 6
 

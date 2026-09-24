@@ -2,7 +2,7 @@
 
 Run as a module:
 
-    python3 -m tt_sim.trace.benchmark
+    python3 -m framework.trace.benchmark
 
 Target (from ROADMAP §H Phase 1 design principles): <100 ns per call
 on the no-subscriber fast path so hooks can stay compiled in.
@@ -10,8 +10,8 @@ on the no-subscriber fast path so hooks can stay compiled in.
 
 import time
 
-from tt_sim.trace.bus import get_bus
-from tt_sim.trace.events import EventCategory, InstrEvent
+from framework.trace.bus import get_bus
+from framework.trace.events import EventCategory, InstrEvent
 
 ITERATIONS = 1_000_000
 SAMPLE_UNIT_ID = (0, 18, 18, "BRISC")

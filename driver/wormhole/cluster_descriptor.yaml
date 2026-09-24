@@ -1,4 +1,4 @@
-# Cluster descriptor that runs tt-sim's Wormhole with NoC coordinate
+# Cluster descriptor that runs Wolfpine's Wormhole with NoC coordinate
 # translation enabled — the configuration real cards ship in.
 #
 #   export TT_METAL_MOCK_CLUSTER_DESC_PATH=$PWD/driver/wormhole/cluster_descriptor.yaml
@@ -15,7 +15,7 @@
 # `options.cluster_descriptor == nullptr`), which would otherwise force
 # translation off for a simulated chip regardless of what is written here.
 #
-# Single chip, nothing harvested, no ethernet links: tt-sim models one device.
+# Single chip, nothing harvested, no ethernet links: Wolfpine models one device.
 arch:
   0: wormhole_b0
 chips:

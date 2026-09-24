@@ -18,7 +18,7 @@ source.
 
 The program here is that firmware tail, reduced to the four stores that matter,
 and the driver is the host's own sequence. No tt-metal and no sockets: a real
-Wormhole under the wire bridge's :class:`~tt_sim.bridge.device.Device`.
+Wormhole under the wire bridge's :class:`~framework.bridge.device.Device`.
 
 ``test_the_control_vector_read_sees_the_published_run`` is the reproduction —
 it fails on a tree without :meth:`Device.settle_profiler_flush`, reading
@@ -30,10 +30,10 @@ publishes must not pump for ever.
 
 import pytest
 
-from tt_sim.bridge.device import Device
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.perf.noc_issue_loop import addi, bne, jal, lui, sw
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.bridge.device import Device
+from framework.device.wormhole import Wormhole
+from framework.perf.noc_issue_loop import addi, bne, jal, lui, sw
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 TENSIX_COORD_MAP = {
     Wormhole.physical_noc0_coord_from_unified_worker((ux, uy)): (ux, uy)
@@ -174,7 +174,7 @@ def test_the_settle_is_reported_and_costs_only_the_tail():
     device, unified = _launch(control_vector=_control_vector())
     _poll_until_done(device, unified)
     device.read(unified, CTRL_ADDR, 128)
-    from tt_sim.bridge.device import profiler_flush_summary
+    from framework.bridge.device import profiler_flush_summary
 
     summary = profiler_flush_summary(device)
     device.tt_device.shutdown()
@@ -219,7 +219,7 @@ def test_without_a_control_vector_write_nothing_is_armed():
     device, unified = _launch(control_vector=None)
     assert _poll_until_done(device, unified)
     control = _words(device.read(unified, CTRL_ADDR, 128))
-    from tt_sim.bridge.device import profiler_flush_summary
+    from framework.bridge.device import profiler_flush_summary
 
     summary = profiler_flush_summary(device)
     device.tt_device.shutdown()
@@ -305,7 +305,7 @@ def test_firmware_that_never_publishes_gives_up_rather_than_hanging(monkeypatch)
     # Re-arm as a second launch would, and confirm the worker is not retried.
     device.write(unified, GO_ADDR, b"\x00\x00\x00\x80")
     device.read(unified, CTRL_ADDR, 128)
-    from tt_sim.bridge.device import profiler_flush_summary
+    from framework.bridge.device import profiler_flush_summary
 
     summary = profiler_flush_summary(device)
     device.tt_device.shutdown()

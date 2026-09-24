@@ -5,7 +5,7 @@ simulator. Each example is a real tt-metal host program: it is **built against a
 tt-metal checkout and run exactly the way you would run it on hardware — only the
 device is the simulator instead of silicon.** tt-metal's UMD has a "simulation" chip
 backend; when `TT_METAL_SIMULATOR` points at this directory the host binary talks to
-tt-sim over a socket in place of a real chip. Each program validates its own results on
+Wolfpine over a socket in place of a real chip. Each program validates its own results on
 the host and exits non-zero on mismatch, so the examples double as a test suite.
 
 > **Why not run the examples "directly" any more?** Earlier revisions shipped a
@@ -53,8 +53,8 @@ Blackhole); the Wormhole live runner is examples/examples_test.py.
 ## Environment — driving execution to the simulator
 
 Running an example is ordinary tt-metal: the *only* thing that redirects it from silicon
-to tt-sim is `TT_METAL_SIMULATOR`. When it points at this directory, UMD's simulation
-backend spawns `run.sh` (which starts the tt-sim server) and the host binary talks to it
+to Wolfpine is `TT_METAL_SIMULATOR`. When it points at this directory, UMD's simulation
+backend spawns `run.sh` (which starts the Wolfpine server) and the host binary talks to it
 over a socket. The variables that matter:
 
 | Variable | Purpose |
@@ -63,8 +63,8 @@ over a socket. The variables that matter:
 | `TT_METAL_RUNTIME_ROOT` | tt-metal checkout. Used by CMake to build the example and by the host binary at runtime to locate its kernels/firmware. (`TT_METAL_HOME`, the older name, is accepted as a fallback.) |
 | `TT_METAL_SLOW_DISPATCH_MODE=1` | Forces `EnqueueProgram` to fall back to `detail::LaunchProgram` — the only launch path the simulator models. |
 | `LD_LIBRARY_PATH` | Must include `<tt-metal>/<build>/lib` so the host binary finds `libtt_metal.so` etc. |
-| `TT_SIM_TENSIX_COORDS` | **Optional.** Pins the worker tiles to exactly these, e.g. `1-1` or `1-1,2-1`. Unset, tt-sim materialises whatever the program turns out to use. |
-| `TT_METAL_MOCK_CLUSTER_DESC_PATH` | **Optional.** Point it at `driver/wormhole/cluster_descriptor.yaml` to run with **NoC coordinate translation** enabled, the configuration real cards ship in. Read by UMD (it decides which coordinates the host puts on the wire) *and*, through the environment the simulator inherits, by tt-sim itself — so the two ends cannot disagree. Forgetting it against a translated server is a loud error, not a wrong answer. See [§1.4 of the runbook](../../docs/running-tt-metal-on-the-simulator.md). |
+| `TT_SIM_TENSIX_COORDS` | **Optional.** Pins the worker tiles to exactly these, e.g. `1-1` or `1-1,2-1`. Unset, Wolfpine materialises whatever the program turns out to use. |
+| `TT_METAL_MOCK_CLUSTER_DESC_PATH` | **Optional.** Point it at `driver/wormhole/cluster_descriptor.yaml` to run with **NoC coordinate translation** enabled, the configuration real cards ship in. Read by UMD (it decides which coordinates the host puts on the wire) *and*, through the environment the simulator inherits, by Wolfpine itself — so the two ends cannot disagree. Forgetting it against a translated server is a loud error, not a wrong answer. See [§1.4 of the runbook](../../docs/running-tt-metal-on-the-simulator.md). |
 
 The project venv sets `TT_METAL_RUNTIME_ROOT`, `TT_METAL_SIMULATOR`,
 `TT_METAL_SLOW_DISPATCH_MODE=1` and `LD_LIBRARY_PATH` for you. Without it, export them
@@ -100,7 +100,7 @@ cmake --build build -j
 
 Run the binary **from its `src/` directory** — the host program refers to its kernels
 by the relative path `kernels/...`, which tt-metal resolves against the current
-directory. Multi-tile programs need no configuration: tt-sim materialises the worker
+directory. Multi-tile programs need no configuration: Wolfpine materialises the worker
 tiles a program launches on (and any a peer sends NoC traffic to) as it discovers them —
 see the runbook above. `TT_SIM_TENSIX_COORDS=<physical coords>` still *pins* the set
 exactly, which is what the replay guards want and what you want if you are deliberately
@@ -161,7 +161,7 @@ stops the run.
 All eleven examples currently pass. The Tensix coprocessor in the simulator is still
 incomplete, though, so a future example may exercise a gap the simulator hasn't modelled;
 a compute gap crashes the simulator server, which then stops the host too rather than
-leaving it blocked in `recv` (`tt_sim/bridge/hostlink.py`), so an unmodelled op shows up
+leaving it blocked in `recv` (`framework/bridge/hostlink.py`), so an unmodelled op shows up
 as a prompt signal-15 exit with the simulator's traceback beside it, not as a hang. The
 `examples_test.py` output tells you which examples pass on your build.
 
@@ -193,14 +193,14 @@ this tt-metal-driven flow — UMD inherits the env, `run.sh` inherits it, the si
 inherits it. Quick taster, from `examples/one/src/` after building:
 
 ```bash
-export TT_METAL_SIMULATOR=$HOME/tt-sim/driver/wormhole
+export TT_METAL_SIMULATOR=$HOME/wolfpine/driver/wormhole
 TT_SIM_TRACE_PERFETTO=/tmp/run.json.gz ./build/one
 # Drag /tmp/run.json.gz onto https://ui.perfetto.dev
 ```
 
 A full walkthrough — what each output is and which downstream tool reads it — lives in
 [docs/profiling.md](docs/profiling.md). Developer-side docs (event schema, adding a
-writer) are in [tt_sim/trace/README.md](../../tt_sim/trace/README.md); design history and
+writer) are in [framework/trace/README.md](../../framework/trace/README.md); design history and
 what isn't yet modelled is in [ROADMAP §H](../../ROADMAP.md).
 
 ## Enabling diagnostics
@@ -312,7 +312,7 @@ payload by the shared low-address bits rather than byte-shifting it. Violations
 are `UndefinedBehavior`: the transfer is skewed or dropped, it does not fault, so
 an unchecked simulator quietly returns wrong data.
 
-tt-sim enforces the rules that
+Wolfpine enforces the rules that
 [`WormholeB0/NoC/Alignment.md`](https://github.com/tenstorrent/tt-isa-documentation/blob/main/WormholeB0/NoC/Alignment.md)
 states and that the vendor reference simulator flags as `UndefinedBehavior`:
 
@@ -362,13 +362,13 @@ axis that broke it.
 
 ## Tensix performance counters
 
-`RISCV_DEBUG_REG_PERF_CNT_*` is modelled (`tt_sim/misc/perf_counters.py`), so a
+`RISCV_DEBUG_REG_PERF_CNT_*` is modelled (`framework/misc/perf_counters.py`), so a
 tt-metal program built with `TT_METAL_PROFILE_PERF_COUNTERS=<bitmask>` programs,
 starts, stops and reads the counters exactly as it does on silicon. Bit 5 (`32`)
-selects the `INSTRN_THREAD` bank, which is the one tt-sim sources; the other
+selects the `INSTRN_THREAD` bank, which is the one Wolfpine sources; the other
 banks answer their registers but decline their counters.
 
-Counters reported from a quantity tt-sim tracks: `THREAD_STALLS_{0,1,2}`,
+Counters reported from a quantity Wolfpine tracks: `THREAD_STALLS_{0,1,2}`,
 `THREAD_INSTRUCTIONS_{0,1,2}`, `WAITING_FOR_NONZERO_SEM_{0,1,2}`,
 `WAITING_FOR_NONFULL_SEM_{0,1,2}`, `WAITING_FOR_SRC{A,B}_VALID` and
 `WAITING_FOR_SRC{A,B}_CLEAR`, plus `ref_cnt` on every bank. Anything else reads

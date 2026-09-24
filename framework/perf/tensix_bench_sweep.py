@@ -3,16 +3,16 @@
 ``docs/plans/cost-model.md`` lists four rungs of validation below "captured
 silicon traces". Rungs 1 and 2 are climbed, and both of them validated the
 **NoC and memory** path only. The Tensix instruction costs in
-``tt_sim/pe/tensix/tensix_instruction_costs.yaml`` have no external validation
+``framework/pe/tensix/tensix_instruction_costs.yaml`` have no external validation
 of any kind -- they are well sourced, but provenance is not validation, and they
 are the bulk of the cycles in a compute workload.
 
 No public dataset closes that gap: tt-metal's ``1_compute_mm`` microbenchmark
 ships no reference numbers, and the only goldens under
-``perf_microbenchmark/`` are for dispatch, a path tt-sim does not implement. So
+``perf_microbenchmark/`` are for dispatch, a path Wolfpine does not implement. So
 this module consumes a dataset that does not exist yet, produced by a benchmark
 that does: ``perfbench/tensixbench``, one tt-metal program that runs unchanged
-on silicon and against tt-sim. The methodology, and what each measurement can
+on silicon and against Wolfpine. The methodology, and what each measurement can
 and cannot establish, is in ``docs/plans/tensix-cost-benchmark.md``.
 
 What the input is
@@ -41,15 +41,15 @@ Run it
 
 ::
 
-    python3 -m tt_sim.perf.tensix_bench_sweep
-    python3 -m tt_sim.perf.tensix_bench_sweep --measured hw.csv
-    python3 -m tt_sim.perf.tensix_bench_sweep --measured hw.csv --reference sim.csv
-    python3 -m tt_sim.perf.tensix_bench_sweep --measured sim.csv --arch blackhole
-    python3 -m tt_sim.perf.tensix_bench_sweep --formats
-    python3 -m tt_sim.perf.tensix_bench_sweep --formats bf16.csv fp32.csv tf32.csv
+    python3 -m framework.perf.tensix_bench_sweep
+    python3 -m framework.perf.tensix_bench_sweep --measured hw.csv
+    python3 -m framework.perf.tensix_bench_sweep --measured hw.csv --reference sim.csv
+    python3 -m framework.perf.tensix_bench_sweep --measured sim.csv --arch blackhole
+    python3 -m framework.perf.tensix_bench_sweep --formats
+    python3 -m framework.perf.tensix_bench_sweep --formats bf16.csv fp32.csv tf32.csv
 
 With no ``--measured`` the sweep reads the **primary tracked reference
-measurement** (:data:`PRIMARY_DATASET`) in ``tt_sim/perf/datasets/``, so the
+measurement** (:data:`PRIMARY_DATASET`) in ``framework/perf/datasets/``, so the
 rung-3 comparison reproduces with no arguments and no hardware. That directory
 holds curated silicon datasets only; a local ``perfbench`` run writes next to
 its own binary and is gitignored, and has to be passed explicitly. Each
@@ -71,7 +71,7 @@ axis's own **null control**, the pair whose indistinguishability was predicted
 before the run rather than observed after it.
 
 With ``--reference`` the report additionally diffs two runs of the same binary
--- silicon against tt-sim -- which is the differential form ``optests/diff.sh``
+-- silicon against Wolfpine -- which is the differential form ``optests/diff.sh``
 established for values, applied to cycles.
 
 With ``--formats`` it does something different again: it reads SEVERAL runs of
@@ -84,7 +84,7 @@ the four tracked format datasets (:func:`format_datasets`), so X2 reproduces
 with no hardware exactly as the ordinary report does.
 
 If no dataset can be found the script prints where it looked and exits 0 -- the
-same "degrade gracefully" contract ``tt_sim/perf/noc_dataset_sweep.py`` uses for
+same "degrade gracefully" contract ``framework/perf/noc_dataset_sweep.py`` uses for
 its dataset.
 """
 
@@ -535,7 +535,7 @@ def attach_table(series, arch):
     when the tables have no opinion -- no entry, no ``occupancy`` field, or
     ``provenance: unknown`` -- which is an exclusion, not a disagreement.
     """
-    from tt_sim.perf.costs import SOURCED_PROVENANCE, load_costs
+    from framework.perf.costs import SOURCED_PROVENANCE, load_costs
 
     table = load_costs(arch)
     for s in series:
@@ -558,15 +558,15 @@ def attach_table(series, arch):
 
 
 def unwired_units(arch):
-    """Units whose table entries exist but which tt-sim never charges.
+    """Units whose table entries exist but which Wolfpine never charges.
 
     Read from the test that owns the list rather than restated, so the two
     cannot drift. A hardware measurement still tests the *table* for these; it
-    just does not test tt-sim.
+    just does not test Wolfpine.
     """
     del arch
     try:
-        from tt_sim.perf.costs_test import UNWIRED_UNITS
+        from framework.perf.costs_test import UNWIRED_UNITS
 
         return set(UNWIRED_UNITS)
     except Exception:  # pragma: no cover - the test module is not a hard dep
@@ -725,7 +725,7 @@ def report(rows, arch, out=None, label="measured", reference=None, meta=None):
         ("bound", lambda s: s["bound"] or "-"),
         ("provenance", lambda s: s["provenance"] or "-"),
         (
-            "wired into tt-sim",
+            "wired into Wolfpine",
             lambda s: "no" if s["unit"] in unwired else "yes",
         ),
         ("testable (table occupancy > 1)", lambda s: "yes" if s["testable"] else "no"),
@@ -869,7 +869,7 @@ def _fidelity_check(series, arch, emit):
         emit("  no phase B data in this run.")
         return
 
-    from tt_sim.perf.costs import SOURCED_PROVENANCE, load_costs
+    from framework.perf.costs import SOURCED_PROVENANCE, load_costs
 
     table = load_costs(arch)
     math_unit = table.units.get("MATH")
@@ -1074,7 +1074,7 @@ def format_report(datasets, arch, out=None):
             "  the Wait-Gate regime rather than the MOP-issued one the tables\n"
             "  charge.\n"
             "\n"
-            "  AGAINST tt-sim this verdict is FORCED and means nothing about any\n"
+            "  AGAINST Wolfpine this verdict is FORCED and means nothing about any\n"
             "  hardware: nothing back-pressures the issuing core there, so every\n"
             "  phase A probe reads exactly 1.000 whatever the unit or the format\n"
             "  (docs/plans/tensix-cost-benchmark.md, 'the cost model is invisible\n"
@@ -1095,9 +1095,9 @@ def format_report(datasets, arch, out=None):
 
 
 def _differential(rows, reference_rows, arch, emit):
-    """The same binary, two devices: silicon against tt-sim, per series.
+    """The same binary, two devices: silicon against Wolfpine, per series.
 
-    ``optests/diff.sh`` runs one compiled tt-metal program through tt-sim and
+    ``optests/diff.sh`` runs one compiled tt-metal program through Wolfpine and
     through the vendor reference simulator and diffs the values. This is that,
     for cycles.
     """
@@ -1222,7 +1222,7 @@ def main(argv=None):
                 f"found: {', '.join(p.name for p in tracked) or 'nothing'}\n"
                 "\n"
                 "Pass --arch to pick one, or produce a new dataset by running\n"
-                "perfbench/tensixbench on silicon or against tt-sim. See\n"
+                "perfbench/tensixbench on silicon or against Wolfpine. See\n"
                 "perfbench/tensixbench/README.md."
             )
             return 0

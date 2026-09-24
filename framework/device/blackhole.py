@@ -12,7 +12,7 @@ watchdog, diagnostics fan-out, clock/reset and NoC-directory registration —
 belongs to ``TT_Device`` and arrives here by inheritance. Do not wire a
 device-level facility in this constructor: doing that is what left Blackhole
 without ``TT_SIM_TRACE_*`` and without ``[DEADLOCK]`` reports. See
-``tt_sim/device/parity_test.py``.
+``framework/device/parity_test.py``.
 
 Known not-yet-modelled for Blackhole (see ``docs/plans/blackhole-support.md``):
 the doubled baby-core local memories and 2-core eth tiles (Phase 6, only matter
@@ -21,9 +21,9 @@ translation (Phase 4 strategy work), and the DST swizzle. This is enough to
 construct the device and move data DRAM<->Tensix over the NoC.
 """
 
-from tt_sim.arch import BLACKHOLE_PROFILE
-from tt_sim.device.tiles import DRAMTile, TensixTile
-from tt_sim.device.tt_device import TT_Device
+from framework.arch import BLACKHOLE_PROFILE
+from framework.device.tiles import DRAMTile, TensixTile
+from framework.device.tt_device import TT_Device
 
 
 class _BlackholeTileCoords:

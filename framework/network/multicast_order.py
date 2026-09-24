@@ -6,7 +6,7 @@ which field is **not** free — the corners have to be written in the order the
 packet travels, and that order is a property of the NoC the request is issued
 on, so the same rectangle is encoded differently on NoC 0 and NoC 1.
 
-Getting it wrong is silent on both hardware and (until this module) tt-sim, in
+Getting it wrong is silent on both hardware and (until this module) Wolfpine, in
 opposite and equally useless ways. It is the defect this module exists for: a
 compiler back end emitted every multicast rectangle low-corner-first, which is
 right for NoC 0 and wrong for NoC 1, and every one of its multicast programs
@@ -21,7 +21,7 @@ leftwards and upwards (``WormholeB0/NoC/Coordinates.md``,
 ``WormholeB0/NoC/RoutingPaths.md``). In a NoC's own coordinates the rectangle is
 therefore always written ``Start ≤ End``.
 
-Coordinate *translation* — which is what tt-metal uses, and what tt-sim's
+Coordinate *translation* — which is what tt-metal uses, and what Wolfpine's
 ``noc_translation`` mode models — overlays a single coordinate range on both
 NoCs. That range increments with NoC 0's data flow, and, in the ISA docs' own
 words:
@@ -85,7 +85,7 @@ the kernel counted in its ``num_dests`` argument, the ACK count the NIU sees
 never equals the count the kernel is waiting for, and ``noc_async_write_barrier``
 spins forever. That is the reported silicon symptom.
 
-tt-sim does not model the torus wrap (it enumerates the closed interval between
+Wolfpine does not model the torus wrap (it enumerates the closed interval between
 the two corners, whichever order they arrive in), so without this check it
 completes either way: a reversed rectangle used to enumerate an *empty* range,
 sending nothing and letting the barrier retire with no ACKs to wait for, while a
@@ -95,16 +95,16 @@ on hardware, which is the worst failure a simulator has.
 
 Raising rather than warning
 ---------------------------
-This check fires on precisely the rectangles tt-sim cannot model: the ones where
+This check fires on precisely the rectangles Wolfpine cannot model: the ones where
 its interval enumeration and the hardware's span disagree. There is no case in
-which it fires and tt-sim was about to produce the answer hardware produces, so
+which it fires and Wolfpine was about to produce the answer hardware produces, so
 it cannot cry wolf in the way a heuristic would — the alternative to raising is
 not "carry on correctly", it is "carry on wrongly and silently".
 
 It is deliberately *stricter* than tt-metal's watcher, which skips the ordering
 check entirely for Tensix-to-Tensix multicasts on Wormhole and Blackhole because
 the hardware's wrap-around is legal there. Legal is not the same as intended,
-and tt-sim cannot deliver a wrapped span anyway: a wrap-around Tensix multicast
+and Wolfpine cannot deliver a wrapped span anyway: a wrap-around Tensix multicast
 would be mismodelled silently today. If one ever turns out to be wanted, the
 answer is to model the wrap, not to lower this to a warning.
 
@@ -166,7 +166,7 @@ def rectangle_destinations(x_start, y_start, x_end, y_end):
     correctly-encoded NoC 1 multicast under coordinate translation, where the
     corners are required to descend.
 
-    tt-sim does not model the torus wrap that hardware performs when the
+    Wolfpine does not model the torus wrap that hardware performs when the
     corners are ordered against the direction of data flow;
     :func:`check_corner_order` is what stops such a rectangle from reaching here
     unremarked.
@@ -227,7 +227,7 @@ def check_corner_order(
         else "this NoC's coordinates increment in its own direction of data "
         "flow, so a broadcast rectangle is written low corner first"
     )
-    # Reversed corners are the case tt-sim used to enumerate as the empty set:
+    # Reversed corners are the case Wolfpine used to enumerate as the empty set:
     # ``range(start, end + 1)`` with ``start > end`` sends to nobody at all, and
     # the barrier then has no ACKs to wait for. Saying so makes the two shapes
     # of this bug distinguishable in the message.
@@ -237,7 +237,7 @@ def check_corner_order(
         "every coordinate at or below End together with every coordinate at or "
         "above Start -- so the packet lands on tiles the kernel never counted in num_dests "
         "and noc_async_write_barrier waits forever for an ACK count that cannot "
-        "match. tt-sim does not model the wrap"
+        "match. Wolfpine does not model the wrap"
     )
     if wrote == "descending":
         consequence += (

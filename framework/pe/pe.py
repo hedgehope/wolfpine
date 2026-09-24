@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 
-from tt_sim.device.clock import Clockable
-from tt_sim.device.reset import Resetable
-from tt_sim.memory.memory import MemorySpace
+from framework.device.clock import Clockable
+from framework.device.reset import Resetable
+from framework.memory.memory import MemorySpace
 
 
 class PEMemory(MemorySpace):

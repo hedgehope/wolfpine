@@ -2,7 +2,7 @@
 
 The bug this pins: ``DPrintServer`` writes a magic word into every core's
 ``dprint_buf`` and then spins up to 100000 times waiting to read it back
-(``dprint_server.cpp:WriteInitMagic``). tt-sim's stand-ins zero-filled every
+(``dprint_server.cpp:WriteInitMagic``). Wolfpine's stand-ins zero-filled every
 read, so the spin could never succeed and **any** tt-metal run with DPRINT
 enabled died with ``TT_THROW: Timed out writing init magic`` after ~2 minutes —
 taking the LLK sanitizer, and kernel printf debugging generally, with it.
@@ -16,7 +16,7 @@ the go-message tests hang the host (here, fail).
 
 import pytest
 
-from tt_sim.bridge.cores import DeferredTensixCore, NullCore
+from framework.bridge.cores import DeferredTensixCore, NullCore
 
 COORD = (2, 1)
 

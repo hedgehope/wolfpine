@@ -1,5 +1,5 @@
 """Guards for Blackhole baby-RISC-V extensions that are documented but not yet
-modelled in tt-sim: the **F single-precision** floating-point extension and the
+modelled in Wolfpine: the **F single-precision** floating-point extension and the
 V vector extension. (Half-precision **Zfh** *is* modelled — see ``zfh_isa.py``;
 its ISA is attached ahead of this guard, so ``.h`` instructions are handled and
 only single-precision ``.s`` reaches the F guard.)
@@ -23,7 +23,7 @@ every Blackhole baby core; the V guard goes on TRISC2 alone, matching the doc's
 "RISC-V T2 only" note.
 """
 
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
+from framework.pe.rv.isa.rv_isa import RV_ISA
 
 
 class _OpcodeGuard(RV_ISA):
@@ -41,9 +41,9 @@ class _OpcodeGuard(RV_ISA):
         addr = register_file["pc"].read_uint()
         raise NotImplementedError(
             f"{cls.EXTENSION} extension instruction {hex(instr)} at PC {hex(addr)} "
-            f"is not yet modelled in tt-sim. It is (partially) supported by the "
+            f"is not yet modelled in Wolfpine. It is (partially) supported by the "
             f"Blackhole baby cores; implement the supported subset and replace "
-            f"this guard (see tt_sim/pe/rv/isa/guard_isa.py)."
+            f"this guard (see framework/pe/rv/isa/guard_isa.py)."
         )
 
 

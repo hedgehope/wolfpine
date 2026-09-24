@@ -3,7 +3,7 @@
 // `--dump-grid` needs two coordinate spaces per core and the host API only
 // offers one. `worker_core_from_logical_core` returns the coordinate a kernel
 // ADDRESSES, which on a harvested part is a dense renumbering of the surviving
-// workers; the link arithmetic in `tt_sim.perf.noc_congestion_plan` is only
+// workers; the link arithmetic in `framework.perf.noc_congestion_plan` is only
 // valid in SoC-physical NoC 0. The two are equal on an unharvested Blackhole
 // and differ by the harvested columns otherwise -- and nothing in the dump
 // says which columns went, so it cannot be inferred. This kernel reads the

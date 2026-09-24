@@ -7,8 +7,8 @@ any workload that compares small positive numbers. GCC's local-.data copy loop
 walks a negative word count with `blt` and derives it with `srai`.
 """
 
-from tt_sim.pe.rv.isa.i_isa import RV_I_ISA
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.i_isa import RV_I_ISA
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 M = 0xFFFFFFFF
 PC = 0x1000
@@ -199,7 +199,7 @@ def test_bitwise_immediates_are_32_bit_not_arbitrary_precision():
     `conv_to_bytes(..., signed=False)`, which raises `OverflowError: can't
     convert negative int to unsigned`. That is a CRASH rather than a wrong
     answer, and every `~x` in a C kernel compiles to exactly this instruction:
-    `dramratebench`'s reader kernel hit it on its first run against tt-sim.
+    `dramratebench`'s reader kernel hit it on its first run against Wolfpine.
     `ori` with any negative immediate is the same bug.
     """
     assert _alu_imm(0x4, 0x44524231, -1) == 0xBBADBDCE  # xori: the NOT idiom

@@ -9,7 +9,7 @@ import contextlib
 import os
 import sys
 
-from tt_sim.bridge import (
+from framework.bridge import (
     Fabric,
     TraceWriter,
     Transport,
@@ -27,7 +27,7 @@ def _parse_tensix_pool(env):
     With **neither** env var set the answer is ``([(1, 1)], False)``: the
     historical single-tile default is still built up front — so the single-tile
     path is unchanged down to the cycle — but ``pinned=False`` lets the server
-    install a :class:`~tt_sim.bridge.LazyTensixPool` that materialises any
+    install a :class:`~framework.bridge.LazyTensixPool` that materialises any
     other worker the program turns out to need. No coordinates to work out, and
     no tax for workers a program never launches on.
 
@@ -103,7 +103,7 @@ def main(argv=None):
     ap.add_argument(
         "--mock-tensix",
         action="store_true",
-        help="skip building a tt-sim Wormhole; every core is NullCore",
+        help="skip building a Wolfpine Wormhole; every core is NullCore",
     )
     ap.add_argument(
         "--cycles-per-poll",
@@ -144,7 +144,7 @@ def main(argv=None):
     lazy_pool = None
     if not args.mock_tensix:
         # Late import so --mock-tensix avoids the (slow) Wormhole construction.
-        from tt_sim.bridge import (
+        from framework.bridge import (
             DramCore,
             EthCore,
             LazyTensixPool,
@@ -154,7 +154,7 @@ def main(argv=None):
             install_convention_guard,
             install_worker_guards,
         )
-        from tt_sim.network.noc_translation import translation_source
+        from framework.network.noc_translation import translation_source
 
         from .coords import (
             CLUSTER_DESCRIPTOR_PATH,
@@ -196,7 +196,7 @@ def main(argv=None):
                 fabric.register(physical, TensixCore(device, unified))
         else:
             # Nothing pinned: build the default worker up front and let the
-            # program ask for the rest. See ``tt_sim.bridge.materialise`` — a
+            # program ask for the rest. See ``framework.bridge.materialise`` — a
             # worker appears when the host writes to it after releasing it,
             # when a kernel launches on it, or when a peer sends it NoC
             # traffic, whichever comes first.
@@ -212,7 +212,7 @@ def main(argv=None):
         # (or worse, a kernel launch) addressing a functional_worker that
         # wasn't pre-built via TT_SIM_TENSIX_COORDS. Shared with the Blackhole
         # server so both architectures shout about it — see
-        # ``tt_sim.bridge.install_worker_guards``.
+        # ``framework.bridge.install_worker_guards``.
         install_worker_guards(
             fabric,
             tensix_pool,
@@ -222,14 +222,14 @@ def main(argv=None):
         )
 
         enabled = enabled_diagnostic_names(diagnostics)
-        from tt_sim.bridge import compute_grid
+        from framework.bridge import compute_grid
 
         from .coords import DEFAULT_COMPUTE_GRID
 
         grid = compute_grid(DEFAULT_COMPUTE_GRID)
         how = "pinned" if pinned else "on demand"
         print(
-            f"[server] tt-sim Wormhole ready "
+            f"[server] Wolfpine Wormhole ready "
             f"(tensix={tensix_pool} ({how}), dram={list(DRAM_COORD_MAP)}, "
             f"compute_grid={grid[0]}x{grid[1]}, "
             f"noc_translation={'on' if translated else 'off'} ({why}), "

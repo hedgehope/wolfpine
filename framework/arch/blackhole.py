@@ -11,8 +11,8 @@ matching the scope decision. Expanding to the full 8 DRAM channels / 140 workers
 is mechanical (extend the coord tuples), exactly as for Wormhole.
 """
 
-from tt_sim.arch.profile import ArchProfile
-from tt_sim.network.noc_coords import BlackholeNocCoords
+from framework.arch.profile import ArchProfile
+from framework.network.noc_coords import BlackholeNocCoords
 
 BLACKHOLE_PROFILE = ArchProfile(
     name="blackhole",

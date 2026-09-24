@@ -2,7 +2,7 @@
 # Run the whole NoC congestion experiment on a real card, end to end.
 #
 # This is the HARDWARE side. Do not use perfbench/run.sh here: that one points
-# TT_METAL_SIMULATOR at tt-sim. The point of the exercise is that it is the same
+# TT_METAL_SIMULATOR at Wolfpine. The point of the exercise is that it is the same
 # binary either way, so on a card you run the executable directly, which is what
 # this script does.
 #
@@ -27,7 +27,7 @@ OUT="${NOCBENCH_OUT:-$PWD}"
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
-# Slow dispatch: tt-sim only supports the direct launch path, and using the same
+# Slow dispatch: Wolfpine only supports the direct launch path, and using the same
 # mode on hardware keeps the two runs comparable.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"
 unset TT_METAL_SIMULATOR || true
@@ -51,14 +51,14 @@ ARCH="$(sed -n 's/.*arch=\([a-z0-9_]*\).*/\1/p' "$OUT/nocbench-grid.csv" | head 
 echo "   arch=$ARCH"
 
 echo "== 2/3  planning (this refuses rather than emit a confounded experiment)"
-python3 -m tt_sim.perf.noc_congestion_plan \
+python3 -m framework.perf.noc_congestion_plan \
   --grid "$OUT/nocbench-grid.csv" --out "$OUT/nocbench-plan.csv" "$@"
 
 echo "== 3/3  running"
 ./build/nocbench --plan "$OUT/nocbench-plan.csv" --out "$OUT/nocbench-$ARCH.csv" -v
 
 echo
-python3 -m tt_sim.perf.noc_congestion_sweep --measured "$OUT/nocbench-$ARCH.csv" \
+python3 -m framework.perf.noc_congestion_sweep --measured "$OUT/nocbench-$ARCH.csv" \
   | tee "$OUT/nocbench-$ARCH.report.txt"
 
 echo

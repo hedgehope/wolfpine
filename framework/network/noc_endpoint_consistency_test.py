@@ -5,8 +5,8 @@ than about the flight time itself. They are cheap — no trace, no kernel, no
 simulation, about two seconds per architecture — and between them they cover
 three separate defects, of which only the first had been noticed.
 
-**1. The grid guard.** :func:`~tt_sim.network.tt_noc.noc_hop_count` and
-:func:`~tt_sim.network.tt_noc.noc_route_links` walk a torus. Handed a
+**1. The grid guard.** :func:`~framework.network.tt_noc.noc_hop_count` and
+:func:`~framework.network.tt_noc.noc_route_links` walk a torus. Handed a
 coordinate outside it, the first returned a modular fiction and the second
 **did not terminate** — its walk steps ``x = (x + 1) % grid_x``, which never
 reaches an out-of-grid ``dst[0]``, so it spun in pure Python with the device
@@ -69,9 +69,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.tt_noc import (
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.tt_noc import (
     NoCCoordinateError,
     NullEndpoint,
     _endpoint_noc_coord,
@@ -79,10 +79,10 @@ from tt_sim.network.tt_noc import (
     noc_route_links,
 )
 
-#: Every Wormhole functional worker, in tt-sim's unified coord band — the
+#: Every Wormhole functional worker, in Wolfpine's unified coord band — the
 #: product of the descriptor's 8 columns and 10 rows (``driver/wormhole/
 #: soc_descriptor.yaml``, paired with the band by ``server/coords.py``).
-#: Spelled out here because ``tt_sim`` never imports from ``driver``.
+#: Spelled out here because ``framework`` never imports from ``driver``.
 _WH_WORKERS = [(x, y) for x in range(18, 26) for y in range(16, 26)]
 #: Every Blackhole functional worker; Blackhole keys tiles by physical coord,
 #: and ``x = 8, 9`` is the ARC / DRAM gap.
@@ -102,7 +102,7 @@ def _model_on():
 
     Every worker is materialised here, which on Wormhole genuinely shadows 56
     of them on NoC 1 — a real defect with its own tests
-    (``tt_sim/network/noc_routing_test.py``), and not something this module
+    (``framework/network/noc_routing_test.py``), and not something this module
     should print 56 lines about.
     """
     previous = {
@@ -168,12 +168,12 @@ def test_an_out_of_grid_source_is_refused_too_and_says_so():
 
 
 def test_the_congestion_planner_shares_the_guard():
-    """``tt_sim.perf.noc_congestion_plan.route_links`` **is** ``noc_route_links``.
+    """``framework.perf.noc_congestion_plan.route_links`` **is** ``noc_route_links``.
 
     Pinned because the planner and the simulator have to name links
     identically, so they must also refuse identically.
     """
-    from tt_sim.perf import noc_congestion_plan as plan
+    from framework.perf import noc_congestion_plan as plan
 
     assert plan.route_links is noc_route_links
     with pytest.raises(NoCCoordinateError):
@@ -375,7 +375,7 @@ def test_translation_leaves_no_key_costed_in_the_wrong_space(arch, noc):
             # worker band, Blackhole's DRAM. The directory entry carries the
             # physical cell and the null one cannot, so there is nothing to
             # compare; refusing to invent a distance is the pinned behaviour
-            # (``tt_sim/device/noc_translation_test.py``).
+            # (``framework/device/noc_translation_test.py``).
             continue
         if costs[0] != costs[1]:
             disagreements.append((key, *costs))

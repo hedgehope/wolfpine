@@ -1,7 +1,7 @@
 # Blackhole driver
 
-A Blackhole bring-up of tt-sim, sharing all the tt-metal wire-bridge machinery
-with the Wormhole driver (`tt_sim/bridge`) — only the device factory, SoC
+A Blackhole bring-up of Wolfpine, sharing all the tt-metal wire-bridge machinery
+with the Wormhole driver (`framework/bridge`) — only the device factory, SoC
 descriptor and coordinate maps here are Blackhole-specific. See the top-level
 `docs/plans/blackhole-support.md` for the full multi-arch port.
 
@@ -10,7 +10,7 @@ descriptor and coordinate maps here are Blackhole-specific. See the top-level
 - `soc_descriptor.yaml` — tt-metal's `blackhole_140_arch.yaml` (17×12 grid, 8 DRAM
   channels, 140 workers).
 - `run.sh` — what UMD spawns; execs `python -m driver.blackhole.server`.
-- `server/` — thin entry point onto `tt_sim.bridge`:
+- `server/` — thin entry point onto `framework.bridge`:
   - `bh_device.py` — the `Blackhole` device factory + `make_device`.
   - `coords.py` — coordinate maps. Because Blackhole tiles are keyed by their
     **physical NoC coord** (not a "unified" band), the tensix/dram maps are

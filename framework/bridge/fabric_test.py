@@ -9,7 +9,7 @@ server entry points install them.
 
 import pytest
 
-from tt_sim.bridge.fabric import Fabric, install_worker_guards
+from framework.bridge.fabric import Fabric, install_worker_guards
 
 # Physical coord -> tile coord, as a server's TENSIX_COORD_MAP would be.
 COORD_MAP = {(1, 1): (18, 18), (2, 1): (19, 18), (3, 1): (20, 18)}
@@ -144,7 +144,7 @@ def test_the_dprint_init_handshake_completes_through_the_fabric():
 
     The unit-level version of this lives in ``cores_test``; this one pins the
     route, because the failure it guards against ("DPRINT will not start
-    against tt-sim") was only ever visible as a host that spun 100000 times on
+    against Wolfpine") was only ever visible as a host that spun 100000 times on
     a fabric read and then threw. ``(2, 1)`` is deliberately *not* in ``POOL``,
     so the fabric lazily allocates a stand-in for it exactly as a live server
     does for a worker nothing has claimed yet.

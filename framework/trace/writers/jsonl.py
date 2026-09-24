@@ -1,6 +1,6 @@
 """JSONL writer — one JSON object per event, streamed to a file.
 
-Subscribes to every :class:`~tt_sim.trace.events.EventCategory`. Useful
+Subscribes to every :class:`~framework.trace.events.EventCategory`. Useful
 as a low-effort sanity check that the bus is wiring up correctly;
 downstream writers (Perfetto, Parquet, etc.) replace it in later phases.
 """
@@ -10,8 +10,8 @@ from dataclasses import fields
 from pathlib import Path
 from typing import IO
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import Event, EventCategory
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import Event, EventCategory
 
 
 def _event_to_dict(event: Event) -> dict:

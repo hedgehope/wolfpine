@@ -1,6 +1,6 @@
-# tt-sim ⇄ tt-metal wire bridge
+# Wolfpine ⇄ tt-metal wire bridge
 
-A Python server that wraps mesham's tt-sim `Wormhole` behind the
+A Python server that wraps mesham's Wolfpine `Wormhole` behind the
 `tt_SimulationDevice` IPC protocol used by tt-metal's UMD layer. With the
 server running, tt-metal can drive the in-process simulator as if it were a
 real device — kernel binaries are loaded over the wire, BRISC executes, and
@@ -27,7 +27,7 @@ fire-and-forget; `READ` requires exactly one response.
 ## Usage with tt-metal
 
 ```bash
-export TT_METAL_SIMULATOR=/path/to/tt-sim/driver/wormhole
+export TT_METAL_SIMULATOR=/path/to/wolfpine/driver/wormhole
 <your tt-metal program>
 ```
 
@@ -52,7 +52,7 @@ python3 driver/wormhole/replay.py traces/some.trace
 | --- | --- |
 | `--addr ADDR` | Listen address (default: `$NNG_SOCKET_ADDR`). |
 | `--log-protocol` | Print every wire message to stderr. |
-| `--mock-tensix` | Skip building a tt-sim Wormhole. Every core is `NullCore` (writes swallowed, reads return zeros). Useful for transport regressions and for matching the phase-1 zero-stub. |
+| `--mock-tensix` | Skip building a Wolfpine Wormhole. Every core is `NullCore` (writes swallowed, reads return zeros). Useful for transport regressions and for matching the phase-1 zero-stub. |
 | `--cycles-per-poll N` | Run `wormhole.run(N)` after every wire message once any BRISC is out of reset (default 100). Tune this if tt-metal's poll budget expires before BRISC reaches a "done" state, or if the simulator is unnecessarily slow. |
 | `--record FILE` | Append every host→sim message (and READ reply) to FILE in the trace format. Replayable with `replay.py`. |
 
@@ -147,14 +147,14 @@ against another real-Wormhole server (or one whose state matches), and a
 ## Regenerating flatbuffer bindings
 
 The schema lives in tt-metal at
-`tt_metal/third_party/umd/device/simulation/tt_simulation_device.fbs`. The
+`tt_metal/third_party/umd/device/simulation/frameworkulation_device.fbs`. The
 generated Python bindings under `server/_flatbuf/` are committed, but to
 rebuild them after a tt-metal schema bump:
 
 ```bash
 ./driver/wormhole/server/regen_flatbuf.sh
 # or, against a different schema:
-./driver/wormhole/server/regen_flatbuf.sh /path/to/tt_simulation_device.fbs
+./driver/wormhole/server/regen_flatbuf.sh /path/to/frameworkulation_device.fbs
 ```
 
 The script post-patches `DeviceRequestResponse.py` so its inline import of

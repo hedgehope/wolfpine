@@ -1,6 +1,6 @@
 """Tests for the sparse DRAM backing and the per-arch DRAM channel size.
 
-Runs standalone (``python3 -m tt_sim.memory.sparse_memory_test``) or under
+Runs standalone (``python3 -m framework.memory.sparse_memory_test``) or under
 pytest.
 
 A DRAM channel is 2 GiB (Wormhole) / 0xFF00_0000 (Blackhole), 6 / 8 of them, so
@@ -15,11 +15,11 @@ Wormhole / 0xFEFF_FC00 on Blackhole) needs.
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.arch.wormhole import WORMHOLE_PROFILE
-from tt_sim.device.blackhole import BlackholeDRAMTile
-from tt_sim.device.tiles import DRAMTile
-from tt_sim.memory.memory import SparseAddressableMemory
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.arch.wormhole import WORMHOLE_PROFILE
+from framework.device.blackhole import BlackholeDRAMTile
+from framework.device.tiles import DRAMTile
+from framework.memory.memory import SparseAddressableMemory
 
 # Addresses tt-metal's allocator picked for the `optests/dramtop` buffer on
 # each arch, straight out of the reference simulator's run (it prints the

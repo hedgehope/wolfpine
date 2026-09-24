@@ -1,4 +1,4 @@
-# Cluster descriptor that runs tt-sim's Blackhole with NoC coordinate
+# Cluster descriptor that runs Wolfpine's Blackhole with NoC coordinate
 # translation enabled — the configuration real cards ship in.
 #
 #   export TT_METAL_MOCK_CLUSTER_DESC_PATH=$PWD/driver/blackhole/cluster_descriptor.yaml
@@ -13,7 +13,7 @@
 # Nothing harvested on the Tensix or DRAM grids, so the SoC descriptor's full
 # 14x10 worker grid and all 8 DRAM banks stay addressable and the translated
 # DRAM coords are the unharvested ones ({17,18} x {12..23}). The eth and pcie
-# masks match a stock p150 and are inert here: tt-sim models no eth tile, and
+# masks match a stock p150 and are inert here: Wolfpine models no eth tile, and
 # the PCIe core is a zero-stub.
 arch:
   0: blackhole

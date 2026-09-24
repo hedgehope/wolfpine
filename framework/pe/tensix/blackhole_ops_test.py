@@ -1,7 +1,7 @@
 """Tests for the Blackhole-only non-SFPU Tensix ops (CFGSHIFTMASK / MOVDBGB2D /
 RESOURCEDECL / STREAMWAIT / STREAMWRCFG).
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.blackhole_ops_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.blackhole_ops_test``) or under
 pytest. Checks the decoder recognises the new opcodes and pins each op's
 argument bit layout (the vendor tt-llk Blackhole ``assembly.yaml`` /  ttsim
 ``data/bh/tensix_isa.json`` ranges), then drives a real backend so CFGSHIFTMASK
@@ -15,9 +15,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import (
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import (
     TensixConfigurationConstants,
     TensixInstructionDecoder,
 )

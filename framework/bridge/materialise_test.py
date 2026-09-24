@@ -23,14 +23,14 @@ Wormhole, driven directly.
 
 import pytest
 
-from tt_sim.bridge.cores import DeferredTensixCore
-from tt_sim.bridge.device import Device
-from tt_sim.bridge.fabric import Fabric
-from tt_sim.bridge.materialise import LazyTensixPool, _CatchUpTensixCore
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
+from framework.bridge.cores import DeferredTensixCore
+from framework.bridge.device import Device
+from framework.bridge.fabric import Fabric
+from framework.bridge.materialise import LazyTensixPool, _CatchUpTensixCore
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
 
-#: Physical NoC 0 worker coord -> tt-sim unified tile coord, as a server's
+#: Physical NoC 0 worker coord -> Wolfpine unified tile coord, as a server's
 #: ``TENSIX_COORD_MAP`` is (built from the same inverse the wire bridge uses,
 #: so this test needs nothing out of ``driver/``).
 TENSIX_COORD_MAP = {

@@ -62,7 +62,7 @@ class ArchProfile:
 
     #: Strategy that reads a NoC request's destination coordinate out of the NIU
     #: command registers (Wormhole packs it into MID; Blackhole uses a dedicated
-    #: HI register). See :mod:`tt_sim.network.noc_coords`.
+    #: HI register). See :mod:`framework.network.noc_coords`.
     noc_coord_strategy: object
 
     #: Whether the NIU command-buffer register layout is Blackhole's (buffers
@@ -153,7 +153,7 @@ class ArchProfile:
     #:   ``l1_bank_to_noc_xy`` through ``RiscFirmwareInitializer::
     #:   virtual_noc0_coordinate``, which mirrors worker coords into NoC 1's
     #:   half of the table whenever the coord is inside the grid and
-    #:   translation is off — which is how tt-sim runs. Measured on the wire:
+    #:   translation is off — which is how Wolfpine runs. Measured on the wire:
     #:   Wormhole's NoC 1 half of that table is ``mirror(NoC 0)``. Drop the
     #:   aliases here and every L1-sharded / interleaved-L1 buffer program
     #:   (``vecadd_sharding``, ``shard_data_rm``, ...) addresses an empty grid
@@ -170,7 +170,7 @@ class ArchProfile:
     #:
     #: **Do not "unify" this across architectures.** Copying Blackhole's value
     #: to Wormhole breaks the DRAM/L1 bank-table flow there;
-    #: ``tt_sim/network/noc_routing_test.py`` asserts both values so that a
+    #: ``framework/network/noc_routing_test.py`` asserts both values so that a
     #: change which generalises one arch's answer to the other fails loudly.
     noc1_tensix_mirror_aliases: bool = True
 
@@ -237,9 +237,9 @@ class ArchProfile:
     #: The second consequence is that a NoC 1 directory key is a grid cell
     #: where this is ``True`` and a translated identity — whose cell is the
     #: key's mirror — where it is ``False``; the null-route path needs the
-    #: difference (:attr:`~tt_sim.network.tt_noc.NUI.keys_mirror_grid_cells`).
+    #: difference (:attr:`~framework.network.tt_noc.NUI.keys_mirror_grid_cells`).
     #: Asserted against the built device rather than trusted, in
-    #: ``tt_sim/device/noc_translation_test.py``.
+    #: ``framework/device/noc_translation_test.py``.
     translated_coords_off_physical_grid: bool = True
 
     #: Per-channel **translated** coords of the DRAM tile's worker-visible

@@ -17,8 +17,8 @@ import collections
 
 import pytest
 
-from tt_sim.perf import noc_congestion_plan as plan
-from tt_sim.perf import noc_congestion_sweep as sweep
+from framework.perf import noc_congestion_plan as plan
+from framework.perf import noc_congestion_sweep as sweep
 
 
 def _grid(tmp_path, arch="blackhole"):

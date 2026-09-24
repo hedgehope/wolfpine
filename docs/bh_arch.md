@@ -3,8 +3,8 @@
 Facts about Blackhole silicon established by running something on a card and
 timing it, collected here because **several of them have nowhere else to go**.
 
-The cost tables (`tt_sim/perf/unit_costs.yaml`,
-`tt_sim/pe/tensix/tensix_instruction_costs.yaml`) are kept to a strict
+The cost tables (`framework/perf/unit_costs.yaml`,
+`framework/pe/tensix/tensix_instruction_costs.yaml`) are kept to a strict
 discipline: every number in them comes from a document, and a measurement
 enters as a `corroboration` field which never changes an entry's provenance
 rank. The reasoning is written out at the top of `tensix_instruction_costs.yaml`
@@ -94,7 +94,7 @@ different claims and a reader needs to know which one is in front of them:
 
 Source for all of §1: `perfbench/riscvbench`, Blackhole silicon, 2026-08-05,
 `--blocks 32`, **all seven phases**, one/two/three issuing TRISCs. Banked as
-`tt_sim/perf/datasets/riscvbench-blackhole.csv`; phases T, C, F, S and G passed
+`framework/perf/datasets/riscvbench-blackhole.csv`; phases T, C, F, S and G passed
 the benchmark's own validity gate, phase Q did not — on 9 monotonicity checks,
 every one of them on a *cascade* point at n ≤ 16, which is why §1.9 and §1.10
 are read off n ≥ 16 differences and nothing else — and **phase R did not
@@ -104,7 +104,7 @@ with in §3.4. A companion `--blocks 8` run
 single-phase `--gset` runs `riscvbench-blackhole-gset1.csv` and `-gset2.csv`
 that carry the only measurements of a 6144- and a 7168-byte loop body. **Four
 runs, one card, one operator, one day.** Reproduce the analysis with
-`python3 -m tt_sim.perf.riscv_bench_sweep`.
+`python3 -m framework.perf.riscv_bench_sweep`.
 
 A **fifth** run, `riscvbench-qdrain.csv`, was taken later the same day on the
 same card after one line changed in phase Q's loop probe — an untimed
@@ -353,7 +353,7 @@ the mistake worth avoiding:
   penalty, or because a real predictor got every one of these very predictable
   patterns right (including the alternating one), this cannot separate.
 
-**Why it matters.** `tt_sim/pe/rv/cost.py` declines to charge anything for
+**Why it matters.** `framework/pe/rv/cost.py` declines to charge anything for
 branches, on the stated grounds that "the number of mispredictions is unknowable
 and charging every taken branch would be a fabrication". That refusal now has
 evidence behind it rather than only an argument.
@@ -370,7 +370,7 @@ the instrument's own known bias — so it is reported, not interpreted.
 
 **Status: agrees** — and lands on the `max` rather than the `cycles`.
 
-**The practical consequence is a real under-charge.** `tt_sim/perf/model.py`
+**The practical consequence is a real under-charge.** `framework/perf/model.py`
 charges every bounded entry at its low end, so it charges **6** where this
 operand costs **33**. One point is not the curve; the benchmark sweeps no other
 dividends, and the sensible next run varies the dividend's magnitude to see
@@ -388,7 +388,7 @@ instructions**, and their dividends are **9–12 bits** — three orders of
 magnitude below `0x12345678`, and therefore nowhere near the operand that costs
 33. So the 5.5× looseness is a property of *this benchmark's dividend*, not of
 the instruction as kernels use it, and it is worth under 0.15 % of a launch even
-priced at the worst case. Recorded in `tt_sim/pe/rv/cost.py`'s docstring, which
+priced at the worst case. Recorded in `framework/pe/rv/cost.py`'s docstring, which
 is what charges the 6.
 
 ## 1.6 L1 load-to-use is 8 cycles, and the L0 d-cache does not help a pointer chase — **agrees** with the *miss* row
@@ -404,7 +404,7 @@ number is a load-use latency undivided:
 
 **Status: agrees**, but with `l1_dcache_miss: >= 8` and not with
 `l1_dcache_hit: 2`. The stack row matches `core_local_data_ram: 2`; the address
-is classified by `tt_sim/pe/rv/cost.classify_address`, the simulator's own
+is classified by `framework/pe/rv/cost.classify_address`, the simulator's own
 classifier, so the prediction and the simulation cannot disagree about which row
 applies.
 
@@ -421,9 +421,9 @@ outright. A 1 KiB ring is sixteen times the capacity and cannot be resident
 under any organisation, so `l1_dcache_miss` is the row it reaches *by
 construction*. This was not looked up until the measurement forced the question,
 and the capacity is now recorded as `riscv.l0_data_cache` in
-`tt_sim/perf/unit_costs.yaml` and read by `riscv_bench_sweep` to pick the row a
+`framework/perf/unit_costs.yaml` and read by `riscv_bench_sweep` to pick the row a
 probe's access pattern actually reaches — and, since 2026-08-06, by
-`tt_sim/pe/rv/cost.py`, whose per-core L0 line-tag model charges the miss row
+`framework/pe/rv/cost.py`, whose per-core L0 line-tag model charges the miss row
 to any L1 load whose line is not resident (so this chase pays 8 per load in
 simulation too).
 
@@ -729,11 +729,11 @@ is what it was for.
 
 Source for all of §2: `perfbench/tensixbench`, Blackhole silicon, 2026-08-04,
 `--blocks 32 --iters 64 --dvalid-once`, banked as
-`tt_sim/perf/datasets/tensixbench-blackhole.csv` (+ four `--src-format` runs and
+`framework/perf/datasets/tensixbench-blackhole.csv` (+ four `--src-format` runs and
 one deliberately-confounded control). Full write-up in
 [`docs/plans/tensix-cost-benchmark.md`](plans/tensix-cost-benchmark.md).
 **One run per figure, one card, one operator**, except where noted. Reproduce
-with `python3 -m tt_sim.perf.tensix_bench_sweep`.
+with `python3 -m framework.perf.tensix_bench_sweep`.
 
 ## 2.1 The `ADDDMAREG` family costs 3 cycles — **agrees**
 
@@ -950,7 +950,7 @@ that runs once, cold. Four consequences, all of which the read-out now states:
   taken from each run's own measured spread rather than fixed in cycles,
   because it is the run's own statement about how noisy it was.
 - **And the drain run put a number on how far that spread reaches.** It was
-  pre-declared, from a deterministic tt-sim A/B of the two kernels, that adding
+  pre-declared, from a deterministic Wolfpine A/B of the two kernels, that adding
   the untimed `tensix_sync()` would move `q_ctrl` by ~1 cycle through register
   pressure across `kernel_main` and nothing else. On silicon `q_ctrl` moved at
   four of its eight points (13→6 at n = 1, 22→23, 13→17, 17→18) while the
@@ -1023,8 +1023,8 @@ throughput and not a cost.
 # 4. The NoC
 
 Source for all of §4: `perfbench/nocbench`, Blackhole silicon, 2026-08-05,
-planned by `tt_sim/perf/noc_congestion_plan.py` against this card's own
-`--dump-grid` capture and read back by `tt_sim/perf/noc_congestion_sweep.py`.
+planned by `framework/perf/noc_congestion_plan.py` against this card's own
+`--dump-grid` capture and read back by `framework/perf/noc_congestion_sweep.py`.
 **Two runs, one card, one operator, one day**, and they are two runs of
 *different plans* rather than a repetition — which claim rests on which is
 stated in every entry below, and where the two overlap they are quoted as two
@@ -1032,11 +1032,11 @@ numbers and never averaged:
 
 | dataset | what it is |
 | --- | --- |
-| `tt_sim/perf/datasets/nocbench-blackhole.csv` | **the main run.** 87 flows over 55 runs, all six experiments. The controls live here, so this is the only one of the two that can carry a verdict, and it carries `RESULT: CONGESTION MEASURED` |
-| `tt_sim/perf/datasets/nocbench-blackhole-sizes.csv` | **the size sweep.** 96 flows over 48 runs, `shared` only, six transaction sizes × eight shared-link counts. No controls by construction, so its own verdict is `INVALID` and it is only ever read next to the main run |
-| `tt_sim/perf/datasets/nocbench-grid-blackhole.csv` | the card's core map, from a probe kernel reading each core's own `NOC_NODE_ID` |
+| `framework/perf/datasets/nocbench-blackhole.csv` | **the main run.** 87 flows over 55 runs, all six experiments. The controls live here, so this is the only one of the two that can carry a verdict, and it carries `RESULT: CONGESTION MEASURED` |
+| `framework/perf/datasets/nocbench-blackhole-sizes.csv` | **the size sweep.** 96 flows over 48 runs, `shared` only, six transaction sizes × eight shared-link counts. No controls by construction, so its own verdict is `INVALID` and it is only ever read next to the main run |
+| `framework/perf/datasets/nocbench-grid-blackhole.csv` | the card's core map, from a probe kernel reading each core's own `NOC_NODE_ID` |
 
-Reproduce with `python3 -m tt_sim.perf.noc_congestion_sweep` (the main run is
+Reproduce with `python3 -m framework.perf.noc_congestion_sweep` (the main run is
 the default) or `--measured …-sizes.csv`.
 
 **The card is harvested, and this is the campaign that found out.** Its
@@ -1077,7 +1077,7 @@ campaigns differ by 0.08 cycles.** Quote the bracket, 8.4–8.8, not either
 endpoint.
 
 **The structural half is the more interesting one and it is confirmed.** Every
-hop count in `tt_sim` assumes both NoCs are *directional* tori — a packet only
+hop count in `framework` assumes both NoCs are *directional* tori — a packet only
 ever travels in the increasing direction of that NoC's coordinates and wraps
 past the edge rather than turning round, so a request and its reply go the same
 way round the ring and a round trip costs `grid_x`, `grid_y` or `grid_x +
@@ -1143,7 +1143,7 @@ recorded as a `corroboration` on `arch_overrides.blackhole.noc` rather than as
 a number of its own.
 
 **And that is now what the simulator charges** (2026-08-05), which changes what
-this entry can claim in one specific way and in no other. tt-sim holds one
+this entry can claim in one specific way and in no other. Wolfpine holds one
 free-cycle watermark per router-to-router link and charges each packet the
 occupancy of every link it crosses, so the same `isa_doc` flit rate is spent
 where the measurement says it is spent. Run through the same harness, the
@@ -1292,10 +1292,10 @@ nothing is below 0.5, and the verdict is `CONGESTION MEASURED`.
 | `perfbench/riscvbench/` | The RISC-V front-end benchmark, and its operator runbook |
 | `perfbench/tensixbench/` | The Tensix instruction-cost benchmark |
 | `perfbench/nocbench/` | The NoC congestion harness, and its operator runbook |
-| `tt_sim/perf/datasets/` | Every dataset quoted here, each with its provenance in its own `#` header |
-| `tt_sim/perf/riscv_bench_sweep.py` | The §1 analysis; `python3 -m tt_sim.perf.riscv_bench_sweep` |
-| `tt_sim/perf/tensix_bench_sweep.py` | The §2 analysis; `python3 -m tt_sim.perf.tensix_bench_sweep` |
-| `tt_sim/perf/noc_congestion_sweep.py` | The §4 analysis; `python3 -m tt_sim.perf.noc_congestion_sweep` |
+| `framework/perf/datasets/` | Every dataset quoted here, each with its provenance in its own `#` header |
+| `framework/perf/riscv_bench_sweep.py` | The §1 analysis; `python3 -m framework.perf.riscv_bench_sweep` |
+| `framework/perf/tensix_bench_sweep.py` | The §2 analysis; `python3 -m framework.perf.tensix_bench_sweep` |
+| `framework/perf/noc_congestion_sweep.py` | The §4 analysis; `python3 -m framework.perf.noc_congestion_sweep` |
 | [`docs/plans/riscv-front-end-benchmark.md`](plans/riscv-front-end-benchmark.md) | §1's design, method and full running record |
 | [`docs/plans/tensix-cost-benchmark.md`](plans/tensix-cost-benchmark.md) | §2's, likewise |
 | [`docs/plans/cost-model.md`](plans/cost-model.md) | What any of it is allowed to change in the simulator |

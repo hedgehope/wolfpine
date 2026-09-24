@@ -24,25 +24,25 @@ bits across an unrolled ``MVMUL`` burst.
 
 Blackhole LLKs *do* issue it in paths no in-tree example exercises --
 ``TTI_SETDVALID(0b10)`` in ``llk_math_eltwise_unary_datacopy.h``'s 32-bit
-unpack-to-dest broadcasts -- which is why tt-sim models the instruction on both
+unpack-to-dest broadcasts -- which is why Wolfpine models the instruction on both
 architectures rather than refusing it on Blackhole the way the vendor reference
 simulator does. That decision, and what it leaves unmodelled, is argued in
 ``MiscellaneousUnit.handle_setdvalid``'s docstring and pinned by
 ``test_setdvalid_is_modelled_on_blackhole_too`` below.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.setdvalid_srcrow_test``) or under
+Run standalone (``python3 -m framework.pe.tensix.setdvalid_srcrow_test``) or under
 pytest.
 """
 
 from contextlib import contextmanager
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.backends.config import TensixConfigurationConstants
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
+from framework.arch import WORMHOLE_PROFILE
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.backends.config import TensixConfigurationConstants
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixInstructionDecoder
 
 #: ``SETDVALID`` from ``tensix_instructions.yaml``: op_binary 87, opcode in bits
 #: 24-31, ``setvalid`` at bit 0 (bit 0 = SrcA, bit 1 = SrcB).
@@ -149,9 +149,9 @@ def test_setdvalid_is_modelled_on_blackhole_too():
 
     The ISA docs open Blackhole's functional model with
     ``UnsupportedFunctionality()`` and the vendor reference simulator raises
-    there, so refusing would have been defensible and is what tt-sim does for
+    there, so refusing would have been defensible and is what Wolfpine does for
     ``MOVDBGB2D``/``RESOURCEDECL``/``STREAMWAIT``/``STREAMWRCFG``. It is not
-    what tt-sim does here, because real Blackhole LLK code issues
+    what Wolfpine does here, because real Blackhole LLK code issues
     ``TTI_SETDVALID(0b10)`` (``llk_math_eltwise_unary_datacopy.h``'s 32-bit
     unpack-to-dest broadcasts) and refusing would break that path in exchange
     for no check -- the vendor sim cannot be diffed against on an instruction it
@@ -165,11 +165,11 @@ def test_setdvalid_is_modelled_on_blackhole_too():
 
 
 def test_blackhole_implied_src_format_survives_setdvalid():
-    """The documented in-practice behaviour, which is what tt-sim gives.
+    """The documented in-practice behaviour, which is what Wolfpine gives.
 
     ``SETDVALID.md`` says Blackhole sets ``ImpliedSrc{A,B}Fmt`` to
     ``UnpredictableValue()``, and in the same breath that the hardware "records
-    a stale/held copy of a previous unpack's output format". tt-sim's implied
+    a stale/held copy of a previous unpack's output format". Wolfpine's implied
     format IS that stale copy -- it is the format latched on the Src bank by the
     last unpack, and ``SETDVALID`` does not disturb it. Unpredictability is not
     a value, so this is the closest a deterministic model can get, and the test
@@ -199,7 +199,7 @@ def test_unpacr_nop_setdvalid_takes_a_defined_format_from_config():
 
     ``SETDVALID`` leaves ``ImpliedSrc{A,B}Fmt`` an ``UnpredictableValue()`` on
     Blackhole (see ``test_blackhole_implied_src_format_survives_setdvalid``: what
-    tt-sim gives instead is whatever the last unpack happened to latch). The
+    Wolfpine gives instead is whatever the last unpack happened to latch). The
     Blackhole-sanctioned replacement, ``UNPACR_NOP`` carrying ``set_dvalid``,
     does not have that problem -- ``UNPACR_NOP_SETDVALID.md`` has it copy
     ``THCON_SEC{0,1}_REG2_Out_data_format`` into the bank it hands over.

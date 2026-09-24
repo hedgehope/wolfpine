@@ -60,7 +60,7 @@ concurrent 4 KiB reads used to come back at the NoC link's 32 B/cycle and now
 come back at the channel's 24 — and that the *device* behind the bus is still
 not a queue, because nothing publishes its re-issue interval.
 
-Runs standalone (``python3 -m tt_sim.device.dram_cost_model_test``) or under
+Runs standalone (``python3 -m framework.device.dram_cost_model_test``) or under
 pytest.
 """
 
@@ -70,13 +70,13 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.tiles import DramChannels, DRAMEndpointNUI
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.noc_coords import WormholeNocCoords
-from tt_sim.network.tt_noc import NUI, noc_hop_count
-from tt_sim.perf.model import dram_cost_model
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.device.blackhole import Blackhole
+from framework.device.tiles import DramChannels, DRAMEndpointNUI
+from framework.device.wormhole import Wormhole
+from framework.network.noc_coords import WormholeNocCoords
+from framework.network.tt_noc import NUI, noc_hop_count
+from framework.perf.model import dram_cost_model
 
 _L1_DST = 0x21000
 _PAYLOAD = bytes(range(32))
@@ -149,7 +149,7 @@ def test_the_derived_latency_does_not_claim_to_be_exact_or_published():
     """Two separate honesty claims, both load-bearing. The provenance is
     ``vendor_source_derived``: arithmetic on vendor numbers, ranked below a
     published figure and above a guess. The bound is ``at_least``, because 99
-    is (DRAM service − L1 service) and tt-sim charges an L1 endpoint nothing,
+    is (DRAM service − L1 service) and Wolfpine charges an L1 endpoint nothing,
     so it is a floor under the absolute device latency."""
     with _env("1"):
         model = dram_cost_model("wormhole")
@@ -359,7 +359,7 @@ def test_the_channel_is_charged_as_an_excess_over_the_link_not_as_a_second_bill(
 
 def test_the_gaps_are_named_rather_than_implied():
     """ROADMAP §I asks for bank-conflict and refresh-window costs by name. No
-    source quantifies either, and there is no DRAM bank model in tt-sim at all,
+    source quantifies either, and there is no DRAM bank model in Wolfpine at all,
     so neither is charged — and the model says so rather than leaving a reader
     to infer that a "DRAM latency" covers them.
 
@@ -632,7 +632,7 @@ def test_a_second_request_waits_for_the_channel_the_first_is_streaming_across():
     """The item, end to end, and the measurement that motivated it.
 
     Before 2026-08-09 four concurrent 4 KiB reads came back 128 cycles apart —
-    ``ceil(4096 / 32)``, the NoC *link's* rate — so a tt-sim Wormhole DRAM
+    ``ceil(4096 / 32)``, the NoC *link's* rate — so a Wolfpine Wormhole DRAM
     channel sustained 32 B/cycle against the 24 GB/s the ISA docs publish for
     it. They now come back ``ceil(4096 / 24)`` apart, and the sustained rate is
     the channel's."""
@@ -672,7 +672,7 @@ def test_the_untimed_dram_still_answers_in_two_cycles():
 
 def test_only_requests_are_serviced_not_responses():
     """A response arriving at a DRAM NIU would be charged nothing, because the
-    device has nothing to do with it. Nothing in tt-sim sends one (a DRAM tile
+    device has nothing to do with it. Nothing in Wolfpine sends one (a DRAM tile
     has no request initiator reachable from any core, so it is never a
     requester), which is exactly why the rule is asserted rather than assumed."""
     with _env("1"):

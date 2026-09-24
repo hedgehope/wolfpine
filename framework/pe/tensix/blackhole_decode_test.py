@@ -1,6 +1,6 @@
 """Tests for the Blackhole shifted-field instruction decodes.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.blackhole_decode_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.blackhole_decode_test``) or under
 pytest. The shared ``tensix_instructions.yaml`` encodes the Wormhole bit
 positions, so any field Blackhole moved has to be re-read from the raw 32-bit
 word by the handler. These tests pin the raw-bit readers for STALLWAIT's
@@ -13,8 +13,8 @@ and the page wins -- see ``test_stallwait_c12_survives_the_blackhole_trim`` and
 ``TensixSyncUnit._read_wait_res``.
 """
 
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixInstructionDecoder
 
 STALLWAIT = 0xA2
 GAPOOL = 0x34
@@ -93,7 +93,7 @@ def test_stallwait_empty_mask_default_is_the_arch_s_own_all_resources():
     packers, and Blackhole collapses the four packer conditions into one, so its
     C0-C3 are the same set.
 
-    tt-sim used ``0x7F`` on both until 2026-08-12. On Blackhole that is not a
+    Wolfpine used ``0x7F`` on both until 2026-08-12. On Blackhole that is not a
     superset but a different set: bits 4-6 there are C4 (an instruction in any
     stage of the Matrix Unit pipeline) and C5/C6 (``SrcA``/``SrcB`` not yet
     handed back to the *unpackers*) -- an invented wait plus two inverted ones.

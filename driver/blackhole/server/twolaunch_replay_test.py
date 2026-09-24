@@ -19,7 +19,7 @@ only when it granted more than one in a tick, so a lone grant stayed queued and
 re-took the mutex on every later tick -- pinning it to that thread for the rest
 of the device's life, one cycle after each ``ATRELM``. The first launch merely
 had to contend for a mutex once; the second launch's first cross-thread
-``ATGETM`` then blocked for ever. See ``tt_sim/pe/tensix/sync_mutex_queue_test``
+``ATGETM`` then blocked for ever. See ``framework/pe/tensix/sync_mutex_queue_test``
 for the unit-level pin.
 
 The capture is phase B at ``--iters 1 --fidelities LoFi,HiFi2``: a
@@ -38,10 +38,10 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
-from tt_sim.util.conversion import conv_to_uint32
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
+from framework.util.conversion import conv_to_uint32
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

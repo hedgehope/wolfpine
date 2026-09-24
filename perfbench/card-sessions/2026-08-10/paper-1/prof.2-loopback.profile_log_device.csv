@@ -1,0 +1,6 @@
+ARCH: blackhole, CHIP_FREQ[MHz]: 1350, Max Compute Cores: 120
+PCIe slot, core_x, core_y, RISC processor type, timer_id, time[cycles since reset], data, run host ID, trace id, trace id counter, zone name, type, source line, source file, meta data
+0,1,2,BRISC,51381,15489119672556,0,0,,,BRISC-FW,ZONE_START,433,/home/nx09/nx09/nebriscv/tt-metal-0.74/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisc.cc,
+0,1,2,BRISC,31418,15489119673109,0,0,,,BRISC-KERNEL,ZONE_START,77,/home/nx09/nx09/nebriscv/tt-metal-0.74/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc,
+0,1,2,BRISC,31418,15489119717397,0,0,,,BRISC-KERNEL,ZONE_END,77,/home/nx09/nx09/nebriscv/tt-metal-0.74/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc,
+0,1,2,BRISC,51381,15489119717483,0,0,,,BRISC-FW,ZONE_END,433,/home/nx09/nx09/nebriscv/tt-metal-0.74/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisc.cc,

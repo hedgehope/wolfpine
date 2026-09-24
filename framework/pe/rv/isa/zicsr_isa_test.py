@@ -4,33 +4,33 @@ Every expected value here comes from
 ``BlackholeA0/TensixTile/BabyRISCV/CSRs.md``; where that doc and the RISC-V
 spec disagree (the writable ``cycle`` / ``instret`` shadows, ``mcountinhibit``
 being unable to inhibit anything that counts, ``vstart`` tied to zero) the tests
-assert **the doc**, because the doc describes the hardware tt-sim is modelling.
+assert **the doc**, because the doc describes the hardware Wolfpine is modelling.
 
 Both directions throughout: that a correct access reads/writes what it should,
-and that an access tt-sim cannot answer truthfully is refused rather than
+and that an access Wolfpine cannot answer truthfully is refused rather than
 answered with a plausible zero.
 """
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.arch.wormhole import WORMHOLE_PROFILE
-from tt_sim.memory.memory import DRAM, VisibleMemory
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.misc.tile_ctrl import TensixTileControl
-from tt_sim.pe.register.register import Register, RegisterAccessMode
-from tt_sim.pe.register.register_file import RegisterFile
-from tt_sim.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
-from tt_sim.pe.rv.isa.i_isa import RV_I_ISA
-from tt_sim.pe.rv.isa.zicsr_isa import (
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.arch.wormhole import WORMHOLE_PROFILE
+from framework.memory.memory import DRAM, VisibleMemory
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.misc.tile_ctrl import TensixTileControl
+from framework.pe.register.register import Register, RegisterAccessMode
+from framework.pe.register.register_file import RegisterFile
+from framework.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
+from framework.pe.rv.isa.i_isa import RV_I_ISA
+from framework.pe.rv.isa.zicsr_isa import (
     RV_ZICSR_ISA,
     CSRFile,
     NoCSRsError,
     UnknownCSRError,
     UnmodelledCSRError,
 )
-from tt_sim.pe.rv.rv32 import FCSR_INDEX, FP_REGISTER_BASE, REGISTER_NAME_MAPPING
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.rv.rv32 import FCSR_INDEX, FP_REGISTER_BASE, REGISTER_NAME_MAPPING
+from framework.util.conversion import conv_to_bytes
 
 M = 0xFFFFFFFF
 
@@ -131,7 +131,7 @@ def test_ecall_still_belongs_to_base_i():
 
 
 def test_funct3_four_is_not_a_zicsr_encoding():
-    """SYSTEM funct3 = 4 is not a CSR instruction; it must reach tt-sim's
+    """SYSTEM funct3 = 4 is not a CSR instruction; it must reach Wolfpine's
     unknown-instruction path (the doc's UndefinedBehavior), not be executed."""
     rf, _ = _csrs()
     instr = _csr_instr(0x4, 5, 1, CFG0)
@@ -195,7 +195,7 @@ def test_a_baby_core_in_a_device_has_its_csr_clock_bound():
     """``mcycle`` is only real because the device hands each core the tile clock
     that ``RISCV_DEBUG_REG_WALL_CLOCK_*`` reads — a private counter here could
     disagree with every other cycle number in the simulator."""
-    from tt_sim.device.blackhole import Blackhole
+    from framework.device.blackhole import Blackhole
 
     device = Blackhole()
     tile = device.tensix_tiles[0]

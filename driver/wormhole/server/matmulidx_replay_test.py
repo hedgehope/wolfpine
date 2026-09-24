@@ -23,7 +23,7 @@ is bit-exact rather than by PCC. ``six`` remains the guard for the matmul
 arithmetic itself; this one is about which tiles it reads.
 
 The bug it pins down: an ``UNPACR`` reads its configuration (context selection,
-base addresses) up front and only *then* waits for its Src bank. tt-sim had that
+base addresses) up front and only *then* waits for its Src bank. Wolfpine had that
 order inverted, re-reading the configuration when a stalled unpack resumed. The
 LLK's matmul unpack flips ``UNPACK_MISC_CFG_CfgContextOffset`` right after
 issuing its UNPACRs, so from the third matmul on each operand unpacked through
@@ -41,9 +41,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device

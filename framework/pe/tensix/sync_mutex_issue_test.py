@@ -12,12 +12,12 @@ These pin the corrected behaviour at the unit's issue interface, which is where
 the rule lives; nothing above it can observe the difference except as a
 scheduling shift.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.sync_mutex_issue_test``) or under
+Run standalone (``python3 -m framework.pe.tensix.sync_mutex_issue_test``) or under
 pytest.
 """
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
 
 #: Opcode words, from ``tensix_instructions.yaml``: the opcode occupies bits
 #: 24-31 and ``mutex_index`` starts at bit 0. Mutex 1 is not a valid index, so

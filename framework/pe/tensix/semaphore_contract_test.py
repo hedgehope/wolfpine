@@ -1,7 +1,7 @@
 """A ``SEMPOST`` that loses information stops; one that does not stays silent.
 
 Two shapes are refused, and the difference between them is the whole design
-(the reasoning lives in :mod:`tt_sim.pe.tensix.semaphore_contract`):
+(the reasoning lives in :mod:`framework.pe.tensix.semaphore_contract`):
 
 * a post at ``Value == 15``, or a get at ``Value == 0``, where the operation is
   discarded by the hardware itself;
@@ -11,7 +11,7 @@ Two shapes are refused, and the difference between them is the whole design
 The second is the one that bites: a compute kernel that hoists
 ``tile_regs_acquire()`` out of its output-tile loop removes the math thread's
 back-pressure on ``MATH_PACK``, and once the packer falls behind, math wraps
-onto a Dst bank the packer has not drained. tt-sim used to return the resulting
+onto a Dst bank the packer has not drained. Wolfpine used to return the resulting
 garbage; ttsim stopped with ``tensix_sempost: sem=2 sem_max=2``.
 
 The silence half matters as much as the firing half, so the negative cases here
@@ -20,17 +20,17 @@ configured, or to the memory-mapped RISC-V write path, fires on working
 tt-metal kernels (377 times across the in-tree corpus, all on ``UNPACK_SYNC``),
 and a guard that fires on working kernels gets switched off.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.semaphore_contract_test``) or
+Run standalone (``python3 -m framework.pe.tensix.semaphore_contract_test``) or
 under pytest.
 """
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.pe.tensix import semaphore_contract
-from tt_sim.pe.tensix.semaphore_contract import SemaphoreContractError
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.util.conversion import conv_to_bytes
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.pe.tensix import semaphore_contract
+from framework.pe.tensix.semaphore_contract import SemaphoreContractError
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.util.conversion import conv_to_bytes
 
 #: Opcodes from ``tensix_instructions.yaml``; ``sem_sel`` is a one-hot mask at
 #: bit 2, and ``SEMINIT`` carries ``init_value`` at bit 16, ``max_value`` at 20.
@@ -97,7 +97,7 @@ def test_a_sempost_past_a_declared_max_stops_and_names_everything():
     This is ``optests/hoistacquire``'s ``stall`` mode at its smallest:
     ``MATH_PACK`` is semaphore 1, its ``Max`` is 2 under ``DstSync::SyncHalf``,
     and the math thread reaches ``Value == 2`` only by walking past the
-    ``SEMWAIT`` on C1 that ``tile_regs_acquire()`` would have issued. tt-sim
+    ``SEMWAIT`` on C1 that ``tile_regs_acquire()`` would have issued. Wolfpine
     used to increment to 3 and carry on returning numbers.
     """
     cop, sync = _sync_unit()
@@ -117,7 +117,7 @@ def test_a_sempost_past_a_declared_max_stops_and_names_everything():
     assert "Max 2" in message
     assert "Tensix thread 1" in message
     assert "no effect on SEMPOST" in message  # what hardware does
-    assert "not cycle-accurate" in message  # why tt-sim will not guess
+    assert "not cycle-accurate" in message  # why Wolfpine will not guess
     assert semaphore_contract.DISABLE_ENV_VAR in message
 
     # And the refusal is clean: the atomic block did not half-apply.

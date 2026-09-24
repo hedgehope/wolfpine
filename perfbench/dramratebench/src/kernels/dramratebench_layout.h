@@ -25,7 +25,7 @@
 
 // "DRB2"; bump on any layout change. Bumped from DRB1 on 2026-08-17 when the
 // write direction added result words 16-17 and argument 14. Nothing reads this
-// value as a gate -- `tt_sim.perf.dram_rate_sweep` deliberately carries it as
+// value as a gate -- `framework.perf.dram_rate_sweep` deliberately carries it as
 // metadata and never compares it, so that a bumped magic cannot make a banked
 // dataset unreadable -- and every DRB1 column keeps its DRB1 index above.
 #define DRAMRATEBENCH_MAGIC 0x44524232u
@@ -143,7 +143,7 @@
 // The arrival array is written with plain NoC writes and polled locally, NOT
 // with `noc_semaphore_inc`. An atomic increment is the idiomatic tt-metal
 // barrier, but it is one more device mechanism between this experiment and its
-// answer, and this benchmark has to run against tt-sim as well as a card. A
+// answer, and this benchmark has to run against Wolfpine as well as a card. A
 // one-word-per-reader array written with `noc_async_write` and polled until
 // every word is non-zero needs only the read/write path the measurement itself
 // needs, is idempotent, and does not care in what order the writes land.
@@ -153,7 +153,7 @@
 // this is an alignment requirement rather than padding. A NoC write out of L1
 // must be CONGRUENT in its low 4 bits -- `(src % 16) == (dst % 16)`, per
 // `WormholeB0/NoC/Alignment.md`, where a violation is UndefinedBehavior on
-// hardware and raises `NoCAlignmentError` in tt-sim. The source word is a fixed
+// hardware and raises `NoCAlignmentError` in Wolfpine. The source word is a fixed
 // 16-aligned address, so with 4-byte slots reader 1 would write to `base + 4`
 // and violate it; reader 2 to `base + 8`, and so on. Every reader past 0 would
 // be silently dropped on a card and would kill the simulator's server outright.

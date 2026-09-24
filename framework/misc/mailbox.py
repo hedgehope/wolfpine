@@ -1,7 +1,7 @@
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
-from tt_sim.trace import EventCategory, SyncEvent, get_bus
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory import MemoryStall
+from framework.pe.rv.babyriscv import BabyRISCVCoreType
+from framework.trace import EventCategory, SyncEvent, get_bus
 
 
 class Mailbox(MemMapable):

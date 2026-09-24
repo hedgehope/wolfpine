@@ -4,7 +4,7 @@ Unlike ``one_replay_test`` (which spawns a server and dials it over nng), this
 drives the fabric + ``Device`` wrapper *directly*, in one process, with no
 socket — so it runs in restricted environments where IPC transport is
 unavailable, and pins the wire path (translated-coord routing, the cycle pump,
-reset handling, the tt-sim Wormhole itself) against real captured traffic.
+reset handling, the Wolfpine Wormhole itself) against real captured traffic.
 
 The assertion strategy is the Blackhole guards' *poll-until-DONE* shape: the
 recorded host->device traffic replays exactly as captured, but rather than
@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import (
+from framework.bridge import (
     DramCore,
     EthCore,
     Fabric,
@@ -33,7 +33,7 @@ from tt_sim.bridge import (
     Transport,
     parse_trace_line,
 )
-from tt_sim.bridge import protocol as proto
+from framework.bridge import protocol as proto
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device

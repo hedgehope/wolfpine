@@ -1,7 +1,7 @@
 """ELWMUL / ELWADD / ELWSUB run on the exact FPU datapath, pinned to ttsim.
 
 The compiler team's Gauss-Seidel stencils (``docs/plans/`` hand-off of
-2026-09-11) failed their equality gate on tt-sim while the same binaries were
+2026-09-11) failed their equality gate on Wolfpine while the same binaries were
 bit-exact on n300 and p150b: every wrong point low by a multiple of 1/16, and
 the first wrong intermediate a HiFi4 ``mul_tiles`` of an integer in 129..177 by
 0.25 -- 129 * 0.25 came out 32.0, not 32.25. Every operand needing its seventh
@@ -28,7 +28,7 @@ vendor's reference simulator (``optests/diff.sh elwmul`` -- which passes on
 both architectures, 18432 elements), so the datapath stays pinned without the
 oracle to hand.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.elementwise_datapath_test``)
+Runs standalone (``python3 -m framework.pe.tensix.elementwise_datapath_test``)
 or under pytest.
 """
 
@@ -37,13 +37,13 @@ from contextlib import contextmanager
 import numpy as np
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.backends.matrix import MatrixUnit
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions as DFC
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.util.conversion import conv_to_float, conv_to_uint32
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.backends.matrix import MatrixUnit
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions as DFC
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.util.conversion import conv_to_float, conv_to_uint32
 
 ELWMUL = 0x27
 ELWADD = 0x28

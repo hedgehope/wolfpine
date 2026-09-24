@@ -1,4 +1,4 @@
-"""The compiled kernel behind :mod:`tt_sim.pe.tensix.backends.fpu_jit`.
+"""The compiled kernel behind :mod:`framework.pe.tensix.backends.fpu_jit`.
 
 Imported lazily and only when numba is present -- importing this module *is*
 the numba dependency, which is why it is a module of its own rather than a

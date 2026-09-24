@@ -10,7 +10,7 @@ unpack-to-dest introduces.
 The fix this regression guards: `copy_tile`'s MATH-side datacopy issues a
 Blackhole HW-bug workaround — a `ZEROACC` with the `clear_zero_flags` bit set,
 right after unpack-to-dest — which must only re-assert DEST zero-flags, **not**
-clear the data. tt-sim emulates zero-flags by zeroing the data, so it was wiping
+clear the data. Wolfpine emulates zero-flags by zeroing the data, so it was wiping
 the freshly-unpacked operands and the SFPU added `0 + src1` (even chunks came out
 as `src1` alone → 127/256 wrong). Honouring `clear_zero_flags` (raw bit 17) on
 Blackhole fixes it. See `handle_zeroacc` and
@@ -26,9 +26,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

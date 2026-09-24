@@ -1,9 +1,9 @@
 """The SFPU, ThCon, packer, config and sync units driven with the cycle costs.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.backend_cost_model_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.backend_cost_model_test``) or
 under pytest. Companion to ``matrix_cost_model_test.py``, which covers the FPU
-— the first unit wired — and to ``tt_sim/perf/model_test.py``, which pins what
-:mod:`tt_sim.perf.model` *says* rather than what a unit *does* with what it
+— the first unit wired — and to ``framework/perf/model_test.py``, which pins what
+:mod:`framework.perf.model` *says* rather than what a unit *does* with what it
 says.
 
 What these five units add to the story the matrix unit started:
@@ -19,7 +19,7 @@ What these five units add to the story the matrix unit started:
    — and every one of them comes out at a 1-cycle *occupancy*, because the
    unit's five sub-units are pipelined and "can only accept one instruction per
    cycle from the outside world". So the 2-cycle latency of ``SFPMAD`` and
-   friends is time-to-result, not time-the-unit-is-held, and tt-sim's
+   friends is time-to-result, not time-the-unit-is-held, and Wolfpine's
    one-op-per-cycle issue was already reproducing the documented throughput.
    Same shape of answer as the matrix unit's, from a different direction.
 3. **ThCon is where a Tensix instruction first costs more than a cycle.** Its
@@ -34,11 +34,11 @@ What these five units add to the story the matrix unit started:
 import os
 from contextlib import contextmanager
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
+from framework.arch import WORMHOLE_PROFILE
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
 
 #: ``ADDDMAREG GPR[2] = GPR[0] + 1`` with ``OpBisConst``: the cheapest ThCon op
 #: with a visible side effect, so a test can tell a retired instruction from a
@@ -59,7 +59,7 @@ RDCFG_SOURCE_INDEX = 12
 RDCFG_SOURCE_VALUE = 0xABCD1234
 
 #: ``CFGSHIFTMASK CFG[41] += SCRATCH[0]`` — the Blackhole-only op, in the only
-#: mode tt-sim models (no circular shift, full-width mask, "old + scratch", no
+#: mode Wolfpine models (no circular shift, full-width mask, "old + scratch", no
 #: masking of the old value: see ``config.CFGSHIFTMASK_MODELLED_MODE``). Opcode
 #: 0xB8; fields per ``tensix_instructions.yaml``, matching ``blackhole_ops_test``.
 #: It is the only opcode in either arch's cost table that costs more than one
@@ -81,7 +81,7 @@ def setc16_math_offset(value):
 
 
 class _ForcedOccupancy:
-    """A stand-in for a :class:`~tt_sim.perf.model.UnitCostModel`.
+    """A stand-in for a :class:`~framework.perf.model.UnitCostModel`.
 
     Charges what the ``dict`` says and one cycle otherwise, so a test can put a
     multi-cycle cost on the config unit **without touching the cost tables** —
@@ -662,7 +662,7 @@ def test_the_sync_unit_charges_one_cycle_throughout():
     """Every Sync Unit op is a single cycle in both arches' tables. What this
     unit costs a kernel is wait-gate time, which is not occupancy at all — the
     page is explicit that ``SEMWAIT`` execution "consists purely of passing
-    them over to the Wait Gate" — and tt-sim already models that separately."""
+    them over to the Wait Gate" — and Wolfpine already models that separately."""
     with _backend(True) as backend:
         sync = backend.backend_units["SYNC"]
         for name in sync.opcode_to_method_map:
@@ -1181,9 +1181,9 @@ def test_stallwait_on_c7_waits_for_the_matrix_pipeline_to_empty():
     """
     for blackhole in (False, True):
         with _coprocessor(blackhole=blackhole) as coprocessor:
-            assert _residency_drain_cycle(coprocessor, "MATH", MOVB2A, burst=6) == 10, (
-                blackhole
-            )
+            assert (
+                _residency_drain_cycle(coprocessor, "MATH", MOVB2A, burst=6) == 10
+            ), blackhole
 
 
 def test_the_c7_wait_is_a_deadline_and_not_a_tick_order():

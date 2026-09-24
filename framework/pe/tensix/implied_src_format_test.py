@@ -6,16 +6,16 @@ unpacker last wrote the bank in, latched when the bank was handed over, unless
 DISABLE_IMPLIED_SRCA_FMT_Base says otherwise (ttsim src/tensix.cpp, guarded on
 TT_ARCH_VERSION >= 1).
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.implied_src_format_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.implied_src_format_test``) or
 under pytest.
 """
 
 from contextlib import contextmanager
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.backends.config import TensixConfigurationConstants
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.backends.config import TensixConfigurationConstants
+from framework.pe.tensix.tensix import TensixCoProcessor
 
 
 @contextmanager

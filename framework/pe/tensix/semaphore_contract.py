@@ -21,7 +21,7 @@ with the functional model ``if (SemaphoreMask.Bit[i] && Semaphores[i].Value <
 15) { Semaphores[i].Value += 1; }``. ``SEMGET.md`` is the mirror image at zero.
 Neither page uses the words ``UndefinedBehavior`` or ``NonContractualBehavior``
 that these documents use elsewhere and freely: **saturation is documented,
-deliberate, defined behaviour**, and tt-sim models it exactly. It still does —
+deliberate, defined behaviour**, and Wolfpine models it exactly. It still does —
 nothing in this module changes what ``SEMPOST`` computes.
 
 ``SEMINIT.md`` is equally explicit about the other bound:
@@ -29,7 +29,7 @@ nothing in this module changes what ``SEMPOST`` computes.
     Note that ``Max`` is only subsequently used by ``SEMWAIT``; it has no
     effect on ``SEMPOST``.
 
-So neither check below is reporting that tt-sim was about to compute the wrong
+So neither check below is reporting that Wolfpine was about to compute the wrong
 ``Value``. Both are reporting that the *program* has lost information.
 
 The two losses
@@ -66,20 +66,20 @@ and nothing else. A producer that follows the discipline waits at C1 until
 That is the check ttsim spells ``NonContractualBehavior: tensix_sempost:
 sem=%d sem_max=%d`` (``TENSIX_EXECUTE_SEMPOST`` in ``src/tensix.cpp``), and its
 ``sem_max`` is this ``Max`` — the value the last ``SEMINIT`` wrote, not the
-architectural 15. tt-sim has always modelled that field
+architectural 15. Wolfpine has always modelled that field
 (``TensixSyncUnit.TTSemaphore.max``, set by ``handle_seminit``, read by the
 Wait Gate for C1); it simply never consulted it on the post side.
 
 Why the second check earns a raise even though hardware carries on
 ------------------------------------------------------------------
 Because what it detects is a *race*, and a race is the one class of question
-tt-sim is structurally unable to answer. tt-sim is not cycle-accurate and does
+Wolfpine is structurally unable to answer. Wolfpine is not cycle-accurate and does
 not claim to be. While a program stays inside its own synchronisation, that
 does not matter: the answer is decided by the handshakes, not by the schedule,
-so tt-sim's schedule being wrong costs nothing. The moment a thread posts past
+so Wolfpine's schedule being wrong costs nothing. The moment a thread posts past
 its declared ``Max`` it has stepped outside those handshakes, and from there the
-computed values are decided by tt-sim's arbitrary interleaving instead. The
-number tt-sim would go on to return is then not a prediction of what a card
+computed values are decided by Wolfpine's arbitrary interleaving instead. The
+number Wolfpine would go on to return is then not a prediction of what a card
 does — it is an artefact, and it is indistinguishable, from the outside, from a
 number that means something. Stopping is worth more than returning it.
 
@@ -92,7 +92,7 @@ fires. With the writer stalled 50 iterations per tile, the math thread runs
 ahead, wraps onto a Dst bank the packer has not drained, and every one of the
 6144 elements of the hoisted half comes back wrong — and this check fires five
 times, on ``MATH_PACK``, at ``Value`` 2, 2, 3, 3, 4 against ``Max`` 2. It is
-exactly the point at which the two simulators diverged: ttsim stopped, tt-sim
+exactly the point at which the two simulators diverged: ttsim stopped, Wolfpine
 returned the corruption.
 
 Where the ``Max`` check applies, and where it deliberately does not
@@ -229,7 +229,7 @@ def check_post(index, value, *, issuer, declared_max=None):
             f"their Value is already 15, in which case it remains at 15' -- so a "
             f"token has been produced that no SEMGET can ever consume, and the "
             f"count has stopped tracking whatever it was counting. Hardware does "
-            f"not fault here and neither does tt-sim's SEMPOST: the value stays "
+            f"not fault here and neither does Wolfpine's SEMPOST: the value stays "
             f"at {VALUE_MAX} and execution would carry on with a semaphore that "
             f"silently means nothing. tt-metal's own LLK asserts against this "
             f"case (ckernel.h, 'Semaphore must not be already at max value.'), as "
@@ -247,10 +247,10 @@ def check_post(index, value, *, issuer, declared_max=None):
             f"gate: the resource the semaphore was counting is already fully "
             f"handed out, and whatever it protects is now being reused under its "
             f"holder. SEMINIT.md says Max 'has no effect on SEMPOST', so hardware "
-            f"increments regardless and tt-sim still models that faithfully -- "
+            f"increments regardless and Wolfpine still models that faithfully -- "
             f"the objection is not to the arithmetic but to what follows it. From "
             f"here the computed values are decided by the relative timing of the "
-            f"threads, and tt-sim is not cycle-accurate, so any result it went on "
+            f"threads, and Wolfpine is not cycle-accurate, so any result it went on "
             f"to return would be an artefact of its own interleaving rather than "
             f"a prediction of what a card does. ttsim refuses the same "
             f"instruction ('tensix_sempost: sem={value} sem_max={declared_max}'). "
@@ -278,7 +278,7 @@ def check_get(index, value, *, issuer):
         f"zero, in which case it remains at zero' -- so a consumer has taken a "
         f"token no producer ever posted, and the count has stopped tracking "
         f"whatever it was counting. Hardware does not fault here and neither "
-        f"does tt-sim's SEMGET: the value stays at 0 and execution would carry "
+        f"does Wolfpine's SEMGET: the value stays at 0 and execution would carry "
         f"on. tt-metal's own LLK asserts against this case (ckernel.h, "
         f"'Semaphore must not be already at 0.'), as does ttsim "
         f"('sem{index} underflow'). "

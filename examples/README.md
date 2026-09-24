@@ -1,9 +1,9 @@
-# tt-sim examples
+# Wolfpine examples
 
 Real tt-metal programs used to exercise the simulator end-to-end. Each example is
 an ordinary tt-metal host program that you **build against a local tt-metal
 checkout and run exactly the way you would on hardware** — the only difference is
-that `TT_METAL_SIMULATOR` points UMD at tt-sim (`driver/wormhole` or
+that `TT_METAL_SIMULATOR` points UMD at Wolfpine (`driver/wormhole` or
 `driver/blackhole`) instead of a real chip. Every program validates its own
 result on the host and exits non-zero on mismatch, so the examples double as a
 test suite.
@@ -26,7 +26,7 @@ examples/
   for a normal `build/` or `build_Release/`). Point `TT_METAL_RUNTIME_ROOT` (or the
   older `TT_METAL_HOME`) at that checkout.
 - `cmake` (≥ 3.22) and `clang++-17` on `PATH`.
-- The tt-sim repo on `PYTHONPATH` and the venv's `python` for the simulator server
+- The Wolfpine repo on `PYTHONPATH` and the venv's `python` for the simulator server
   (`source /path/to/venv/bin/activate` sets these up).
 
 ## Building an example
@@ -48,7 +48,7 @@ The build is arch-independent — you build once and choose the arch at run time
 ## Running
 
 Running an example *is* running tt-metal; the only switch that redirects it from
-silicon to tt-sim is `TT_METAL_SIMULATOR`. Run the binary **from its `src/`
+silicon to Wolfpine is `TT_METAL_SIMULATOR`. Run the binary **from its `src/`
 directory** (the host program refers to its kernels by the relative path
 `kernels/...`, resolved against the CWD).
 
@@ -58,9 +58,9 @@ directory** (the host program refers to its kernels by the relative path
 | `TT_METAL_RUNTIME_ROOT` | tt-metal checkout (CMake build + runtime kernel/firmware lookup). `TT_METAL_HOME` is accepted as a fallback. |
 | `TT_METAL_SLOW_DISPATCH_MODE=1` | Forces `EnqueueProgram` to fall back to `detail::LaunchProgram` — the only launch path the simulator models. |
 | `LD_LIBRARY_PATH` | Must include `<tt-metal>/<build>/lib` so the binary finds `libtt_metal.so` etc. |
-| `TT_SIM_TENSIX_COORDS` | **Optional.** Pins the worker tile(s) to exactly these (see coords below). Unset, tt-sim materialises whatever the program uses. |
+| `TT_SIM_TENSIX_COORDS` | **Optional.** Pins the worker tile(s) to exactly these (see coords below). Unset, Wolfpine materialises whatever the program uses. |
 
-**You do not have to set the coordinates.** tt-sim builds a worker tile when the
+**You do not have to set the coordinates.** Wolfpine builds a worker tile when the
 program launches on it, or when a peer sends it NoC traffic — so every example
 below, one-tile and two-tile alike, runs with nothing exported. The table is
 what to pin if you want the set fixed (the replay guards and trace captures do).
@@ -79,7 +79,7 @@ Example — run `two` on the Blackhole sim (in a **normal shell**, not a sandbox
 that would kill the spawned server):
 
 ```bash
-REPO=/path/to/tt-sim
+REPO=/path/to/wolfpine
 export TT_METAL_HOME=/path/to/tt-metal
 export TT_METAL_RUNTIME_ROOT="$TT_METAL_HOME"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:$LD_LIBRARY_PATH"
@@ -158,7 +158,7 @@ Each `<name>/src/` is a host program (`<name>.cpp`), a `CMakeLists.txt`, and a
 * **six** — single-core 128³ bf16 matmul on the matrix unit, validated against a CPU golden by Pearson correlation (bf16 + HiFi4 isn't bit-exact). `SIX_FP32=1` (the `six-fp32` case) reruns it with `fp32_dest_acc_en` over the same Float16_b buffers — bf16 storage, 32-bit DEST, the cross that broke the packer's DEST read width; it is the only whole-program cover on that path with a matrix unit in it.
 * **eight** — elementwise add on BRISC only, issuing its two DRAM reads with distinct NoC transaction IDs and barriering on them out of order.
 * **nine** — two-tile: a producer tile runs reader+compute+sender, a consumer tile runs the writer, with a CB bridged across tiles over the NoC (needs the two-tile coords above).
-* **pipestall** — two-tile, and the only example whose *point* is timing: `nine` plus a reverse credit semaphore, so the producer's Tensix backs up behind the consumer core. Three environment knobs (`PIPESTALL_DELAY`, `PIPESTALL_CREDITS`, `PIPESTALL_OUT_DEPTH`) set how long the producer's unpacker legitimately blocks. It is the workload the per-unit stall detector's threshold is calibrated against — see `tt_sim/device/deadlock.py`.
+* **pipestall** — two-tile, and the only example whose *point* is timing: `nine` plus a reverse credit semaphore, so the producer's Tensix backs up behind the consumer core. Three environment knobs (`PIPESTALL_DELAY`, `PIPESTALL_CREDITS`, `PIPESTALL_OUT_DEPTH`) set how long the producer's unpacker legitimately blocks. It is the workload the per-unit stall detector's threshold is calibrated against — see `framework/device/deadlock.py`.
 * **loopback** — Int32 copy DRAM→DRAM through the TRISC/pack path (`copy_tile` → `pack_tile`), chunked.
 * **banks** — the only example whose DRAM buffers span more than one bank. Every other entry above allocates a single-page DRAM buffer and reaches it with `get_noc_addr_from_bank_id<true>(0, ...)` — bank 0, hardcoded — so a simulator modelling DRAM as one flat store would pass the whole table. `banks` pages its buffers and walks them with `InterleavedAddrGen`, whose device-side `page_id % NUM_DRAM_BANKS` / `bank_to_dram_offset[]` / `dram_bank_to_noc_xy[]` arithmetic only meets the host's scatter if each bank is genuinely separate storage at its own coordinate. Runs on both arches (12 Wormhole banks, 8 Blackhole); see `docs/cost-model-caveats-for-consumers.md`.
 

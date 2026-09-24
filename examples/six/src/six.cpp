@@ -257,7 +257,7 @@ int main(int argc, char** argv) {
     // because the default 16-bit-DEST arm legitimately accumulates in bf16 and
     // cannot be bit-exact. Under `fp32_dest_acc_en` it very nearly is, and the
     // gap between the two arms is the point of the number: measured against
-    // tt-sim, the 16-bit-DEST arm misses on ~57% of elements by up to 4 bf16
+    // Wolfpine, the 16-bit-DEST arm misses on ~57% of elements by up to 4 bf16
     // ULPs, the 32-bit-DEST arm on ~1.2% by exactly 1 -- residue of the order
     // the 32 products inside a tile are summed in (the host sums them
     // sequentially) and of the narrowing rounding modes (tt-metal's bfloat16

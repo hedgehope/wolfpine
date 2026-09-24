@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# retirebench, simulator side: run the RV zone program against tt-sim and
+# retirebench, simulator side: run the RV zone program against Wolfpine and
 # collect the same artefact the card protocol produces on the other side.
 #
 # The two sides emit the IDENTICAL artefact -- a `retirebench-*.json` written by
-# the host program -- so `tt_sim.perf.retire_attribution` parses both with one
+# the host program -- so `framework.perf.retire_attribution` parses both with one
 # reader and there is no translation step in which a units mistake could hide.
 #
 #   TT_METAL_HOME=/path/to/tt-metal ./perfbench/retirebench/run_sim.sh \
@@ -21,7 +21,7 @@
 #
 # BLACKHOLE ONLY, and there is no --arch. The instrument is the mcycle/minstret
 # CSRs, which the WormholeB0 documentation does not describe -- the string "csr"
-# does not appear in that tree at all -- so a Wormhole baby core in tt-sim has no
+# does not appear in that tree at all -- so a Wormhole baby core in Wolfpine has no
 # CSR file and `csrr` raises NoCSRsError rather than returning a number. The host
 # program refuses a non-Blackhole part before it builds its kernel or launches
 # anything, and the analysis refuses a non-Blackhole artefact before it computes
@@ -61,7 +61,7 @@ export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
 
 # The simulator server is spawned by UMD and runs whatever `python3` is first on
-# PATH. The repo venv is where tt_sim's dependencies live; the system python
+# PATH. The repo venv is where framework's dependencies live; the system python
 # lacks pyarrow and the server dies importing the trace writers.
 VENV="${TT_SIM_VENV:-$REPO/../venv}"
 [ -x "$VENV/bin/python3" ] && export PATH="$VENV/bin:$PATH"
@@ -117,4 +117,4 @@ fi
 sed -n '/^zone /,$p' "$OUT/$LABEL.out"
 echo "----"
 echo "Simulator side complete. Decomposition:"
-echo "  python3 -m tt_sim.perf.retire_attribution --decompose-only --sim $artefact"
+echo "  python3 -m framework.perf.retire_attribution --decompose-only --sim $artefact"

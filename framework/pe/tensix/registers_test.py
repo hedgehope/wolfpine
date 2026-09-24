@@ -1,7 +1,7 @@
 """Tests for Dst register row addressing (``DstRegister`` Adj16 / Adj32) and
 per-row validity (the "zero flags").
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.registers_test``) or under pytest.
+Runs standalone (``python3 -m framework.pe.tensix.registers_test``) or under pytest.
 Pins three things: the shared, config-off addressing that both Wormhole and
 Blackhole use today; the exact Blackhole ``Adj16`` / ``Adj32`` transforms from
 BlackholeA0/.../Dst.md that ``DEST_ACCESS_CFG`` enables (the pack-side untilize
@@ -13,7 +13,7 @@ as all-ones (minus infinity) by GMPOOL alone.
 
 import numpy as np
 
-from tt_sim.pe.tensix.registers import DstRegister, SrcRegister
+from framework.pe.tensix.registers import DstRegister, SrcRegister
 
 
 def _shared_fold(r):

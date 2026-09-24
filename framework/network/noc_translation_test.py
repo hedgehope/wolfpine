@@ -2,7 +2,7 @@
 
 import pytest
 
-from tt_sim.network.noc_translation import (
+from framework.network.noc_translation import (
     CLUSTER_DESC_ENV,
     TRANSLATION_ENV,
     descriptor_translation,

@@ -6,7 +6,7 @@ runs **entirely on the BRISC reader** — there is no compute kernel or Tensix
 coprocessor. Its purpose is the **NoC transaction-ID lifecycle**: the reader
 issues the two source reads with *distinct* trids (1 and 2) and no intervening
 barrier, then barriers on them **out of order** (``trid=2`` first, ``trid=1``
-second). That exercises tt-sim's per-trid machinery in ``tt_sim/network/tt_noc.py``:
+second). That exercises Wolfpine's per-trid machinery in ``framework/network/tt_noc.py``:
 the per-trid FIFO of return addresses, the independent
 ``NIU_MST_REQS_OUTSTANDING_ID_<n>`` counters each ``noc_async_read_barrier_with_trid``
 polls, and routing each response to the correct return buffer.
@@ -20,9 +20,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

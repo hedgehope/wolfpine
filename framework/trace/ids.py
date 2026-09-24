@@ -11,7 +11,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from tt_sim.trace.events import Unit
+from framework.trace.events import Unit
 
 
 @dataclass(frozen=True, slots=True)

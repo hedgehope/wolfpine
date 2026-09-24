@@ -12,12 +12,12 @@
 // before the bump rather than after. The magic is a wire check between a host
 // binary and the kernel it just built (`tensixbench.cpp` compares it against the
 // stamp in the result buffer, twice, fatally); it is written into every CSV's
-// `#` header as metadata, but NOTHING reads it back. `tt_sim/perf/
+// `#` header as metadata, but NOTHING reads it back. `framework/perf/
 // tensix_bench_sweep.read_csv` parses that line into a `meta` dict and no code
 // path anywhere consults `meta["magic"]` -- verified by grep and by re-reading
 // every tracked dataset with the header rewritten to a bumped value, which
 // yields byte-identical rows. The in-tree precedent is stronger still:
-// `tt_sim/perf/riscv_bench_sweep_test.py` has always fed its fixture the STALE
+// `framework/perf/riscv_bench_sweep_test.py` has always fed its fixture the STALE
 // magic 0x7B10CF01 against a current 0x7B10CF03 and passes.
 //
 // What would have broken the datasets is renumbering, not the magic: `probe_id`
@@ -269,9 +269,9 @@
 // ">= 2" unreached rather than refuted.
 //
 // WHY THIS IS FREE OF THE C12 PROBLEM. It issues no STALLWAIT and consults no
-// condition bit, so it is untouched by tt-sim reading Blackhole's condition
+// condition bit, so it is untouched by Wolfpine reading Blackhole's condition
 // mask as 12 bits where the ISA page gives 13 -- the defect that degrades slots
-// 22-25 under the simulator. Under tt-sim it degrades for a different and much
+// 22-25 under the simulator. Under Wolfpine it degrades for a different and much
 // more informative reason; see raw_probes.cpp.
 //
 // THE CONTROLS FIRE IN BOTH DIRECTIONS, which is the whole reason there are
@@ -325,7 +325,7 @@
 #define TTBENCH_VIS_W_STALE 10   // 10..13 stale count per d = 1..MAXD
 #define TTBENCH_VIS_W_MARK 14    // repetitions the consumer never ran, all d
 #define TTBENCH_VIS_W_OTHER 15   // repetitions that read none of the three, all d
-// What every tracked dataset in tt_sim/perf/datasets/ was collected with, so a
+// What every tracked dataset in framework/perf/datasets/ was collected with, so a
 // run meant to be compared against them can ask for exactly that experiment.
 #define TTBENCH_LEGACY_PROBE_MASK 0xFFFFFu
 

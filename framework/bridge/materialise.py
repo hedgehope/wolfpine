@@ -11,7 +11,7 @@ worker, so it runs base firmware for the whole run; measured,
 and 28.9 s with 72.
 
 :class:`LazyTensixPool` gets both: no environment variable, and no tax. A
-functional worker starts as a :class:`~tt_sim.bridge.cores.DeferredTensixCore`
+functional worker starts as a :class:`~framework.bridge.cores.DeferredTensixCore`
 — wire-identical to the ``NullCore`` fallback, but journalling what the host
 says to it while it is held in reset — and becomes a real tile at the
 first of three triggers.
@@ -75,7 +75,7 @@ set exactly — no pool is installed at all in that case — because the replay
 guards and the cost-model gate want a fixed, reproducible grid.
 """
 
-from tt_sim.bridge.cores import DeferredTensixCore, TensixCore
+from framework.bridge.cores import DeferredTensixCore, TensixCore
 
 
 class _CatchUpTensixCore(TensixCore):
@@ -118,7 +118,7 @@ class LazyTensixPool:
     """Builds functional workers on demand, from any of the three triggers.
 
     ``fabric`` gets a core factory that answers worker coords with a deferred
-    core; ``device`` (a :class:`tt_sim.bridge.Device`) gets the NoC
+    core; ``device`` (a :class:`framework.bridge.Device`) gets the NoC
     directory-miss hook. ``eager`` names workers to build up front — the
     architecture's default single worker, so the single-tile path is byte-for-
     byte what it always was.

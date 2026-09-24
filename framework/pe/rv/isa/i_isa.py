@@ -1,9 +1,9 @@
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.pe import ProcessingElement
-from tt_sim.pe.rv import breakpoint as breakpoint_trap
-from tt_sim.pe.rv.isa import zicsr_isa as zicsr
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.util.conversion import conv_to_bytes, conv_to_int32, conv_to_uint32
+from framework.memory.memory import MemoryStall
+from framework.pe.pe import ProcessingElement
+from framework.pe.rv import breakpoint as breakpoint_trap
+from framework.pe.rv.isa import zicsr_isa as zicsr
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.util.conversion import conv_to_bytes, conv_to_int32, conv_to_uint32
 
 
 # Immediate decoders, lifted out of ``RV_I_ISA.extract_immediate``'s
@@ -690,15 +690,15 @@ class RV_I_ISA(RV_ISA):
                 raise zicsr.NoCSRsError(
                     f"CSR instruction {hex(instr)} at PC "
                     f"{hex(register_file['pc'].read_uint())} on a core with no "
-                    f"CSR file. Only Blackhole baby cores have CSRs in tt-sim "
+                    f"CSR file. Only Blackhole baby cores have CSRs in Wolfpine "
                     f"(the WormholeB0 ISA docs describe none), so there is "
                     f"nothing to read and no honest value to leave in rd. See "
-                    f"tt_sim/pe/rv/isa/zicsr_isa.py."
+                    f"framework/pe/rv/isa/zicsr_isa.py."
                 )
             return False
         is_ebreak = type_val == 0x0 and ((instr >> 20) & 0x1) == 1
         if is_ebreak and breakpoint_trap.trapping_enabled():
-            # A kernel asserting on itself: see tt_sim/pe/rv/breakpoint.py.
+            # A kernel asserting on itself: see framework/pe/rv/breakpoint.py.
             if snoop:
                 RV_ISA.print_snoop(snoop, "ebreak", "trap")
             raise breakpoint_trap.RiscvBreakpoint(memory_space)

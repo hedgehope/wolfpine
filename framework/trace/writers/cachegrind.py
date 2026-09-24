@@ -23,8 +23,8 @@ the writer's contract.
 from collections import defaultdict
 from pathlib import Path
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import EventCategory, MemEvent
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import EventCategory, MemEvent
 
 
 class MemoryTraceWriter:
@@ -52,11 +52,11 @@ class MemoryTraceWriter:
             by_fn[(region, pc)].append((addr, dr, dw))
 
         with self._path.open("w") as f:
-            f.write("# tt-sim memory trace\n")
+            f.write("# Wolfpine memory trace\n")
             f.write("# Callgrind text format for KCachegrind\n")
             f.write("events: Dr Dw\n")
             f.write("positions: instr\n")
-            f.write("ob=tt-sim\n")
+            f.write("ob=Wolfpine\n")
             f.write("fl=memory\n")
             for (region, pc), rows in by_fn.items():
                 fn_name = f"{region}_pc_0x{pc:08x}" if pc else f"{region}_no_pc"

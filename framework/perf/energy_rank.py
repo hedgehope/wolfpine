@@ -2,7 +2,7 @@
 
 This is the home-side half of the ranking-level energy estimator (ROADMAP v2.0
 item 5). It consumes two CSVs -- the activity vectors
-(:mod:`tt_sim.perf.energy_activity`) and the measured board power from a card
+(:mod:`framework.perf.energy_activity`) and the measured board power from a card
 session (``perfbench/energybench/run_card.sh``) -- and answers one question:
 
     **does the simulator put the workloads in the right order, and roughly by
@@ -60,7 +60,7 @@ Every coefficient this module produces is **FITTED**. Tenstorrent publishes no
 per-event energy figure -- no pJ/op, no pJ/bit, nothing -- so there is no
 document any of these numbers could ever be traced to.
 
-``tt_sim/perf/unit_costs.yaml`` and ``tt_sim/pe/tensix/tensix_instruction_costs.yaml``
+``framework/perf/unit_costs.yaml`` and ``framework/pe/tensix/tensix_instruction_costs.yaml``
 run a provenance ladder (``isa_doc > isa_doc_derived > vendor_source >
 vendor_source_derived > estimated > unknown``) whose entire purpose is to keep
 un-sourced numbers out of the cycle model; ``costs_test.py`` records that there
@@ -73,13 +73,13 @@ They live in ``perfbench/energybench/fitted_energy_coefficients.yaml``, written
 by ``--write-coefficients``, which:
 
 * stamps ``provenance: fitted``, a token that is **not in**
-  :data:`tt_sim.perf.costs.PROVENANCE_RANK`, so the cost loader raises
+  :data:`framework.perf.costs.PROVENANCE_RANK`, so the cost loader raises
   ``KeyError`` on any file that carries it -- pasting one of these entries into
   a cost table breaks the loader rather than silently ranking the number;
-* **refuses to write inside ``tt_sim/``** at all (see :func:`check_destination`);
+* **refuses to write inside ``framework/``** at all (see :func:`check_destination`);
 * carries a ``not_a_cost_table`` banner and the full fitting record.
 
-``tt_sim/perf/energy_quarantine_test.py`` asserts all three, in both directions.
+``framework/perf/energy_quarantine_test.py`` asserts all three, in both directions.
 
 THE GATES
 ---------
@@ -168,7 +168,7 @@ than a refusal, because the thing it detects cannot be fixed by re-running:
     launched is not evidence about activity, however good its Spearman looks.
 
 Every one of those is proven to fire in **both** directions in
-``tt_sim/perf/energy_rank_test.py`` -- a gate that cannot fail is as damaging as
+``framework/perf/energy_rank_test.py`` -- a gate that cannot fail is as damaging as
 one that cannot pass.
 
 THE MODEL
@@ -324,9 +324,9 @@ Usage
 
 ::
 
-    python3 -m tt_sim.perf.energy_rank --activity activity-sim.csv \\
+    python3 -m framework.perf.energy_rank --activity activity-sim.csv \\
         --measured card-session/power.csv --report report.txt
-    python3 -m tt_sim.perf.energy_rank ... \\
+    python3 -m framework.perf.energy_rank ... \\
         --write-coefficients perfbench/energybench/fitted_energy_coefficients.yaml
 """
 
@@ -341,7 +341,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tt_sim.perf.energy_activity import ACTIVITY_TERMS, load_activity
+from framework.perf.energy_activity import ACTIVITY_TERMS, load_activity
 
 #: The label of the measured idle baseline: the board with the device open and
 #: no kernel launching. It is a **session-completeness check and a recorded
@@ -355,12 +355,12 @@ BASELINE_LABEL = "baseline"
 CONTROL_SUFFIX = "__control"
 
 #: The provenance token stamped on every fitted coefficient file. It is
-#: deliberately absent from :data:`tt_sim.perf.costs.PROVENANCE_RANK` so that a
+#: deliberately absent from :data:`framework.perf.costs.PROVENANCE_RANK` so that a
 #: cost table carrying it fails to load rather than quietly ranking it.
 FITTED_PROVENANCE = "fitted"
 
 #: Refuse to write coefficients anywhere under this directory name.
-QUARANTINE_FORBIDDEN_ROOT = "tt_sim"
+QUARANTINE_FORBIDDEN_ROOT = "framework"
 
 #: **The experiment's design, transcribed.** One entry per energybench arm, giving
 #: the single activity term that arm was *constructed* to move -- the "what it
@@ -389,7 +389,7 @@ DESIGNED_ARM_TERMS: dict[str, str | None] = {
     # the `sfpu` arm pays 41 of those per iteration against zero matrix
     # arithmetic ops -- so `matrix_busy_cycles` is a column BOTH arms move and
     # is not the thing an arm was built to isolate. See the "Matrix arithmetic
-    # is not matrix occupancy" section of tt_sim.perf.energy_activity.
+    # is not matrix occupancy" section of framework.perf.energy_activity.
     "mm": "matrix_arith_cycles",
     "sfpu": "sfpu_busy_cycles",  # Int32 tile add on the same two resident tiles
 }
@@ -398,7 +398,7 @@ DESIGNED_ARM_TERMS: dict[str, str | None] = {
 def arm_of(activity_row: dict) -> str:
     """Which arm an activity row belongs to.
 
-    The ``arm`` column, written by :mod:`tt_sim.perf.energy_activity`. A row from
+    The ``arm`` column, written by :mod:`framework.perf.energy_activity`. A row from
     an older CSV that lacks it falls back to the label prefix, since a label is
     ``<arm>-<inner>`` by the contract both scripts join on.
     """
@@ -440,7 +440,7 @@ def designed_terms(arms) -> list[str]:
     if off_schema:
         raise ValueError(
             f"DESIGNED_ARM_TERMS names term(s) {off_schema} that are not in "
-            "tt_sim.perf.energy_activity.ACTIVITY_TERMS -- the design and the "
+            "framework.perf.energy_activity.ACTIVITY_TERMS -- the design and the "
             "activity schema have drifted apart"
         )
     # Schema order, so the reported column order never depends on which arm was
@@ -1835,7 +1835,7 @@ def render(report: RankReport) -> str:
     lines.append("")
     lines.append(
         "These coefficients are FITTED to board-level telemetry. They are not a "
-        "cost-model provenance and must never be moved into tt_sim/perf/unit_costs.yaml."
+        "cost-model provenance and must never be moved into framework/perf/unit_costs.yaml."
     )
     for note in report.notes:
         lines.append(f"note: {note}")
@@ -1872,13 +1872,13 @@ def coefficients_document(report: RankReport, sources: dict) -> str:
         "# Every number below is a REGRESSION COEFFICIENT fitted to board-level",
         "# tt-smi telemetry. Tenstorrent publishes no per-event energy figure, so",
         "# none of these can ever be traced to a document. They are weaker than",
-        "# the `estimated` provenance that tt_sim/perf/unit_costs.yaml forbids.",
+        "# the `estimated` provenance that framework/perf/unit_costs.yaml forbids.",
         "#",
-        "# DO NOT MOVE THESE INTO tt_sim/perf/unit_costs.yaml OR",
-        "# tt_sim/pe/tensix/tensix_instruction_costs.yaml. The `provenance: fitted`",
-        "# token below is not in tt_sim.perf.costs.PROVENANCE_RANK, so the cost",
+        "# DO NOT MOVE THESE INTO framework/perf/unit_costs.yaml OR",
+        "# framework/pe/tensix/tensix_instruction_costs.yaml. The `provenance: fitted`",
+        "# token below is not in framework.perf.costs.PROVENANCE_RANK, so the cost",
         "# loader raises KeyError on any table that carries it -- that is",
-        "# deliberate, and tt_sim/perf/energy_quarantine_test.py asserts it.",
+        "# deliberate, and framework/perf/energy_quarantine_test.py asserts it.",
         "#",
         "# What these predict is STEADY-STATE REPEATED-KERNEL BOARD POWER UNDER",
         "# SUSTAINED LOAD, sampled in slot -- not the energy of a single launch,",
@@ -1978,7 +1978,7 @@ def main(argv=None) -> int:
     ap.add_argument("--json", help="write the machine-readable report here")
     ap.add_argument(
         "--write-coefficients",
-        help="write the fitted coefficients here (refused inside tt_sim/)",
+        help="write the fitted coefficients here (refused inside framework/)",
     )
     args = ap.parse_args(argv)
 

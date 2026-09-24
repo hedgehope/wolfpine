@@ -52,7 +52,7 @@ done
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
-# Slow dispatch: tt-sim only supports the direct launch path, and using the same
+# Slow dispatch: Wolfpine only supports the direct launch path, and using the same
 # mode on hardware keeps the two runs comparable.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"
 
@@ -114,7 +114,7 @@ PRIMARY="$(ls -t "$OUT"/tensixbench-*.csv 2>/dev/null | grep -v -- '-fmt-\|-dval
 echo | tee -a "$LOG"
 if [ -n "$PRIMARY" ]; then
   echo "== analysis" | tee -a "$LOG"
-  python3 -m tt_sim.perf.tensix_bench_sweep --measured "$PRIMARY" 2>&1 \
+  python3 -m framework.perf.tensix_bench_sweep --measured "$PRIMARY" 2>&1 \
     | tee "$OUT/tensixbench.report.txt" | tail -40
 fi
 

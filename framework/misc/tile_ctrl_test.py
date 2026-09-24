@@ -4,7 +4,7 @@
 Tensix tile. tt-metal's device profiler reads it for every ``DeviceZoneScopedN``
 (``tt_metal/tools/profiler/kernel_profiler.hpp``), and so does
 ``perfbench/tensixbench``, which is why the two produce the same quantity on
-silicon and on tt-sim -- see ``docs/plans/tensix-cost-benchmark.md``.
+silicon and on Wolfpine -- see ``docs/plans/tensix-cost-benchmark.md``.
 
 There are three registers and the reading order matters: a read of ``_L``
 (0x1F0) latches the high half into 0x1F4, and ``_H`` (0x1F8) returns whatever
@@ -12,23 +12,23 @@ was last latched. The profiler reads 0x1F0 and 0x1F4; ``realtime_profiler.hpp``
 reads 0x1F8 directly. That second path used to raise ``AttributeError`` on a
 fresh tile, which in a memory read kills the server.
 
-Run standalone (``python3 -m tt_sim.misc.tile_ctrl_test``) or under pytest.
+Run standalone (``python3 -m framework.misc.tile_ctrl_test``) or under pytest.
 """
 
 import pytest
 
-from tt_sim.misc.tile_ctrl import (
+from framework.misc.tile_ctrl import (
     PERMISSIVE_ENV,
     TensixTileControl,
     UnmodelledTileRegisterError,
 )
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 WALL_CLOCK_L = 0x1F0
 WALL_CLOCK_LATCHED_H = 0x1F4
 WALL_CLOCK_H = 0x1F8
 
-#: RISCV_DEBUG_REG_DBG_ARRAY_RD_DATA -- a status register tt-sim does not
+#: RISCV_DEBUG_REG_DBG_ARRAY_RD_DATA -- a status register Wolfpine does not
 #: model, whose zero would read as "the debug array read back all-zero".
 DBG_ARRAY_RD_DATA = 0x06C
 #: RISCV_DEBUG_REG_TRISC_RESET_PC_OVERRIDE -- an unwritten override register
@@ -69,7 +69,7 @@ def test_reading_low_latches_high():
 
 
 def test_unmodelled_status_register_read_is_loud():
-    """The §6 hazard: a status register tt-sim does not model must not read 0.
+    """The §6 hazard: a status register Wolfpine does not model must not read 0.
 
     ``RISCV_DEBUG_REG_DBG_ARRAY_RD_DATA`` is a readback register. Before the
     allowlist, ``TensixTileControl.read`` answered it -- and every other

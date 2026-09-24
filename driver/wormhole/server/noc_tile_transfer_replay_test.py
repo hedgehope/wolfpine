@@ -21,9 +21,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device

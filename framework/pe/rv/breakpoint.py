@@ -12,7 +12,7 @@ mechanism the tt-metal device-side debug tooling is built on --
   ``asm volatile("ebreak")`` -- see ``tt-llk/common/inc/llk_assert.h``;
 * ``__builtin_trap()`` from a compiler-inserted unreachable path.
 
-tt-sim used to decode ``ebreak`` and return "handled, nothing to do", so every
+Wolfpine used to decode ``ebreak`` and return "handled, nothing to do", so every
 one of those assertions fired into the void and the kernel carried on running
 past a point its own authors had declared impossible. A simulator that runs
 *through* the assertion is worse than one that never had it: the program

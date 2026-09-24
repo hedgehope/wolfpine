@@ -1,6 +1,6 @@
 """Tests for NoC address-alignment checking.
 
-Runs standalone (``python3 -m tt_sim.network.alignment_test``) or under pytest.
+Runs standalone (``python3 -m framework.network.alignment_test``) or under pytest.
 
 Covers the per-arch congruence values, that a correctly aligned transfer passes,
 that a misaligned one raises with an actionable message, and that
@@ -19,10 +19,10 @@ import os
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.arch.wormhole import WORMHOLE_PROFILE
-from tt_sim.behaviour import require
-from tt_sim.network.alignment import (
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.arch.wormhole import WORMHOLE_PROFILE
+from framework.behaviour import require
+from framework.network.alignment import (
     DISABLE_ENV_VAR,
     L1_CONGRUENCE,
     MMIO_BASE,
@@ -155,7 +155,7 @@ def test_noc_read_and_write_paths_are_checked():
     Exercises the wiring (profile -> NUI -> RequestInitiator), not just the
     predicate, and confirms the DRAM tile is tagged so the 32 B rule is picked.
     """
-    from tt_sim.device.wormhole import Wormhole
+    from framework.device.wormhole import Wormhole
 
     device = Wormhole()
     tensix = device.tensix_tiles[0]
@@ -198,8 +198,8 @@ def test_noc_read_and_write_paths_are_checked():
 def test_the_behaviour_marker_for_this_guard_is_published():
     """The guard and the name external suites assert on live and die together.
 
-    ``tt_sim.behaviour`` publishes ``noc-transfer-alignment`` so a consumer's suite can refuse
-    to run against a tt-sim that lacks this check rather than collect another
+    ``framework.behaviour`` publishes ``noc-transfer-alignment`` so a consumer's suite can refuse
+    to run against a Wolfpine that lacks this check rather than collect another
     set of green results that exercised nothing. Deleting the registry entry
     therefore has to turn *this* suite red — a marker quietly withdrawn is
     exactly the failure the marker exists to prevent.

@@ -116,7 +116,7 @@ nocread_verdict() { # out-file, csv
       return
     fi
     if [ "$1" = 0 ] && [ "$2" = 0 ]; then
-      echo "DEGENERATE|neither the per-trid occupancy nor the trid-independent RD_REQ_SENT - RD_RESP_RECEIVED pair left zero in any point. EXPECTED against tt-sim, whose responses resolve inside the pump that issued them; on a card this is a broken run"
+      echo "DEGENERATE|neither the per-trid occupancy nor the trid-independent RD_REQ_SENT - RD_RESP_RECEIVED pair left zero in any point. EXPECTED against Wolfpine, whose responses resolve inside the pump that issued them; on a card this is a broken run"
       return
     fi
     if [ "$1" = 0 ] || [ "$2" = 0 ]; then
@@ -126,7 +126,7 @@ nocread_verdict() { # out-file, csv
   fi
   # Only now is the benchmark's own verdict evidence.
   if grep -q "VERDICT: DEGENERATE" "$out" 2>/dev/null; then
-    echo "DEGENERATE|the outstanding-request counter never moved. EXPECTED against tt-sim (its NIU queue is unbounded); on a card this is a broken run"
+    echo "DEGENERATE|the outstanding-request counter never moved. EXPECTED against Wolfpine (its NIU queue is unbounded); on a card this is a broken run"
   elif grep -q "VERDICT: BOUNDED AT" "$out" 2>/dev/null; then
     # The benchmark PRINTS the falsifying test next to this verdict but cannot
     # run it -- it needs the whole `dist` sweep. Apply it here. A credit limit K
@@ -200,7 +200,7 @@ cmdbuf_verdict() { # csv
   if [ "$rows" = 0 ]; then
     echo "UNCLEAR|the CSV has no data rows"
   elif [ "$absent" = "$rows" ]; then
-    echo "DEGENERATE|reads the all-ones 'register absent' sentinel in every row, so the READ FAILED. EXPECTED against tt-sim, which models no command buffer. On a Blackhole card this means the build did not see CMD_BUF_AVAIL and the reading must be retaken -- do not send this as a result"
+    echo "DEGENERATE|reads the all-ones 'register absent' sentinel in every row, so the READ FAILED. EXPECTED against Wolfpine, which models no command buffer. On a Blackhole card this means the build did not see CMD_BUF_AVAIL and the reading must be retaken -- do not send this as a result"
   elif [ "$moved" = 0 ]; then
     echo "DEGENERATE|CMD_BUF_AVAIL reads $first at rest and the identical value in every in-loop sample, in all $rows rows. The control did not move, so this says nothing about the command-buffer depth -- which was the whole point. Note that a register whose reset default is 0 and whose neighbour is CMD_BUF_OVFL is an OCCUPANCY: zero at rest is CORRECT and is not a depth"
   elif [ -z "$c_max" ]; then
@@ -233,7 +233,7 @@ tensix_verdict() { # out-file, label
     return
   fi
   if awk -v p="$peak" 'BEGIN { exit !(p <= 1.0005) }'; then
-    echo "DEGENERATE|every probe reads 1.000 (peak cyc/instr $peak). EXPECTED against tt-sim with the cost model off (nothing back-pressures the issuing core); on a card it means the instrument measured nothing"
+    echo "DEGENERATE|every probe reads 1.000 (peak cyc/instr $peak). EXPECTED against Wolfpine with the cost model off (nothing back-pressures the issuing core); on a card it means the instrument measured nothing"
     return
   fi
   bad="$(_tensix_failed_phases "$out")"
@@ -392,7 +392,7 @@ tensix_rdcfg_verdict() { # out-file [, c12-out-file]
       if awk -v a="$c12_t1" -v b="$c12_n" 'BEGIN { exit !(b - a > 0.5) }'; then
         note=" The C12 liveness control MOVED (stall floor $c12_t1 cycles/pair at t1 against $c12_n at $c12_v, where two other threads hold the Configuration Unit), so C12 IS live and slots 22-25 reading 0.0000 means RDCFG's post-issue residency is no wider than the stall's own documented one-cycle lag -- structurally invisible to any busy-condition, not absent."
       else
-        note=" The C12 liveness control did NOT move ($c12_t1 cycles/pair at t1 against $c12_n at $c12_v, where two other threads hold the Configuration Unit at one instruction per cycle), so C12 did not observe them either and slots 22-25 say nothing about RDCFG at all. EXPECTED against tt-sim for TWO independent reasons, and the second is the one that bites: its STALLWAIT decode trims the condition mask to 12 bits where the ISA page gives 13, AND its Configuration Unit retires inside the cycle that issued, so C12 is empty whenever another thread's Wait Gate looks -- widening the mask alone leaves this flat. On a card it is a finding about the part."
+        note=" The C12 liveness control did NOT move ($c12_t1 cycles/pair at t1 against $c12_n at $c12_v, where two other threads hold the Configuration Unit at one instruction per cycle), so C12 did not observe them either and slots 22-25 say nothing about RDCFG at all. EXPECTED against Wolfpine for TWO independent reasons, and the second is the one that bites: its STALLWAIT decode trims the condition mask to 12 bits where the ISA page gives 13, AND its Configuration Unit retires inside the cycle that issued, so C12 is empty whenever another thread's Wait Gate looks -- widening the mask alone leaves this flat. On a card it is a finding about the part."
       fi
     else
       note=" The C12 liveness control produced no reading, so which of the two explanations of slots 22-25 holds is still open; run tensixbench --probes 0x30000001 --variants t1,t3."
@@ -416,7 +416,7 @@ tensix_rdcfg_verdict() { # out-file [, c12-out-file]
     echo "MEANINGFUL|RDCFG's result is invisible to a consumer $((d_min - 1)) issue slot(s) after it and visible at $d_min, over $reps repetitions with no mixture, against a stale control that read back two different seeds and a fresh control that read back one value that was neither. A LOWER BOUND of $d_min cycles on RDCFG's latency to the destination GPR -- the consumer may read its operand late, which can only make the true latency larger -- and CORROBORATION for ConfigurationUnit.md's '>= 2 cycles'. Never provenance, and never an occupancy: probe 14 measures that separately at ~1.$note"
     return
   fi
-  echo "DEGENERATE|RDCFG's result is already visible to the consumer in the very next issue slot in all $reps repetitions, so the smallest separation this construction can resolve is 1 and the documented '>= 2' stays UNREACHED. It is not refuted: a consumer that reads its operand a cycle into its own execution is a complete alternative explanation, and the timing form (slots 26/27) reads ${dep:-n/a} as the documents predict. EXPECTED against tt-sim, whose Configuration Unit writes the GPR in the issue cycle; on a card it means a sharper consumer is needed -- WRCFG reads its GPR in the cycle it enters the pipeline, but it writes backend configuration and this benchmark does not mutate device state.$note"
+  echo "DEGENERATE|RDCFG's result is already visible to the consumer in the very next issue slot in all $reps repetitions, so the smallest separation this construction can resolve is 1 and the documented '>= 2' stays UNREACHED. It is not refuted: a consumer that reads its operand a cycle into its own execution is a complete alternative explanation, and the timing form (slots 26/27) reads ${dep:-n/a} as the documents predict. EXPECTED against Wolfpine, whose Configuration Unit writes the GPR in the issue cycle; on a card it means a sharper consumer is needed -- WRCFG reads its GPR in the cycle it enters the pipeline, but it writes backend configuration and this benchmark does not mutate device state.$note"
 }
 
 # ---------------------------------------------------- dramratebench (both)
@@ -489,14 +489,14 @@ dram_verdict() { # out-file, csv
         if (hi == "" || v > hi) { hi = v; hiv = $g + 0 } }
       END { if (lo != "" && hi > lo && lov > 0) printf "%d %d %.4f %.4f %.3f", lo, hi, lov, hiv, hiv / lov }' "$csv")"
   if [ -z "$fan" ]; then
-    echo "DEGENERATE|the fan-out control has no pair of reader counts to compare, so nothing separates the endpoint from the NoC link or from the readers' own issue rate. EXPECTED against tt-sim, which instantiates only the tiles named in TT_SIM_TENSIX_COORDS and so cannot sweep the reader count far enough to load anything"
+    echo "DEGENERATE|the fan-out control has no pair of reader counts to compare, so nothing separates the endpoint from the NoC link or from the readers' own issue rate. EXPECTED against Wolfpine, which instantiates only the tiles named in TT_SIM_TENSIX_COORDS and so cannot sweep the reader count far enough to load anything"
     return
   fi
   # shellcheck disable=SC2086
   set -- $fan
   local f_lo="$1" f_hi="$2" f_lov="$3" f_hiv="$4" f_scale="$5"
   if awk -v s="$f_scale" 'BEGIN { exit !(s < 1.5) }'; then
-    echo "DEGENERATE|the fan-out CONTROL did not move: $f_lo -> $f_hi readers on DISTINCT banks took the aggregate only from $f_lov to $f_hiv B/cycle (x$f_scale). Something upstream of the endpoint caps both arms, so the one-channel arm's flatness says nothing about the endpoint. EXPECTED against tt-sim, which models no NoC buffer back-pressure or virtual channels and, on Blackhole, publishes no per-channel DRAM rate for an endpoint queue to be built from. Note tt-sim DOES model link congestion, so a disagreement here is not that"
+    echo "DEGENERATE|the fan-out CONTROL did not move: $f_lo -> $f_hi readers on DISTINCT banks took the aggregate only from $f_lov to $f_hiv B/cycle (x$f_scale). Something upstream of the endpoint caps both arms, so the one-channel arm's flatness says nothing about the endpoint. EXPECTED against Wolfpine, which models no NoC buffer back-pressure or virtual channels and, on Blackhole, publishes no per-channel DRAM rate for an endpoint queue to be built from. Note Wolfpine DOES model link congestion, so a disagreement here is not that"
     return
   fi
   local one
@@ -518,7 +518,7 @@ dram_verdict() { # out-file, csv
   # THE DISCRIMINATOR IS THE RATIO OF THE TWO SCALINGS, not a threshold on the
   # one-channel arm alone. A fixed "onechan must stay under x1.5" rule reads a
   # genuine endpoint bound as a refutation the moment the sweep is not wide
-  # enough to saturate the channel: tt-sim on Wormhole with the cost model on
+  # enough to saturate the channel: Wolfpine on Wormhole with the cost model on
   # gives onechan x2.21 against fanchan x3.97 at four readers -- the
   # concentrated arm reaching 56% of what the SAME readers reach fanned out,
   # which is the endpoint costing something, and an absolute x1.5 rule called it
@@ -532,10 +532,10 @@ dram_verdict() { # out-file, csv
   # so every run would have reported ENDPOINT BOUND including the refutations.
   eff="$(awk -v o="$o_scale" -v f="$f_scale" 'BEGIN { printf "%.3f", (f > 0 ? o / f : 1) }')"
   if awk -v e="$eff" 'BEGIN { exit !(e <= 0.75) }'; then
-    echo "MEANINGFUL|the fan-out control MOVED x$f_scale over $f_lo -> $f_hi readers while the same readers on ONE channel managed only x$o_scale ($o_lov -> $o_hiv B/cycle), which is $eff of it. Same reader count, same issue loop, same transaction size: only the endpoint differed, so the endpoint is what cost the difference -- the shape tt-sim's DramChannels term asserts. CORROBORATION and never provenance: it cannot make dram.bandwidth chargeable, least of all on a part with no published DRAM page"
+    echo "MEANINGFUL|the fan-out control MOVED x$f_scale over $f_lo -> $f_hi readers while the same readers on ONE channel managed only x$o_scale ($o_lov -> $o_hiv B/cycle), which is $eff of it. Same reader count, same issue loop, same transaction size: only the endpoint differed, so the endpoint is what cost the difference -- the shape Wolfpine's DramChannels term asserts. CORROBORATION and never provenance: it cannot make dram.bandwidth chargeable, least of all on a part with no published DRAM page"
     return
   fi
-  echo "MEANINGFUL|the control moved x$f_scale and one channel KEPT UP, x$o_scale ($o_lov -> $o_hiv B/cycle) or $eff of it. N readers on one channel are NOT serialised by it, which is what tt-sim's endpoint-occupancy term asserts they are. Before reading that as a refutation check the DEMAND: a channel cannot flatten a load it is not saturated by, so a sweep topping out at $f_hi readers and $o_hiv B/cycle may be under-powered rather than unserialised -- Wormhole publishes 24 B/cycle per channel and the vendor's own flat table used 12 and 48 tiles. EXPECTED against tt-sim on BLACKHOLE, where the term is switched off by construction -- no DRAM tile page is published for that part, so ArchProfile.dram_gddr_channel_size is None, DramChannels.bytes_per_cycle is None and every claim() is a no-op; it is live only on Wormhole. On a CARD this is a real refutation of a term shipped on 2026-08-09, so send the CSV back"
+  echo "MEANINGFUL|the control moved x$f_scale and one channel KEPT UP, x$o_scale ($o_lov -> $o_hiv B/cycle) or $eff of it. N readers on one channel are NOT serialised by it, which is what Wolfpine's endpoint-occupancy term asserts they are. Before reading that as a refutation check the DEMAND: a channel cannot flatten a load it is not saturated by, so a sweep topping out at $f_hi readers and $o_hiv B/cycle may be under-powered rather than unserialised -- Wormhole publishes 24 B/cycle per channel and the vendor's own flat table used 12 and 48 tiles. EXPECTED against Wolfpine on BLACKHOLE, where the term is switched off by construction -- no DRAM tile page is published for that part, so ArchProfile.dram_gddr_channel_size is None, DramChannels.bytes_per_cycle is None and every claim() is a no-op; it is live only on Wormhole. On a CARD this is a real refutation of a term shipped on 2026-08-09, so send the CSV back"
 }
 
 # --------------------------------------------------------- riscvbench (both)
@@ -725,10 +725,10 @@ rv_pairs_verdict() { # out-file, arch
 # holding a +323438586-cycle epoch reproduced over five runs. A verdict must
 # never conclude anything from a string being missing from a file it has not
 # first established is a report.
-noc_verdict() { # report-file, have_tt_sim
+noc_verdict() { # report-file, have_framework
   local rep="$1" have="$2"
   if [ "$have" != 1 ]; then
-    echo "DEFERRED|the CSV is collected and complete; the report generator needs tt_sim/, which is not on this box. Run \`python3 -m tt_sim.perf.noc_congestion_sweep --measured <csv>\` at the analysis box -- until then this probe has NO verdict"
+    echo "DEFERRED|the CSV is collected and complete; the report generator needs framework/, which is not on this box. Run \`python3 -m framework.perf.noc_congestion_sweep --measured <csv>\` at the analysis box -- until then this probe has NO verdict"
     return
   fi
   if _report_is_broken "$rep"; then
@@ -740,7 +740,7 @@ noc_verdict() { # report-file, have_tt_sim
     return
   fi
   if grep -q 'RESULT: INVALID' "$rep"; then
-    echo "DEGENERATE|$(grep -m1 'RESULT: INVALID' "$rep" | sed 's/^ *//'). On a card OR against tt-sim this means the experiment was forced flat -- tt-sim models link congestion (NocLinkRegistry) and reads CONGESTION MEASURED on both arches, so INVALID here is a broken run either way, not an expected simulator difference. Check the size and readport controls first, then that TT_SIM_COST_MODEL=1 was set"
+    echo "DEGENERATE|$(grep -m1 'RESULT: INVALID' "$rep" | sed 's/^ *//'). On a card OR against Wolfpine this means the experiment was forced flat -- Wolfpine models link congestion (NocLinkRegistry) and reads CONGESTION MEASURED on both arches, so INVALID here is a broken run either way, not an expected simulator difference. Check the size and readport controls first, then that TT_SIM_COST_MODEL=1 was set"
   elif grep -q 'RESULT: CONGESTION MEASURED' "$rep"; then
     echo "MEANINGFUL|$(grep -m1 'RESULT: CONGESTION MEASURED' "$rep" | sed 's/^ *//') -- shared-link sweep at 64/512/2048/8192/16384 B; read the report"
   elif grep -q 'RESULT: NO CONGESTION EFFECT' "$rep"; then
@@ -750,10 +750,10 @@ noc_verdict() { # report-file, have_tt_sim
   fi
 }
 
-noc_epoch_verdict() { # report-file, have_tt_sim
+noc_epoch_verdict() { # report-file, have_framework
   local rep="$1" have="$2"
   if [ "$have" != 1 ]; then
-    echo "DEFERRED|both congestion CSVs are collected; the clock-epoch detector needs tt_sim/, which is not on this box. Pool them at the analysis box with \`python3 -m tt_sim.perf.noc_congestion_sweep --measured noc.<arch>.csv noc-epoch.<arch>.csv\`. The (11,2) epoch is NEITHER confirmed NOR retired until that runs"
+    echo "DEFERRED|both congestion CSVs are collected; the clock-epoch detector needs framework/, which is not on this box. Pool them at the analysis box with \`python3 -m framework.perf.noc_congestion_sweep --measured noc.<arch>.csv noc-epoch.<arch>.csv\`. The (11,2) epoch is NEITHER confirmed NOR retired until that runs"
     return
   fi
   if _report_is_broken "$rep"; then

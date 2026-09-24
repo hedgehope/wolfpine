@@ -4,14 +4,14 @@ Two banks of ``SrcA`` and ``SrcB`` are passed back and forth between the
 unpackers and the Matrix Unit (FPU) by one field per bank, ``AllowedClient``.
 The unpackers **acquire** a bank (``UNPACR`` with ``SetDvalid``, ``UNPACR_NOP``
 carrying ``set_dvalid``, ``SETDVALID``), the FPU **releases** it (``clear_dvalid``
-on a math op, ``clear_ab_vld`` on ``SETRWC``, or ``CLEARDVALID``). tt-sim models
+on a math op, ``clear_ab_vld`` on ``SETRWC``, or ``CLEARDVALID``). Wolfpine models
 the unpacker's side in ``UnPackerUnit`` (``blocked`` / ``blocked_wait_bank``);
 this file pins the FPU's two halves.
 
 **Waiting to acquire.** ``WaitGate.checkIfFPUInstructionShouldStall`` holds an
 FPU instruction at the gate while the bank it consumes is still the unpackers'.
 That check has been there all along, contrary to
-``docs/plans/matrix-unit-thread-contention.md``'s claim that "tt-sim's Matrix
+``docs/plans/matrix-unit-thread-contention.md``'s claim that "Wolfpine's Matrix
 Unit does not model the Wait Gate at all" -- but it is driven by a hardcoded
 list of opcode *strings* compared against the decoded instruction name, so a
 misspelling removes an instruction from the gate silently. One had:
@@ -27,24 +27,24 @@ pins that, so both directions of edit to the list are now deliberate.
 ``NonContractualBehavior`` -- ttsim's ``math_clear_src_valid`` and
 ``TENSIX_EXECUTE_CLEARDVALID`` both ``TTSIM_VERIFY`` against it -- and on
 silicon it desynchronises the bank pointers so a later acquire waits for a
-release that never comes. tt-sim used to do it silently, in four separate
+release that never comes. Wolfpine used to do it silently, in four separate
 copies of the same five lines; it now raises
-:class:`~tt_sim.pe.tensix.backends.matrix.SrcDvalidError` from one place.
+:class:`~framework.pe.tensix.backends.matrix.SrcDvalidError` from one place.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.waitgate_allowed_client_test``)
+Run standalone (``python3 -m framework.pe.tensix.waitgate_allowed_client_test``)
 or under pytest.
 """
 
 import pytest
 import yaml
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.backends import matrix as matrix_mod
-from tt_sim.pe.tensix.backends.matrix import SrcDvalidError
-from tt_sim.pe.tensix.frontend import WaitGate
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.backends import matrix as matrix_mod
+from framework.pe.tensix.backends.matrix import SrcDvalidError
+from framework.pe.tensix.frontend import WaitGate
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
 
 
 def _coprocessor():
@@ -57,7 +57,7 @@ def _coprocessor():
 
 def _op_binary(name):
     with open(
-        "tt_sim/pe/tensix/tensix_instructions.yaml", encoding="utf-8"
+        "framework/pe/tensix/tensix_instructions.yaml", encoding="utf-8"
     ) as instructions:
         return yaml.safe_load(instructions)[name]["op_binary"]
 
@@ -94,7 +94,7 @@ def test_every_gated_opcode_exists_in_the_instruction_table():
     instruction dispatches without ever testing ``AllowedClient``.
     """
     with open(
-        "tt_sim/pe/tensix/tensix_instructions.yaml", encoding="utf-8"
+        "framework/pe/tensix/tensix_instructions.yaml", encoding="utf-8"
     ) as instructions:
         known = set(yaml.safe_load(instructions))
     gated = set()
@@ -127,9 +127,9 @@ def test_fpu_instruction_waits_for_the_bank_it_consumes(opcode, which):
     thread = cp.getThread(1)
     thread.push_wait_gate_instruction(word)
     _run(cp, 20)
-    assert thread.wait_gate_instruction_fifo, (
-        f"{opcode} dispatched with {which} still owned by the unpackers"
-    )
+    assert (
+        thread.wait_gate_instruction_fifo
+    ), f"{opcode} dispatched with {which} still owned by the unpackers"
     # ...and the thread is not reported done while it is stuck there, which is
     # what a kernel's tensix_sync() reads.
     assert cp.CoprocessorDoneCheck(1)

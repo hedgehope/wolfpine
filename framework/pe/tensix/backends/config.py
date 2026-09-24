@@ -1,8 +1,11 @@
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.pe.tensix.backends.backend_base import TensixBackendUnit
-from tt_sim.pe.tensix.util import TensixConfigurationConstants, TensixInstructionDecoder
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.mem_mapable import MemMapable
+from framework.pe.tensix.backends.backend_base import TensixBackendUnit
+from framework.pe.tensix.util import (
+    TensixConfigurationConstants,
+    TensixInstructionDecoder,
+)
+from framework.perf.model import unit_cost_model
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 
 class TensixBackendConfigurationUnit(TensixBackendUnit, MemMapable):
@@ -25,7 +28,7 @@ class TensixBackendConfigurationUnit(TensixBackendUnit, MemMapable):
     # The only CFGSHIFTMASK mode the vendor reference simulator (ttsim
     # ``src/tensix.cpp``) models: no circular shift, a full-width mask, the
     # "old + scratch" operation and no masking of the old value. Every other
-    # combination raises there too, so tt-sim has nothing to port and no oracle
+    # combination raises there too, so Wolfpine has nothing to port and no oracle
     # to check an implementation against — fail loudly instead of guessing.
     # (right_cshift_amt, mask_width, operation, disable_mask_on_old_val)
     CFGSHIFTMASK_MODELLED_MODE = (0, 31, 3, 1)
@@ -116,8 +119,8 @@ class TensixBackendConfigurationUnit(TensixBackendUnit, MemMapable):
         # side effects are committed. See backend_base.TensixBackendUnit.
         #
         # THE DIVERGENCE THE BUG EXPOSED IS NOT FIXED, only made unreachable
-        # from these tables: nothing in tt-sim orders a config write against the
-        # units that read it, because tt-sim's config writes land instantly and
+        # from these tables: nothing in Wolfpine orders a config write against the
+        # units that read it, because Wolfpine's config writes land instantly and
         # nothing had ever made one late. With RDCFG corrected to 1 no table
         # entry delays a *config write* any more -- CFGSHIFTMASK does hold the
         # unit for two cycles, but only ever behind its own already-committed
@@ -151,7 +154,7 @@ class TensixBackendConfigurationUnit(TensixBackendUnit, MemMapable):
         # an instruction through that the hardware would stall. It is inert
         # either way -- every Wormhole entry is one cycle, so nothing arms.
         #
-        # tt-sim models the first two constraints in ``issueInstruction`` /
+        # Wolfpine models the first two constraints in ``issueInstruction`` /
         # ``prev_cycle_setc16_or_wrcfg``; neither is expressible as a number
         # attached to an opcode.
         #
@@ -393,7 +396,7 @@ class TensixBackendConfigurationUnit(TensixBackendUnit, MemMapable):
         if mode != self.CFGSHIFTMASK_MODELLED_MODE:
             raise NotImplementedError(
                 f"CFGSHIFTMASK (right_cshift_amt, mask_width, operation, "
-                f"disable_mask_on_old_val)={mode} is not modelled in tt-sim; only "
+                f"disable_mask_on_old_val)={mode} is not modelled in Wolfpine; only "
                 f"{self.CFGSHIFTMASK_MODELLED_MODE} (add the scratch register into the "
                 f"CFG register) is, matching the vendor reference simulator"
             )

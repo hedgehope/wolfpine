@@ -2,14 +2,14 @@
 """Turn a card session's raw samples into the power CSV the analysis reads.
 
 Standard library only -- this runs on the card box, which has no venv, no numpy
-and no ``tt_sim/``.
+and no ``framework/``.
 
 WHAT THE OUTPUT IS
 ------------------
 
 ``power.csv``, whose ``power_w`` column is **steady-state repeated-kernel board
 power under sustained load**, sampled *in slot* while the workload runs. That is
-the quantity ``tt_sim.perf.energy_rank`` fits and the one the README describes.
+the quantity ``framework.perf.energy_rank`` fits and the one the README describes.
 It needs ``tt-smi`` >= 4.0.0 (the tt-umd backend); ``run_card.sh`` refuses to
 start otherwise and the version used is recorded in ``session.log`` and in the
 ``tt_smi_version`` column.
@@ -331,7 +331,7 @@ def main(argv=None) -> int:
             print(f"  {hole}", file=sys.stderr)
         print(
             "  A row with no telemetry has an EMPTY power cell, never zero, and "
-            "tt_sim.perf.energy_rank refuses the session rather than averaging it in.",
+            "framework.perf.energy_rank refuses the session rather than averaging it in.",
             file=sys.stderr,
         )
         return 1

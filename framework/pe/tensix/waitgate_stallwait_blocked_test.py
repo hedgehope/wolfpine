@@ -20,14 +20,14 @@ read a Dst still mid-accumulation and the kernel's output was wrong -- on a
 K >= 2 matmul, against both silicon and ttsim. ``optests/packuntilizeinit`` is
 the end-to-end reproduction; this is the mechanism, pinned without it.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.waitgate_stallwait_blocked_test``)
+Run standalone (``python3 -m framework.pe.tensix.waitgate_stallwait_blocked_test``)
 or under pytest.
 """
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.frontend import WaitGate
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.util.conversion import conv_to_bytes
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.frontend import WaitGate
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.util.conversion import conv_to_bytes
 
 #: Block-mask bits, ``STALLWAIT.md``'s B0-B8.
 B0_TDMA = 1 << 0  # Misc / Mover / ThCon / Packer / Unpacker
@@ -35,7 +35,7 @@ B1_SYNC = 1 << 1
 B5_THCON = 1 << 5
 
 #: Condition-mask bits. C0 ("ThCon has memory requests outstanding") is always
-#: satisfied in tt-sim; C10 ("SrcA[MatrixUnit.SrcABank].AllowedClient !=
+#: satisfied in Wolfpine; C10 ("SrcA[MatrixUnit.SrcABank].AllowedClient !=
 #: MatrixUnit") is genuinely unmet out of reset, which is what makes a latched
 #: ``STALLWAIT`` observable rather than forgotten on the tick it lands.
 C10_SRCA_NOT_MATH = 1 << 10
@@ -62,9 +62,9 @@ def test_every_block_bit_catches_a_stallwait():
     semwait = _info(_semwait())
     for bit in range(9):
         latched = WaitGate.LatchedInstruction("SEMWAIT", 0b01, 1 << bit, 0b1)
-        assert latched.doesInstructionMatchBlockMask(stallwait), (
-            f"STALLWAIT should be blocked by B{bit}"
-        )
+        assert latched.doesInstructionMatchBlockMask(
+            stallwait
+        ), f"STALLWAIT should be blocked by B{bit}"
         # Its neighbour in the Sync Unit is *not*: ``SEMWAIT``'s row is ticked
         # in B1 only, which is the asymmetry SEMWAIT.md's "highly recommended
         # ... include bit B1" note exists for.
@@ -72,7 +72,7 @@ def test_every_block_bit_catches_a_stallwait():
 
 
 def _tile():
-    from tt_sim.device.tiles import TensixTile
+    from framework.device.tiles import TensixTile
 
     return TensixTile(18, 18, 1, 1, profile=WORMHOLE_PROFILE)
 

@@ -1,11 +1,11 @@
 """``ebreak`` is a device-side assertion, and must not be executed through.
 
-The regression these lock in is the *silent* one: tt-sim used to decode
+The regression these lock in is the *silent* one: Wolfpine used to decode
 ``ebreak`` and report "handled", so a kernel that had asserted on itself ran on
 to a clean exit. Every tt-metal device-side ``ASSERT()`` and every tripped LLK
 sanitizer check lowers to this instruction in the assert-only build, so
 ignoring it turned "the kernel says it is wrong" into "the program passed" --
-the exact sim-versus-silicon divergence tt-sim exists to close.
+the exact sim-versus-silicon divergence Wolfpine exists to close.
 
 ``ecall`` is deliberately *not* trapped, and that asymmetry is tested here too:
 nothing on the baby-core path issues one, and unlike ``ebreak`` it is not what
@@ -14,10 +14,10 @@ a failed assertion compiles to.
 
 import pytest
 
-from tt_sim.behaviour import require
-from tt_sim.pe.rv import breakpoint as breakpoint_trap
-from tt_sim.pe.rv.breakpoint import RiscvBreakpoint
-from tt_sim.pe.rv.isa.i_isa import RV_I_ISA
+from framework.behaviour import require
+from framework.pe.rv import breakpoint as breakpoint_trap
+from framework.pe.rv.breakpoint import RiscvBreakpoint
+from framework.pe.rv.isa.i_isa import RV_I_ISA
 
 EBREAK = 0x00100073
 ECALL = 0x00000073
@@ -90,8 +90,8 @@ def test_env_var_truthiness(monkeypatch):
 def test_the_behaviour_marker_for_this_guard_is_published():
     """The guard and the name external suites assert on live and die together.
 
-    ``tt_sim.behaviour`` publishes ``riscv-ebreak-halts`` so a consumer's suite can refuse
-    to run against a tt-sim that lacks this check rather than collect another
+    ``framework.behaviour`` publishes ``riscv-ebreak-halts`` so a consumer's suite can refuse
+    to run against a Wolfpine that lacks this check rather than collect another
     set of green results that exercised nothing. Deleting the registry entry
     therefore has to turn *this* suite red — a marker quietly withdrawn is
     exactly the failure the marker exists to prevent.

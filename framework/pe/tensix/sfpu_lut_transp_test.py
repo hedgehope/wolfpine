@@ -16,14 +16,14 @@ All three are arch-identical (same opcode, same argument bit ranges in ttsim's
 ``data/bh`` and ``data/wh``, same functional model in the Wormhole and Blackhole
 ISA docs), so every Blackhole case below is paired with the same instruction
 word on a Wormhole unit. The only difference is the float ALU: Blackhole rounds
-through the bit-exact ``fma_model_bh``, Wormhole keeps tt-sim's historical
+through the bit-exact ``fma_model_bh``, Wormhole keeps Wolfpine's historical
 double-precision ``a * b + c``.
 
 Expected bit patterns come from ttsim's C (``lut8_to_fp32`` / ``lut16_to_fp32``
 / ``fma_model_bh`` from ``src/tensix.cpp`` and ``src/fma.cpp``), evaluated on the
 coefficient tables tt-metal's own ``_init_tanh_`` / ``_init_sigmoid_`` load.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.sfpu_lut_transp_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.sfpu_lut_transp_test``) or under
 pytest.
 """
 
@@ -31,9 +31,12 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants, TensixInstructionDecoder
-from tt_sim.util.conversion import conv_to_uint32
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import (
+    TensixConfigurationConstants,
+    TensixInstructionDecoder,
+)
+from framework.util.conversion import conv_to_uint32
 
 # The coefficient tables tt-metal loads, verbatim from tt-llk's
 # ckernel_sfpu_tanh.h ``_init_tanh_`` and ckernel_sfpu_sigmoid.h

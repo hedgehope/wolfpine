@@ -11,7 +11,7 @@ On Wormhole a worker is reachable at its canonical coord on NoC 0 and at its
 does not**: ``RiscFirmwareInitializer::virtual_noc0_coordinate`` early-outs on
 ``|| cluster_.arch() == ARCH::BLACKHOLE``, so the table's two halves are
 byte-identical and every worker coord on the Blackhole wire is canonical, on
-both NoCs. tt-sim registers no Tensix mirror alias here at all
+both NoCs. Wolfpine registers no Tensix mirror alias here at all
 (``ArchProfile.noc1_tensix_mirror_aliases``), so the invariant to check is
 canonical-on-both-NoCs.
 
@@ -24,7 +24,7 @@ the aliases fails, and so does deleting Wormhole's.
 Socket-free and about a second, so it lives in the ordinary suite.
 """
 
-from tt_sim.bridge import Fabric, TensixCore
+from framework.bridge import Fabric, TensixCore
 
 from .bh_device import make_device
 from .coords import TENSIX_COORD_MAP
@@ -53,9 +53,9 @@ def test_every_worker_of_the_full_grid_resolves_to_itself_on_both_nocs():
     wrong_noc0 = [
         c for c in TENSIX_COORD_MAP if noc0.get(c) is None or noc0[c].id_pair != c
     ]
-    assert wrong_noc0 == [], (
-        f"NoC 0 misroutes {len(wrong_noc0)} workers: {wrong_noc0[:5]}"
-    )
+    assert (
+        wrong_noc0 == []
+    ), f"NoC 0 misroutes {len(wrong_noc0)} workers: {wrong_noc0[:5]}"
 
     # NoC 1 is addressed by the *canonical* coord on Blackhole, not the mirror.
     wrong_noc1 = []

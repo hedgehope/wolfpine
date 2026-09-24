@@ -1,7 +1,7 @@
 """Plans for the NoC congestion experiments, with the confounds asserted.
 
 ``noc.congestion`` is the largest ``provenance: unknown`` left in
-``tt_sim/perf/unit_costs.yaml``. :mod:`tt_sim.perf.noc_dataset_sweep` showed
+``framework/perf/unit_costs.yaml``. :mod:`framework.perf.noc_dataset_sweep` showed
 that tt-metal's shipped 740-row measured dataset cannot *derive* one, and the
 reason is identifiability rather than coarseness: every multi-party row varies
 the flow count by resizing a grid, so flow count, path length and link sharing
@@ -11,7 +11,7 @@ port arbitration. One equation, three unknowns.
 
 This module builds the experiments that *would* settle it, for a card. It is
 the planning half of the harness; ``perfbench/nocbench`` is the executing half
-and ``tt_sim.perf.noc_congestion_sweep`` the analysing half. The split exists
+and ``framework.perf.noc_congestion_sweep`` the analysing half. The split exists
 because **the invariants are the experiment**: if a parameterisation lets two
 of {flow count, path length, shared links} move together it has rebuilt the
 very dataset whose unidentifiability is the reason for the work, so every
@@ -26,7 +26,7 @@ Run it
 
     # on the card, once:
     ./build/nocbench --dump-grid                      # -> nocbench-grid-<arch>.csv
-    python3 -m tt_sim.perf.noc_congestion_plan \\
+    python3 -m framework.perf.noc_congestion_plan \\
         --grid nocbench-grid-blackhole.csv --out plan.csv
     ./build/nocbench --plan plan.csv                  # -> nocbench-<arch>.csv
 
@@ -42,7 +42,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tt_sim.network.tt_noc import noc_route_links
+from framework.network.tt_noc import noc_route_links
 
 # ---------------------------------------------------------------------------
 # What each experiment would show, DECLARED BEFORE ANYTHING WAS RUN.
@@ -74,7 +74,7 @@ EXPERIMENT 1 -- THE INTERCEPT (one flow, subordinate swept over the grid).
     measurement of this harness's noise floor at constant predicted latency,
     which every other experiment is read against.
   * TORUS WRONG: latency rises with |dx| along a row. That would mean the NoC
-    is not the unidirectional ring tt-sim models (bidirectional, or shortest
+    is not the unidirectional ring Wolfpine models (bidirectional, or shortest
     path), and every hop count in the cost model is wrong before congestion is
     reached. This is a cheap, decisive check nobody has run.
 
@@ -88,7 +88,7 @@ POSITIVE CONTROL -- transaction size, one flow, geometry frozen.
   Held fixed: one flow; both coordinates; transaction count; direction; NoC.
   Varying: bytes per transaction.
 
-  tt-sim DOES model this (the NIU holds its injection link for one flit per
+  Wolfpine DOES model this (the NIU holds its injection link for one flit per
   cycle, `noc.link_bandwidth`), so this series must rise with size against the
   simulator. If it does not, the harness is not measuring anything and every
   flat reading elsewhere is meaningless. This is the control that makes the
@@ -108,7 +108,7 @@ POSITIVE CONTROL -- two masters READING from one subordinate, sharing that
   per-RISC SOFTWARE one, so with two issuers each RISC's wait is satisfied by
   ANY N acks and both kernels stop at the halfway point. That control reads the
   single-flow time whether the injection port serialises perfectly or not at
-  all, which was shown by deleting the mechanism in tt-sim and watching the
+  all, which was shown by deleting the mechanism in Wolfpine and watching the
   control not move. It is also a configuration that can HANG a card
   (BRISC_WR_CMD_BUF and NCRISC_WR_CMD_BUF are both command buffer 0), and
   `check_invariants` now refuses it.
@@ -126,12 +126,12 @@ POSITIVE CONTROL -- two masters READING from one subordinate, sharing that
 
   * THE FLOWS CONTEND: per-transaction cost roughly DOUBLES when the second
     master joins -- the subordinate's port carries twice the payload and each
-    master waits for its own responses, so each sees about 2x. Against tt-sim
+    master waits for its own responses, so each sees about 2x. Against Wolfpine
     this is the prediction under the model as it stands, because `send_response`
     claims the responder's `_tx_free_cycle`; ablating `claim_injection_port` to
     a no-op must collapse it to ~1x, and if it does not this control is as
     blind as the one it replaces.
-  * THE FLOWS DO NOT CONTEND: flat. On tt-sim that would mean the injection
+  * THE FLOWS DO NOT CONTEND: flat. On Wolfpine that would mean the injection
     port is not on this path and the control is unusable. On a card it would
     mean the two flows never overlapped in time, which invalidates experiments
     2 and 3.
@@ -140,16 +140,16 @@ POSITIVE CONTROL -- two masters READING from one subordinate, sharing that
   response streams leaving one tile share the first router-to-router link out
   of it as well as the port, and on a card those are indistinguishable. That is
   fine for a positive control, whose only job is to show the flows really
-  contend; the attribution is experiment 2's job. On tt-sim they ARE
-  distinguishable, because tt-sim charges nothing whatever for a
+  contend; the attribution is experiment 2's job. On Wolfpine they ARE
+  distinguishable, because Wolfpine charges nothing whatever for a
   router-to-router link.
 
-  [ADDENDUM 2026-08-05: tt-sim now charges a router-to-router link its
+  [ADDENDUM 2026-08-05: Wolfpine now charges a router-to-router link its
   occupancy, and the conclusion above survives with a different reason -- the
   control still reads 1.48x, unchanged to the digit. Two response streams
   leaving one NIU are already spaced one occupancy apart by its port, so they
   reach the shared first link one occupancy apart and it is never busy. The
-  port and the link remain separable on tt-sim; they are still one reading on
+  port and the link remain separable on Wolfpine; they are still one reading on
   a card.]""",
     "shared": """\
 EXPERIMENT 2 -- THE COEFFICIENT. Two flows, N FIXED AT 2, positioned so their
@@ -181,13 +181,13 @@ EXPERIMENT 2 -- THE COEFFICIENT. Two flows, N FIXED AT 2, positioned so their
   * NO CONGESTION EFFECT: flat. Believable ONLY if the size control rose, the
     self-port control doubled, and the two flows' timed regions overlapped (the
     sweep computes the overlap fraction from the raw t0/t1 stamps). Against
-    tt-sim it MUST be flat -- the model charges only the issuing NIU's own
+    Wolfpine it MUST be flat -- the model charges only the issuing NIU's own
     port, and nothing at all for a router-to-router link -- so a non-flat
     simulator reading means the plan is not holding what it claims.
 
     [ADDENDUM 2026-08-05, and deliberately an addendum: the paragraphs above
     were written before anything ran and are not edited. The final sentence
-    described tt-sim as it was, and tt-sim has since changed -- the model now
+    described Wolfpine as it was, and Wolfpine has since changed -- the model now
     charges each router-to-router link its occupancy, so a non-flat simulator
     reading at a saturating size is the expected one and no longer indicts the
     plan. Everything above about the CARD is untouched, and the card's answer
@@ -216,7 +216,7 @@ EXPERIMENT 3 -- THE CONTENTION CURVE. N flows into ONE subordinate, every
   the sweep can report the curve against both N and the sharing it implies
   rather than pretending one of them is absent.
 
-  Any congestion model tt-sim ever gains must reproduce this curve; that is the
+  Any congestion model Wolfpine ever gains must reproduce this curve; that is the
   "validate, not derive" role rung 2 was climbed for.""",
     "vc": """\
 EXPERIMENT 4 -- VIRTUAL CHANNEL ARBITRATION. TWO writers whose payloads share
@@ -243,7 +243,7 @@ EXPERIMENT 4 -- VIRTUAL CHANNEL ARBITRATION. TWO writers whose payloads share
   * VC ARBITRATION IS THE MECHANISM: vc=1 costs about twice vc in {0, 2, 3}.
   * LINK OCCUPANCY IS THE MECHANISM: all four VCs read the same, and equal to
     the shared-link-1 point of experiment 2.
-  * tt-sim models no VCs at all, so it must be flat there, and a non-flat
+  * Wolfpine models no VCs at all, so it must be flat there, and a non-flat
     simulator reading means the plan is not holding what it claims.
 
   THIS EXPERIMENT USED TO BE BIDIRECTIONAL AND IT HUNG A CARD. The previous
@@ -251,7 +251,7 @@ EXPERIMENT 4 -- VIRTUAL CHANNEL ARBITRATION. TWO writers whose payloads share
   with the write's VC swept. On a Blackhole card the first and only
   `direction=BIDIR` point never returned, while all 79 unidirectional flows in
   the same session completed. It is not the VC: every one of those 79 flows
-  issued its writes on VC 0. It is not the kernel: tt-sim executes the same
+  issued its writes on VC 0. It is not the kernel: Wolfpine executes the same
   binary and the same plan (64 x 4096 B, BIDIR, VC 0-3) to completion in 4958
   cycles. tt-metal's own `core_bidirectional` suite disables its entire
   directed-ideal family -- same-kernel AND different-kernel, write-VC sweep
@@ -439,7 +439,7 @@ def to_noc_space(coord, noc, grid_x, grid_y):
 
     NoC 1's origin is the opposite corner, so a tile's NoC 1 coordinate is the
     mirror ``(grid_x - 1 - x, grid_y - 1 - y)`` -- the same convention
-    :func:`tt_sim.network.tt_noc.noc_hop_count` documents. Mirroring both
+    :func:`framework.network.tt_noc.noc_hop_count` documents. Mirroring both
     endpoints negates dx and dy, which is exactly the reversal of routing
     direction that distinguishes the two NoCs, so everything below works on
     either NoC with no special case.
@@ -672,7 +672,7 @@ def _refuse_unrunnable(point):
 
     **A bidirectional flow.** On a Blackhole card the first and only
     ``DIR_BIDIR`` point never returned, while all 79 unidirectional flows in
-    the same session completed. tt-sim runs the identical binary and plan to
+    the same session completed. Wolfpine runs the identical binary and plan to
     completion, so the root cause is something the simulator does not model and
     cannot be found from here; tt-metal's own ``core_bidirectional`` suite
     disables its whole directed-ideal family with ``GTEST_SKIP() << "Skipping
@@ -1314,9 +1314,12 @@ def plan_rows(points, grid, first_run=0):
 
 def write_plan(path, rows, grid, header_notes=()):
     lines = [
-        "# nocbench plan -- built by tt_sim.perf.noc_congestion_plan",
+        "# nocbench plan -- built by framework.perf.noc_congestion_plan",
         f"# arch={grid.arch} grid_x={grid.grid_x} grid_y={grid.grid_y} coord_space={grid.coord_space}",
         "# *_lx/_ly logical, *_nx/_ny the coordinate a kernel addresses, *_px/_py SoC-physical NoC 0",
+        # Deliberately still ``tt_sim_``: it mirrors the TT_SIM_TENSIX_COORDS
+        # env var, which keeps its name, and plans recorded before the Wolfpine
+        # rename carry this key. Do not rebrand it.
         f"# tt_sim_tensix_coords={tensix_coords(rows)}",
     ]
     lines += [f"# {n}" for n in header_notes]
@@ -1329,7 +1332,7 @@ def write_plan(path, rows, grid, header_notes=()):
 def tensix_coords(rows):
     """The ``TT_SIM_TENSIX_COORDS`` value a simulator run of this plan needs.
 
-    tt-sim materialises only the worker tiles named in that variable and warns
+    Wolfpine materialises only the worker tiles named in that variable and warns
     (loudly) about traffic to any other, so a plan that touches nine cores needs
     all nine listed. The coordinates are the ones the wire carries, which is the
     ``*_nx/_ny`` pair.

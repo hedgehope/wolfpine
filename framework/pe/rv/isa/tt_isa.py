@@ -1,8 +1,8 @@
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.pe import ProcessingElement
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.util.conversion import conv_to_bytes
+from framework.memory.memory import MemoryStall
+from framework.pe.pe import ProcessingElement
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.util.conversion import conv_to_bytes
 
 
 class RV_TT_ISA(RV_ISA):

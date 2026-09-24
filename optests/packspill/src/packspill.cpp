@@ -5,7 +5,7 @@
 // datum counter from face_r_dim/num_faces — never from the CB's page size. So a
 // CB page smaller than a tile is written out of bounds by its own producer.
 // That is a claim about *hardware*, and this program pins it against the vendor
-// reference simulator rather than against tt-sim's own opinion.
+// reference simulator rather than against Wolfpine's own opinion.
 //
 // Shape: the output CB is one full Int32 tile of L1 (4096 B) carved into
 // SPILL_PAGES = 16 pages of 256 B each. The compute kernel reserves ONE page
@@ -16,7 +16,7 @@
 //   page 0 alone valid under the contract -> pages 1..15 are zero
 //   pack_tile writes a whole tile         -> pages 1..15 hold datums 64..1023
 //
-// optests/diff.sh runs this on tt-sim and on ttsim and compares the dumps:
+// optests/diff.sh runs this on Wolfpine and on ttsim and compares the dumps:
 //
 //   TT_SIM_ARCH=blackhole ./optests/diff.sh packspill
 //

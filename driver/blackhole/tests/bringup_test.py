@@ -16,8 +16,8 @@ from types import SimpleNamespace
 from driver.blackhole.bringup import main as bringup_main
 from driver.blackhole.server.bh_device import make_device
 from driver.blackhole.server.coords import DRAM_COORD_MAP, TENSIX_COORD_MAP
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
 
 
 def _msg(cmd, core, addr, size=0, data=b""):

@@ -18,13 +18,13 @@
 //                  does. This is what `optests/diff.sh tilizematmul` runs, and
 //                  it is the false-positive guard: a correct tilize+matmul
 //                  kernel must stay green. Exit 0, exact, on both arches.
-//   `buggy`        the reported bug. tt-sim reaches the same wedge silicon
+//   `buggy`        the reported bug. Wolfpine reaches the same wedge silicon
 //                  does: **wrong numbers** on Blackhole (1024/1024 elements
 //                  wrong, self-check fails, exit 1) and a **silent hang** on
 //                  Wormhole (no self-check line, timeout). The vendor
 //                  reference sim computes a (wrong but quiet) answer.
 //
-//                  There is deliberately *no* tt-sim check that names the
+//                  There is deliberately *no* Wolfpine check that names the
 //                  cause: "the unpacker is in tilize mode" is not expressible
 //                  against the hardware configuration registers, which are
 //                  byte-identical at the matmul's UNPACRs between the two
@@ -42,7 +42,7 @@
 //
 // Runs on both architectures. (It once needed `TT_SIM_ARCH=wormhole`, because
 // the Blackhole tilize pack MOP drives packers 2/3 off THCON_SEC1_REG1 and
-// tt-sim's packer raised on it; that is fixed -- see optests/tilize.)
+// Wolfpine's packer raised on it; that is fixed -- see optests/tilize.)
 
 #include <bit>
 #include <cmath>

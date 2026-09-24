@@ -5,7 +5,7 @@
 // tt-metal's shipped `noc_latencies.yaml` says a pipelined burst of L1 reads
 // costs 25 cycles per transaction on Wormhole and 35 on Blackhole, at every
 // transaction size from 64 B up to the point where the link binds, and in both
-// geometries it measures. tt-sim's reconstruction of the issue loop costs 18
+// geometries it measures. Wolfpine's reconstruction of the issue loop costs 18
 // and 19. The roadmap named the difference the initiator's
 // outstanding-read-request credit limit and recorded it as unpublished.
 //
@@ -74,12 +74,12 @@
 // It matters because that is the axis tt-metal's own dataset structurally
 // cannot see -- every DRAM row in `tm_noc_latencies` is ONE TRANSACTION PER
 // BARRIER, so the vendor campaign never varies the batch at a DRAM source -- and
-// because a consumer's optimisation turns on exactly it. tt-sim charges an extra
+// because a consumer's optimisation turns on exactly it. Wolfpine charges an extra
 // batched 2 KB DRAM read pure bandwidth: 86 cycles on Wormhole, which is link
 // occupancy plus the DRAM channel's excess and NOTHING else. Endpoint queueing,
 // outstanding-transaction credits and response reordering are all charged zero,
 // by construction, so if a part disagrees the gap shows up here and nowhere
-// else. (`tt_sim/network/noc_cost_model_test.py` pins the simulator side of that
+// else. (`framework/network/noc_cost_model_test.py` pins the simulator side of that
 // claim; this program is the card side of it.)
 //
 // `--dram` adds three experiments and changes nothing about the others:
@@ -414,7 +414,7 @@ int main(int argc, char** argv) {
     // The N axis is the SAME N axis. That is the whole design: the marginal is
     // read by differencing consecutive burst lengths, which removes the loop's
     // constant term, so what is left is the cost of one more transaction in
-    // flight -- the quantity tt-sim charges as pure bandwidth and the vendor's
+    // flight -- the quantity Wolfpine charges as pure bandwidth and the vendor's
     // dataset cannot reach, because every DRAM row in it holds N at one.
     const uint32_t dram_burst_bytes = 2048;  // one bfloat16 tile, the primary point
     if (dram_arm) {
@@ -883,7 +883,7 @@ int main(int argc, char** argv) {
     // Deliberately not a pass/fail: this program's job is to say which
     // mechanism the numbers are consistent with, and "none of them" has to be
     // expressible. The arithmetic is left to
-    // `python3 -m tt_sim.perf.noc_dataset_sweep --arch <arch>` plus the
+    // `python3 -m framework.perf.noc_dataset_sweep --arch <arch>` plus the
     // README's table; what is printed here is only the one reading that needs
     // no arithmetic at all.
     printf("nocreadbench: wrote %s (%zu failures)\n", out_path.c_str(), failures);
@@ -990,7 +990,7 @@ int main(int argc, char** argv) {
         } else if (worst_delta == 0 && worst_inflight == 0) {
             printf("  VERDICT: DEGENERATE -- neither instrument moved off its rest value in\n"
                    "  any point. Either the sampling load is being hoisted, or reads complete\n"
-                   "  before the next sample. EXPECTED against tt-sim, whose responses resolve\n"
+                   "  before the next sample. EXPECTED against Wolfpine, whose responses resolve\n"
                    "  inside the pump that issued them. On a card this is a broken run: do not\n"
                    "  read anything into the rate columns.\n");
         } else if (worst_delta == 0 || worst_inflight == 0) {

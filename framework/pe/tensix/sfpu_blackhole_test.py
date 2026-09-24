@@ -1,14 +1,14 @@
 """Tests for the Blackhole SFPU superset ops (SFPGT / SFPLE / SFPMUL24 / SFPARECIP).
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.sfpu_blackhole_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.sfpu_blackhole_test``) or under
 pytest. Drives a real ``VectorUnit`` (via a coprocessor) so the handlers are
 exercised exactly as a decoded instruction would reach them; also checks the
 decoder recognises the new opcodes. SFPARECIP's LUT-based reciprocal is a
 verbatim port of ttsim's data/bh reference, checked against exact bit patterns.
 """
 
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixInstructionDecoder
 
 
 def _vector_unit():

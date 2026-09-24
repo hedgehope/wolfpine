@@ -1,4 +1,4 @@
-// Minimal reproducer for tt-sim's DRAM tile modelling only the bottom 10 MiB of
+// Minimal reproducer for Wolfpine's DRAM tile modelling only the bottom 10 MiB of
 // each 1 GiB bank, so a *top-down* DRAM allocation lands outside the registered
 // address ranges and kills the simulator server.
 //
@@ -9,9 +9,9 @@
 //
 //   IndexError: Provided address '0x3fffd000' does not match any registered
 //   memory spaces
-//     tt_sim/memory/memory.py:90 _locate_memory_space
+//     framework/memory/memory.py:90 _locate_memory_space
 //
-// `tt_sim/device/tiles.py DRAMTile.__init__` registers exactly two 10 MiB
+// `framework/device/tiles.py DRAMTile.__init__` registers exactly two 10 MiB
 // banks, at 0x0 and at 0x4000_0000. Real Wormhole/Blackhole DRAM banks are
 // 1 GiB apiece (hence the 0x4000_0000 stride), so every address between
 // 0xA0_0000 and 0x4000_0000 is unmapped. tt-metal's default *bottom-up* DRAM
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
         src_vec[i] = 0xA5A50000u + i;
     }
 
-    // On tt-sim this write is already fatal to the simulator server.
+    // On Wolfpine this write is already fatal to the simulator server.
     distributed::EnqueueWriteMeshBuffer(cq, buf, src_vec, false);
 
     std::vector<uint32_t> out_vec;

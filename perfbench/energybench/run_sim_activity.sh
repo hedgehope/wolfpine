@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # The SIMULATOR half of the energy harness: run each energybench arm against
-# tt-sim under the counter writer and reduce each run to a per-launch activity
+# Wolfpine under the counter writer and reduce each run to a per-launch activity
 # vector.
 #
 # This produces the model's INPUT. It fits nothing and predicts nothing -- the
 # coefficients do not exist yet and will be fitted to silicon by
-# `tt_sim.perf.energy_rank` once `run_card.sh` has been run at a card.
+# `framework.perf.energy_rank` once `run_card.sh` has been run at a card.
 #
 #   TT_METAL_HOME=/path/to/tt-metal ./perfbench/energybench/run_sim_activity.sh
 #   ... --arch wormhole --out /tmp/activity.csv
@@ -13,7 +13,7 @@
 #   ... --scale 4                     # multiply every arm's inner count
 #
 # The cost model is ON by default and should stay on: every `*_busy_cycles` and
-# `*_stall_cycles` term is ABSENT, not zero, without it (tt_sim/trace/counters.py
+# `*_stall_cycles` term is ABSENT, not zero, without it (framework/trace/counters.py
 # says so in its module docstring), so a cost-model-off activity matrix has whole
 # columns of zeros that no fit can use. `--no-cost-model` is there to show that.
 #
@@ -62,7 +62,7 @@ done
 : "${TT_METAL_HOME:?set TT_METAL_HOME to your built tt-metal checkout}"
 
 # --- the reduction's imports, BEFORE any arm runs ------------------------
-# `tt_sim.perf.energy_activity` pulls in `tt_sim.trace.report` -> `tt_sim.trace.dwarf`
+# `framework.perf.energy_activity` pulls in `framework.trace.report` -> `framework.trace.dwarf`
 # -> `elftools`, and an interpreter without pyelftools throws only when the FIRST
 # ARM HAS ALREADY RUN -- a full simulator boot per arm, thrown away, with the
 # traceback printed and the loop carrying on to the next arm. That is the same
@@ -75,15 +75,15 @@ import importlib
 import sys
 
 missing = []
-# `tt_sim.perf.energy_activity` imports at the top level and would pass on its
+# `framework.perf.energy_activity` imports at the top level and would pass on its
 # own: the chain that actually breaks is deferred to reduction time, inside
 # main(), which is precisely why the failure used to arrive one simulator boot
 # too late. So the deferred import is named here explicitly.
 for module in (
     "numpy",
     "elftools.elf.elffile",
-    "tt_sim.perf.energy_activity",
-    "tt_sim.trace.report",
+    "framework.perf.energy_activity",
+    "framework.trace.report",
 ):
     try:
         importlib.import_module(module)
@@ -99,7 +99,7 @@ then
   echo "" >&2
   echo "REFUSING TO START: $PY cannot run the reduction step, so every arm would" >&2
   echo "boot the simulator, produce counters and then fail to reduce them." >&2
-  echo "pyelftools is the usual one missing (tt_sim/trace/dwarf.py needs it)." >&2
+  echo "pyelftools is the usual one missing (framework/trace/dwarf.py needs it)." >&2
   echo "Use an interpreter that has the trace dependencies, e.g." >&2
   echo "  TT_SIM_PYTHON=/path/to/venv/bin/python3 $0 ..." >&2
   exit 4
@@ -153,7 +153,7 @@ for arm in $ARMS; do
   # design matrix quietly one workload shorter than the operator believes. Say so
   # at the time, name it again in the summary, and exit non-zero.
   if ! PYTHONPATH="$REPO:${PYTHONPATH:-}" "$PY" \
-      -m tt_sim.perf.energy_activity \
+      -m framework.perf.energy_activity \
         --counters "$cdir" --label "$label" --arm "$arm" --arch "$ARCH" \
         --inner "$inner" --launches "$ITERS" --cost-model "$COST_MODEL" \
         --out "$OUT" --append; then

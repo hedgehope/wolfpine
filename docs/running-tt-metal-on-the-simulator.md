@@ -1,13 +1,13 @@
 # Running tt-metal programs on the simulator
 
 This is a runbook for executing **real tt-metal programs** (e.g. the upstream
-`programming_examples/`) against tt-sim instead of physical hardware. It is
+`programming_examples/`) against Wolfpine instead of physical hardware. It is
 written to be followed both by a human and by an automated agent driving a
 test cycle.
 
 The mechanism: tt-metal's UMD has a "simulation" chip backend. When
 `TT_METAL_SIMULATOR` points at `driver/wormhole/`, UMD spawns
-`driver/wormhole/run.sh`, which starts the tt-sim wire-bridge server
+`driver/wormhole/run.sh`, which starts the Wolfpine wire-bridge server
 (`python -m driver.wormhole.server`). The tt-metal host binary then talks to
 the simulator over an NNG IPC socket exactly as it would talk to real silicon.
 Only the **slow-dispatch** launch path is supported (see Limitations).
@@ -29,7 +29,7 @@ sets:
 | Variable | Value (this environment) | Meaning |
 | --- | --- | --- |
 | `TT_METAL_RUNTIME_ROOT` | `…/tt-metal-0.74/tt-metal` | tt-metal checkout the host binaries live in |
-| `TT_METAL_SIMULATOR` | `…/tt-sim/driver/wormhole` | dir UMD launches (`run.sh`) as the sim device |
+| `TT_METAL_SIMULATOR` | `…/Wolfpine/driver/wormhole` | dir UMD launches (`run.sh`) as the sim device |
 | `TT_METAL_SLOW_DISPATCH_MODE` | `1` | forces `EnqueueProgram` to fall back to `detail::LaunchProgram` |
 | `LD_LIBRARY_PATH` | `…/tt-metal/build_Release/lib:…` | tt-metal shared libs |
 
@@ -37,7 +37,7 @@ If you are not using the venv, export those four yourself.
 
 **Point them at the right tt-metal, and check which one you have.** More than one
 checkout may exist on a development box, and a stale one fails in ways that look
-like a tt-sim bug rather than a configuration mistake:
+like a Wolfpine bug rather than a configuration mistake:
 
 - A **stale checkout** aborts in `std::bad_alloc` when an op test or example runs
   against it. On this machine `~/projects/riscv/tt-metal` is such a checkout; the
@@ -95,7 +95,7 @@ workers like `(0, 5)`).
 
 ### 1.3 Multiple Tensix tiles
 
-**Nothing to set.** tt-sim materialises exactly the workers a program uses, as
+**Nothing to set.** Wolfpine materialises exactly the workers a program uses, as
 it discovers them, so single-core and 72-core programs both just run:
 
 ```bash
@@ -108,11 +108,11 @@ The server's `ready` line says `(on demand)`, and its shutdown line reports what
 the program actually needed:
 
 ```
-[server] tt-sim Wormhole ready (tensix=[(1, 1)] (on demand), … compute_grid=8x9, …)
+[server] Wolfpine Wormhole ready (tensix=[(1, 1)] (on demand), … compute_grid=8x9, …)
 [server] shutdown after 5547 messages, 72 tensix materialised (71 on demand)
 ```
 
-How it decides, in `tt_sim/bridge/materialise.py`: a worker coordinate starts as
+How it decides, in `framework/bridge/materialise.py`: a worker coordinate starts as
 a journalling stand-in that is wire-identical to the old `NullCore` (writes
 swallowed, reads zero — which is what lets the grid-wide `go=INIT` handshake
 complete), and a real tile is built at the first of three signals — a host write
@@ -145,7 +145,7 @@ its compute grid, filled column-major, which is what `split_work_to_cores` →
 `num_cores_to_corerangeset` does. The column is as tall as *that* grid, so the
 answer moves with §1.2 — with no override the 6th core is `1-7` (a 9-tall
 column, skipping the ethernet row), under `…OVERRIDE_TODEPRECATE=3,4` it is
-`2-1` (a 5-tall one). tt-sim reads the override out of the environment for you,
+`2-1` (a 5-tall one). Wolfpine reads the override out of the environment for you,
 so a plain count is correct in both regimes; the resolved grid is printed in the
 server's `ready` line. If a program places cores some other way you get the exact
 go=GO error (below) naming what to add. The two vars are **mutually exclusive** —
@@ -184,9 +184,9 @@ set one, not both.
   in pinned mode.** The grid-wide init handshake (`go=INIT`) touches every
   worker and is harmless, but a `go=GO` only ever targets cores a program
   actually runs on. When one reaches an un-materialized worker the server prints
-  `ERROR: kernel launch (go=GO) sent to functional worker X-Y … which tt-sim did
+  `ERROR: kernel launch (go=GO) sent to functional worker X-Y … which Wolfpine did
   not materialise …` (naming the exact coord to add). This is the unambiguous
-  "start tt-sim with more cores" signal: add the named `X-Y` to
+  "start Wolfpine with more cores" signal: add the named `X-Y` to
   `TT_SIM_TENSIX_COORDS` and re-run.
   **The run ends there — the server stops the host as well as itself.** tt-metal
   has no "simulator died" path (UMD blocks in `recv_from_device` with no
@@ -255,7 +255,7 @@ own 4-tall columns, giving exactly the eight coords above. (It did not always �
 it used to fill a fixed 4×5 block first, producing
 `1-1,1-2,1-3,1-4,1-5,2-1,2-2,2-3`, three of which the program never launches on
 while three it does launch on were missing. That is the class of bug the
-go=GO error below exists to catch, and `tt_sim/bridge/grid_test.py` now pins the
+go=GO error below exists to catch, and `framework/bridge/grid_test.py` now pins the
 order.)
 
 #### 1.3.2 What a bigger grid actually costs (measured 2026-08-12)
@@ -279,7 +279,7 @@ worker per compute core. Every run computed the right answer — the example's o
 
 **Wall clock is roughly flat in the worker count for a fixed problem.** That is
 not a paradox: the total simulated work is the same 640 tiles however they are
-split, tt-sim executes it sequentially, and firmware-loop parking means a worker
+split, Wolfpine executes it sequentially, and firmware-loop parking means a worker
 waiting on its go message costs almost nothing. The ~1.8× spread from 1 to 80 is
 the per-tile fixed cost — construction, the launch handshake, the pump visiting
 each tile — not the compute. **A wide grid is not the expensive thing a
@@ -329,7 +329,7 @@ shape, not as a benchmark.
 Real Wormhole and Blackhole cards ship with **NoC coordinate translation**
 enabled: the NIU recognises a second, *translated* coordinate range on top of
 the SoC-physical one, and tt-metal addresses workers, ethernet and (on
-Blackhole) DRAM in that range. tt-sim's default is the other configuration —
+Blackhole) DRAM in that range. Wolfpine's default is the other configuration —
 translation off — and that is the one in which a "physical" NoC coordinate is
 *NoC-dependent*, because NoC 1's origin is the opposite corner of the grid.
 Since tt-metal's kernel codegen assumes worker coordinates are NoC-independent
@@ -346,13 +346,13 @@ NoC 1 all resolve correctly under translation.
 | Variable | Set by | Meaning |
 | --- | --- | --- |
 | `TT_METAL_MOCK_CLUSTER_DESC_PATH` | you, in the shell that runs the **host binary** | the cluster descriptor UMD reads; its `noc_translation` flag decides which coordinates go on the wire |
-| `TT_SIM_NOC_TRANSLATION` | rarely — tests, and driving the sim with no host | overrides tt-sim's own mode. `1/true/yes/on` or `0/false/no/off` |
+| `TT_SIM_NOC_TRANSLATION` | rarely — tests, and driving the sim with no host | overrides Wolfpine's own mode. `1/true/yes/on` or `0/false/no/off` |
 
 ```bash
 # Wormhole
-export TT_METAL_MOCK_CLUSTER_DESC_PATH=~/tt-sim/driver/wormhole/cluster_descriptor.yaml
+export TT_METAL_MOCK_CLUSTER_DESC_PATH=~/wolfpine/driver/wormhole/cluster_descriptor.yaml
 # Blackhole
-export TT_METAL_MOCK_CLUSTER_DESC_PATH=~/tt-sim/driver/blackhole/cluster_descriptor.yaml
+export TT_METAL_MOCK_CLUSTER_DESC_PATH=~/wolfpine/driver/blackhole/cluster_descriptor.yaml
 ```
 
 Both descriptors are checked in, declare `noc_translation: true` with nothing
@@ -366,13 +366,13 @@ pointer is non-null.
 spawns `run.sh` with `uv_spawn` and a NULL `env`, which libuv documents as "the
 parent's environment is used", so the simulator inherits
 `TT_METAL_MOCK_CLUSTER_DESC_PATH` from the host exactly as it already inherits
-`NNG_SOCKET_ADDR`. tt-sim reads *the same file the host read* and keys its NoC
+`NNG_SOCKET_ADDR`. Wolfpine reads *the same file the host read* and keys its NoC
 directories the same way. Deriving the mode from the host's own variable rather
-than from a second tt-sim-specific one removes the whole class of failure where
+than from a second Wolfpine-specific one removes the whole class of failure where
 the two ends disagree. The server says which way it went:
 
 ```
-[server] tt-sim Wormhole ready (… noc_translation=on (noc_translation: true in …/cluster_descriptor.yaml), …)
+[server] Wolfpine Wormhole ready (… noc_translation=on (noc_translation: true in …/cluster_descriptor.yaml), …)
 ```
 
 **If the variable is missing, you get an error, not a wrong answer.** The
@@ -382,7 +382,7 @@ to the other convention:
 
 ```
 [server] ERROR: NoC coordinate-convention mismatch.
-[server]   tt-sim is keyed for translated coordinates (noc_translation: true in …),
+[server]   Wolfpine is keyed for translated coordinates (noc_translation: true in …),
 [server]   but the host addressed 1-1, which is a untranslated (SoC-physical) coordinate.
 [server]   The host program is not exporting TT_METAL_MOCK_CLUSTER_DESC_PATH=… — export it
 [server]   in the same shell that runs the tt-metal binary.
@@ -433,7 +433,7 @@ unchanged.
 
 The upstream examples are pre-built binaries under
 `$TT_METAL_RUNTIME_ROOT/build/programming_examples/` named
-`metal_example_<name>`. The tt-sim examples in `examples/<name>/src/` are the
+`metal_example_<name>`. The Wolfpine examples in `examples/<name>/src/` are the
 same kind of program — build one with `cmake -B build -S . && cmake --build build` and run
 `./build/<name>` from its `src/` dir (see `driver/wormhole/README.md`), or run the whole
 set via `python3 -m examples.examples_test`.
@@ -621,14 +621,14 @@ deferred until the first 512 have run, and a run that never issues an MVMUL
 never even imports numba. **512 is a measured compromise, not a placeholder** —
 engaging repays only after ~1580 further MVMULs, so lowering it to 128 costs
 `matmulidx` (384 MVMULs) 789 ms for nothing, while raising it to 1024 costs
-`matmulblock` 260 ms; see `tt_sim/pe/tensix/backends/fpu_jit.py`. Set
+`matmulblock` 260 ms; see `framework/pe/tensix/backends/fpu_jit.py`. Set
 `TT_SIM_NUMBA=1` to compile on the first MVMUL, or `=0` to stay on numpy for
 good.
 
 `TT_SIM_COST_MODEL=1` (truthy = `1/true/yes/on`) turns on the per-unit
 cycle-cost model: instead of every op retiring in the tick it was issued, a unit
 is occupied for the number of cycles
-[`tensix_instruction_costs.yaml`](../tt_sim/pe/tensix/tensix_instruction_costs.yaml)
+[`tensix_instruction_costs.yaml`](../framework/pe/tensix/tensix_instruction_costs.yaml)
 gives its opcode, which back-pressures the thread that issued it. Only the
 Tensix **matrix unit (FPU)** is wired up so far, so today the switch changes
 nothing on any in-tree workload — every matrix op the ISA docs cost is a
@@ -666,7 +666,7 @@ tooling. See **`driver/wormhole/docs/profiling.md`** for the full walkthrough.
 
 ### 4.3a Where your cycles went: the NoC event trace
 
-**This is the section to point an outside consumer at.** It needs no tt-sim
+**This is the section to point an outside consumer at.** It needs no Wolfpine
 knowledge, no patch to your program, and no card.
 
 **Two costs to budget for before you turn it on**, both measured on nekbone by
@@ -679,7 +679,7 @@ the nekbone team (2026-08-21):
   purely as an artefact. **Instrument both sides or neither.**
 - **In simulation it materialises the whole declared worker grid** — the
   profiler's readback sweeps every core, and a host read to a released core is
-  tt-sim's "this worker is used" signal. Measured: 80 workers instead of 1,
+  Wolfpine's "this worker is used" signal. Measured: 80 workers instead of 1,
   92 s against 27 s. This is the same mechanism as the DPRINT cost documented
   in §4.7, and the same remedy applies: pin the worker set with
   `TT_SIM_TENSIX_COORDS` (§1.3) and the tax disappears. Profiler reads to
@@ -697,12 +697,12 @@ is not built yet.)
 not ours. It force-enables the device profiler and injects
 `-DPROFILE_NOC_EVENTS=1` into every kernel compile, and the device side writes
 an 8-byte record per NoC transaction into the ordinary per-RISC profiler L1
-vector — the *same* buffer the zone markers use. It works against tt-sim on both
+vector — the *same* buffer the zone markers use. It works against Wolfpine on both
 architectures, unmodified:
 
 ```bash
 export TT_METAL_HOME=/path/to/tt-metal
-export TT_METAL_SIMULATOR=/path/to/tt-sim/driver/blackhole   # or .../wormhole
+export TT_METAL_SIMULATOR=/path/to/wolfpine/driver/blackhole   # or .../wormhole
 export TT_METAL_SLOW_DISPATCH_MODE=1
 export TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1
 
@@ -732,7 +732,7 @@ other's trace.** This bites a before/after comparison in particular. Two ways
 out, and the first is better:
 
 - **Set `TT_METAL_PROFILER_DIR` per run.** Then the runs are fully independent
-  and can proceed **in parallel** — tt-sim itself is concurrency-safe, because
+  and can proceed **in parallel** — Wolfpine itself is concurrency-safe, because
   UMD picks a random free port per process (`simulation_host.cpp`, 50000–59999,
   guarded by `is_port_free`), so several simulator servers coexist happily.
 - Or serialise the runs and copy the artefacts out between them.
@@ -741,7 +741,7 @@ Then decompose that core's span by mechanism, with no card data and no
 simulator-quality criterion:
 
 ```bash
-python3 -m tt_sim.perf.noc_events --sim .logs/noc_trace_dev0_ID0.json \
+python3 -m framework.perf.noc_events --sim .logs/noc_trace_dev0_ID0.json \
     --decompose-only --report report.txt --json report.json
 ```
 
@@ -798,7 +798,7 @@ time. They are separate spans and this leg will not blend them into one number.
   the same intervals**, not independent measurements.
 - **Multicast counts as one command**, correctly: the events come from
   tt-metal's kernel-side instrumentation, one stamp per
-  `noc_async_write_multicast`, even though tt-sim internally fans a multicast out
+  `noc_async_write_multicast`, even though Wolfpine internally fans a multicast out
   into one unicast write per destination. Link occupancy is separately charged as
   a de-duplicated tree.
 - Recording is **BRISC/NCRISC only**, and firmware traffic is excluded, so the
@@ -838,7 +838,7 @@ time. They are separate spans and this leg will not blend them into one number.
     artefact, and a bucket only the simulator could fill would break the
     sim-versus-card comparison the same partition is used for.
 
-**Sizing a run, because device cycles alone will mislead you.** tt-sim costs
+**Sizing a run, because device cycles alone will mislead you.** Wolfpine costs
 roughly 3.6–6k simulated cycles/s *when one Tensix tile is busy* — but the pump
 ticks every materialised worker, so **wall time scales with cores as well as
 cycles**. A span of N cycles on M cores costs about M times what the same span
@@ -956,7 +956,7 @@ that waits repeatedly but briefly never accumulates.
 ### 4.6 `[NoC1-SHADOW]` — a worker that is unreachable on NoC 1
 
 NoC 1's destination directory is keyed in **two coordinate conventions at
-once**, and this is not a modelling choice tt-sim is free to make: a real
+once**, and this is not a modelling choice Wolfpine is free to make: a real
 kernel emits both in the same run. Verified on the captured
 `noc_tile_transfer` trace, replayed offline:
 
@@ -984,7 +984,7 @@ built through `RiscFirmwareInitializer::virtual_noc0_coordinate`, which
 early-outs on `|| cluster_.arch() == ARCH::BLACKHOLE` — unconditionally, and
 regardless of translation. So Wormhole's NoC 1 half of that table is
 `mirror(NoC 0)` and Blackhole's is byte-identical to NoC 0: Blackhole has never
-emitted a mirrored worker coord at all. tt-sim therefore registers Tensix
+emitted a mirrored worker coord at all. Wolfpine therefore registers Tensix
 mirror aliases on Wormhole only (`ArchProfile.noc1_tensix_mirror_aliases`), and
 the census with every functional worker built is **56 of Wormhole's 80** worker
 coords (48 behind another worker, 8 behind DRAM) and **6 of Blackhole's 140**
@@ -993,7 +993,7 @@ given run hits depends on the workers it materialises.
 
 Do not "simplify" this by giving both architectures the same answer: dropping
 Wormhole's Tensix mirrors breaks every L1-sharded-buffer program there, and
-`tt_sim/network/noc_routing_test.py` asserts both values so that change fails
+`framework/network/noc_routing_test.py` asserts both values so that change fails
 loudly.
 
 Every such coordinate is now named as it is created:
@@ -1015,7 +1015,7 @@ shadowing `(4, 2)`, `(4, 3)` and `(4, 4)`, because it never writes to those
 workers over NoC 1. Erroring at *resolve* time instead of registration is no
 safer — the same key is the mirror by which the DRAM bank table legitimately
 reaches DRAM. Use `error` when a run must not silently misdeliver, or to
-bisect a hang. `tt_sim/network/noc_routing_test.py` pins the affected sets on
+bisect a hang. `framework/network/noc_routing_test.py` pins the affected sets on
 both architectures.
 
 **The same collision has a self-address face.** A core reads its own coordinate
@@ -1034,7 +1034,7 @@ With that, every tile on both architectures addresses itself back to itself,
 except **Wormhole's 16 eth cores on NoC 1**: eth alone skips mirror
 registration (an eth mirror would steal a DRAM tile's own canonical cell), so
 its mirrored self-coordinate names a worker instead. Nothing hits it — the
-slow-dispatch flow tt-sim supports launches no eth kernel. On Blackhole the
+slow-dispatch flow Wolfpine supports launches no eth kernel. On Blackhole the
 self-coordinate census is *exactly* the six DRAM-shadowed workers above: same
 six cells, seen from the sending core. Turning translation on clears both, on
 both architectures, because the register then reports a translated coord and
@@ -1102,14 +1102,14 @@ low mailbox region — on **every** core of the device, and then spins up to
 100000 times reading the first word back (`WriteInitMagic`). It is a pure
 host-side write-then-read of L1: no core has to be running, and the timeout is
 a try count, not a clock, so this was never a "the simulator is too slow" bug.
-It failed because tt-sim's stand-in cores — `NullCore`, and the
+It failed because Wolfpine's stand-in cores — `NullCore`, and the
 `DeferredTensixCore` that fronts a worker until something proves the program
 uses it (§1.3) — **zero-filled every read**. The host could not read its own
 magic back, ever, and 100000 wire round-trips later it threw. Note that
 `init_device` disables prints on every core before attaching any, so narrowing
 `TT_METAL_DPRINT_CORES` to a single core did not help.
 
-The fix is in `tt_sim/bridge/cores.py`: a stand-in now keeps a sparse shadow of
+The fix is in `framework/bridge/cores.py`: a stand-in now keeps a sparse shadow of
 what the host wrote and answers reads out of it, zero-filling only what was
 never written — which is what L1 does. The one address that still must not echo
 is the go message, whose signal byte is stored as `RUN_MSG_DONE`: a stand-in has
@@ -1117,7 +1117,7 @@ no firmware to flip it, and the grid-wide init handshake polls it.
 
 **What DPRINT costs: the whole declared worker grid materialises.** tt-metal
 writes the disable-magic to every core *after* releasing the workers from
-reset, and a host write to a released core is exactly tt-sim's "this worker is
+reset, and a host write to a released core is exactly Wolfpine's "this worker is
 used" signal (§1.3, trigger 1). So a one-core program becomes an 80-worker one.
 Measured on `hello_world_datamovement_kernel`, this box:
 
@@ -1141,7 +1141,7 @@ declares. The last row above ran with `compute_grid=4x5` and still built all 80.
 The tax is a property of tt-metal's init order, not of the print path, so it is
 the same whether one core prints or all of them do.
 
-**Blackhole is the same code path and the same story** — `tt_sim/bridge` is
+**Blackhole is the same code path and the same story** — `framework/bridge` is
 arch-agnostic. `examples/one` under `TT_METAL_DPRINT_CORES=0,0` passes, in
 144 s with all 140 declared workers built.
 
@@ -1161,7 +1161,7 @@ arch-agnostic. `examples/one` under `TT_METAL_DPRINT_CORES=0,0` passes, in
 - **Instruction coverage.** The Tensix coprocessor is incomplete. A
   `can not handle instruction 'X'` error means op `X` (usually an SFPU
   instruction) is not yet implemented — implement it in
-  `tt_sim/pe/tensix/backends/` (see the `handle_*` methods in `vector.py` and
+  `framework/pe/tensix/backends/` (see the `handle_*` methods in `vector.py` and
   the ISA docs referenced in their comments).
 - **Release-specific host layout.** The L1 memory map / message structs are
   release-specific, but the tt-metal-driven flow gets the layout from the host
@@ -1176,7 +1176,7 @@ arch-agnostic. `examples/one` under `TT_METAL_DPRINT_CORES=0,0` passes, in
 #!/usr/bin/env bash
 set -u
 source /path/to/venv/bin/activate
-cd ~/tt-sim
+cd ~/wolfpine
 
 # Both architectures, every quick upstream program, no grid variable, ~8 min.
 python3 -m driver.tests.upstream_sweep || exit 1
@@ -1199,14 +1199,14 @@ simulator servers it started (§3.1).
 
 ---
 
-## 7. Asserting on what this tt-sim guarantees
+## 7. Asserting on what this Wolfpine guarantees
 
-If your suite depends on tt-sim modelling something *correctly*, make it say so.
+If your suite depends on Wolfpine modelling something *correctly*, make it say so.
 A green run against a simulator that is blind to the thing under test is not a
 pass — it is a pass-shaped absence of evidence, and it is indistinguishable from
 a real one after the fact.
 
-This bit us for real. Until 2026-08-19 tt-sim enumerated a NoC multicast
+This bit us for real. Until 2026-08-19 Wolfpine enumerated a NoC multicast
 rectangle **without reference to which NoC it was issued on**. A correctly
 encoded NoC 1 multicast — corners high-first, which is what silicon requires —
 decoded to an empty rectangle, so nothing was delivered and the sender's write
@@ -1216,7 +1216,7 @@ their multicast suite from a suite that was testing nothing.
 
 ### 7.1 What to assert on, and why it is not a version number
 
-`tt_sim/behaviour.py` publishes named **behaviours**: one per thing tt-sim used
+`framework/behaviour.py` publishes named **behaviours**: one per thing Wolfpine used
 to get silently wrong and now does not. A version number would not have helped —
 `>= 0.7.3` encodes a fact about our release history, not the fact your suite
 actually depends on — so what is published is the guarantee itself, under a name
@@ -1224,23 +1224,23 @@ that never changes meaning.
 
 ```python
 # In your suite's session setup (conftest.py, SetUpTestSuite, ...):
-from tt_sim.behaviour import require
+from framework.behaviour import require
 
 require("noc1-multicast-corner-order")
 ```
 
-`require` raises `UnsupportedBehaviour` against a tt-sim that lacks the
+`require` raises `UnsupportedBehaviour` against a Wolfpine that lacks the
 behaviour, naming what is missing and what that build *does* guarantee.
 `supports(*names) -> bool` is the non-raising form if you would rather skip than
 fail.
 
-Against a tt-sim older than this mechanism the `import` itself fails with
+Against a Wolfpine older than this mechanism the `import` itself fails with
 `ImportError` — still loud, still at session setup, still before any result is
 collected, which is the property that matters. Do not soften that into a
-`try: ... except ImportError: pass`; a checkout with no `tt_sim/behaviour.py`
+`try: ... except ImportError: pass`; a checkout with no `framework/behaviour.py`
 is exactly the checkout whose results you cannot trust.
 
-The module imports nothing else from tt-sim and nothing outside the standard
+The module imports nothing else from Wolfpine and nothing outside the standard
 library, so this costs no simulator construction and works from a checkout that
 has never been run.
 
@@ -1248,12 +1248,12 @@ has never been run.
 
 ```bash
 # Exits 0 if every named behaviour is guaranteed, 1 otherwise (names on stderr).
-python3 -m tt_sim.behaviour --require noc1-multicast-corner-order
+python3 -m framework.behaviour --require noc1-multicast-corner-order
 
 # What this build guarantees, one name per line — worth recording alongside a
 # run's results, so a later reader knows what the run was capable of catching.
-python3 -m tt_sim.behaviour
-python3 -m tt_sim.behaviour --verbose     # ...with the full guarantee text
+python3 -m framework.behaviour
+python3 -m framework.behaviour --verbose     # ...with the full guarantee text
 ```
 
 ### 7.3 What is published today
@@ -1267,13 +1267,13 @@ python3 -m tt_sim.behaviour --verbose     # ...with the full guarantee text
 | `tensix-latched-wait-survives-stallwait` | A Tensix `STALLWAIT` waits at the Wait Gate behind an unsatisfied `SEMWAIT` instead of overwriting it, so a compute kernel's Dst handshake holds however its LLK init calls are ordered around `tile_regs_wait()` — a `pack_untilize_dest_init` called after it no longer drops the packer's wait on `MATH_PACK`. |
 | `tensix-semaphore-bounds` | A Tensix `SEMPOST` that carries a semaphore to or past the `Max` its own `SEMINIT` declared raises, instead of returning values that depend on thread timing — the shape a `tile_regs_acquire()` hoisted out of an output-tile loop produces once the packer falls behind. A `SEMPOST` at 15 and a `SEMGET` at 0, where the hardware discards the operation, raise too. |
 
-`python3 -m tt_sim.behaviour --verbose` is the authoritative version of this
+`python3 -m framework.behaviour --verbose` is the authoritative version of this
 table; the guarantees there say exactly what a run will observably do, including
 the environment variable that switches each check back off.
 
 Two of those are a different shape from the other three, and worth reading
 in full (`--verbose`) before you pin a gate to either. The first three are
-guards: tt-sim used to be silently wrong, and now raises.
+guards: Wolfpine used to be silently wrong, and now raises.
 `dram-interleaved-bank-distinctness` and
 `tensix-latched-wait-survives-stallwait` are **modelling properties** — nothing
 raises, and nothing switches them off. Each is published because it is a fact a
@@ -1286,7 +1286,7 @@ arrive in. Neither tells you when *your* kernel is wrong.
 What the DRAM one does **not** cover is the
 page → bank distribution itself: that arithmetic is tt-metal's on both sides
 (`WriteToDeviceInterleavedContiguous` on the host, `InterleavedAddrGen` in the
-kernel), so tt-sim guarantees only that the banks those two land pages in are
+kernel), so Wolfpine guarantees only that the banks those two land pages in are
 genuinely apart — which is what makes a disagreement between them show up as
 corruption rather than as a clean pass. Bank *order* is not asserted either, and
 neither is anything about an SoC descriptor you supply yourself: the counts are
@@ -1296,11 +1296,11 @@ read from the shipped `driver/<arch>/soc_descriptor.yaml`.
 
 A capability list that nobody is forced to update becomes a lie, and it would be
 a worse lie than having no list — you would be asserting on a name that no longer
-means anything. Two guards in `tt_sim/behaviour_test.py` hold it to the code:
+means anything. Two guards in `framework/behaviour_test.py` hold it to the code:
 
 * every entry names the test that pins its guarantee, and that test has to
   exist; and
-* every exception class anywhere under `tt_sim/` must be either published as a
+* every exception class anywhere under `framework/` must be either published as a
   behaviour or explicitly declined in `_NOT_A_GUARANTEE` **with a reason**. That
   list is derived by parsing the source tree, not maintained by hand, so a new
   loudness guard turns the suite red until somebody has decided in writing
@@ -1310,8 +1310,8 @@ Each guard's own regression suite also asserts that its marker is still
 published, so withdrawing a name breaks the tests for the thing the name is
 about.
 
-**Adding one** (for tt-sim maintainers): append a `Behaviour` to `_BEHAVIOURS`
-in `tt_sim/behaviour.py` with a `guarantee` written in terms a consumer can
+**Adding one** (for Wolfpine maintainers): append a `Behaviour` to `_BEHAVIOURS`
+in `framework/behaviour.py` with a `guarantee` written in terms a consumer can
 observe from outside, `since` set to the day it lands, and `pinned_by` pointing
 at the test; then add a `require("<name>")` assertion to that test's module. An
 entry does not have to be a guard — the bar is that a consumer would otherwise

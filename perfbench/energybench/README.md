@@ -53,7 +53,7 @@ absolute joules.
 
 **Every coefficient here will be FITTED.** Tenstorrent publishes no per-event
 energy figure — no pJ/op, no pJ/bit, nothing. That is why the coefficients live
-in this directory and not in `tt_sim/perf/unit_costs.yaml`; see
+in this directory and not in `framework/perf/unit_costs.yaml`; see
 [the quarantine](#the-coefficients-are-quarantined-on-purpose).
 
 ## The quantity being measured
@@ -68,7 +68,7 @@ sampled **in slot, while the kernel is running**. What that produces is
 
 and **not** the energy of one launch, and **not** a post-exit decaying edge.
 That phrase appears verbatim in the runner's banner, the session log's handover
-block, `aggregate_power.py`'s output, `tt_sim.perf.energy_rank`'s report and JSON
+block, `aggregate_power.py`'s output, `framework.perf.energy_rank`'s report and JSON
 (as `QUANTITY`), and in every fitted-coefficient file, because it is the one
 thing a later reader must not get wrong. Per-launch energy is only recovered by
 dividing by the **measured launch rate**, which is why `energybench` reports
@@ -80,7 +80,7 @@ E_launch(w) = c_launch + Σ_j c_j · a_j(w)              [joules per launch]
 P_board(w)  = P_floor + rate(w) · E_launch(w)          [watts]
 ```
 
-`a(w)` is the activity vector `tt_sim.perf.energy_activity` emits; `rate(w)` is
+`a(w)` is the activity vector `framework.perf.energy_activity` emits; `rate(w)` is
 measured; **`P_floor` and every `c` are fitted**, from the arm rows, by
 non-negative least squares on measured power directly. The design matrix is
 `[1, rate(w), rate(w)·a_j(w)]`.
@@ -118,7 +118,7 @@ one arm isolates. The measurement, and what it cost the first fit, is
 **That table IS the term set.** The right-hand column is not a description of
 what was observed afterwards; it is what each arm was *built* to move, written
 down before any board was plugged in, and it is transcribed verbatim into
-`DESIGNED_ARM_TERMS` in `tt_sim/perf/energy_rank.py`. The fit's default terms are
+`DESIGNED_ARM_TERMS` in `framework/perf/energy_rank.py`. The fit's default terms are
 exactly those — one per non-idle arm — which is why the design can be honoured
 **without searching for a term set that works**. See [the term budget is set by
 the arms, not the rows](#the-term-budget-is-set-by-the-arms-not-the-rows). If an
@@ -274,7 +274,7 @@ column -s, -t ~/tt_traces/energybench-session/power.csv | less -S
 #    which costs that label a repeat. If they do not, say so in the handover --
 #    do not re-run and keep the better session.
 
-# 7. Send the WHOLE directory home. Analysis needs tt_sim/ and numpy and is not
+# 7. Send the WHOLE directory home. Analysis needs framework/ and numpy and is not
 #    time-critical; being at the card is.
 rsync -av ~/tt_traces/energybench-session/ <home>:~/energybench-session/
 ```
@@ -335,7 +335,7 @@ raw/*.pow.csv   in-slot power samples: EVERY ATTEMPT, successes and failures,
 raw/*.clk.csv   sysfs clock and thermal samples, taken throughout the slot
 raw/*.post.csv  --bracket only: post-exit samples on a decaying edge
 launches.csv    energybench's own per-run summary
-power.csv       the aggregated input to tt_sim.perf.energy_rank
+power.csv       the aggregated input to framework.perf.energy_rank
 decay.txt/json  --bracket only: the fitted thermal time constant and verdict
 ```
 
@@ -377,13 +377,13 @@ TT_METAL_HOME=/path/to/tt-metal ./perfbench/energybench/run_sim_activity.sh \
     --arch blackhole --out activity-sim-blackhole.csv
 ```
 
-This runs each arm against tt-sim with `TT_SIM_TRACE_COUNTERS` and
+This runs each arm against Wolfpine with `TT_SIM_TRACE_COUNTERS` and
 `TT_SIM_COST_MODEL=1`, and reduces each run's counter dataset to a per-launch
-activity vector (`tt_sim.perf.energy_activity`). The terms are a **fixed, ordered,
+activity vector (`framework.perf.energy_activity`). The terms are a **fixed, ordered,
 append-only** schema so that a term added later shifts no existing column.
 
 **Run it with an interpreter that has the trace dependencies.** The reduction
-step imports `tt_sim.trace.report` → `tt_sim.trace.dwarf` → `pyelftools`, and
+step imports `framework.trace.report` → `framework.trace.dwarf` → `pyelftools`, and
 pyarrow behind it, and a bare system `python3` typically has neither. Pass a
 virtualenv interpreter that does, as `TT_SIM_PYTHON=/path/to/venv/bin/python3`.
 
@@ -409,7 +409,7 @@ of zeros that no fit can use. `--no-cost-model` exists to demonstrate that.
 and the analysis joins on it; an activity vector collected at a different inner
 count is silently a different workload, so it is dropped with a note rather than
 matched. The simulator runs a few tens of thousands of cycles per second where
-hardware runs a billion, so running the *card's* inner counts against tt-sim is
+hardware runs a billion, so running the *card's* inner counts against Wolfpine is
 an overnight job, not a coffee break — plan for that rather than quietly
 shrinking one side. `--inner arm=N` on both scripts is how a shared set is
 pinned.
@@ -540,13 +540,13 @@ coefficient against that column is being asked for joules per cycle of the
 matrix array. Every compute kernel tt-metal builds pays them; a vector kernel
 pays 41 per iteration.
 
-The fix is `tt_sim.trace.counters` publishing `bookkeeping_cycles` — a *subset*
+The fix is `framework.trace.counters` publishing `bookkeeping_cycles` — a *subset*
 of `busy_cycles`, cut by whether the opcode moved any operand data — and
-`tt_sim.perf.energy_activity` deriving `matrix_arith_cycles` from the
+`framework.perf.energy_activity` deriving `matrix_arith_cycles` from the
 difference. `matrix_busy_cycles` is unchanged and still the full occupancy,
 because that is the right number for a performance reader; the term was
 **added**, not redefined, so a fit cannot silently keep using the old column.
-`tt_sim/trace/events.py` carries the opcode taxonomy, and a test asserts it
+`framework/trace/events.py` carries the opcode taxonomy, and a test asserts it
 partitions `MatrixUnit.OPCODE_TO_HANDLER` exactly — a Matrix opcode added later
 fails until somebody has said which kind it is.
 
@@ -564,13 +564,13 @@ Re-reducing costs a full re-run of the arms at the card's inner counts: about
 ## The analysis
 
 ```bash
-python3 -m tt_sim.perf.energy_rank \
+python3 -m framework.perf.energy_rank \
     --activity perfbench/energybench/activity-sim-blackhole.csv \
     --measured ~/energybench-session/power.csv \
     --report report.txt --json report.json
 # ...and on the session that has actually been collected, joined to the activity
 # vectors at the SAME inner counts (the smoke CSV above joins with nothing here):
-python3 -m tt_sim.perf.energy_rank \
+python3 -m framework.perf.energy_rank \
     --activity perfbench/energybench/activity-sim-blackhole-card.csv \
     --measured perfbench/card-sessions/2026-08-13-energybench/power.csv
 # -> identifiability PASSES (6 coefficients, cond 598); repeats REFUSES
@@ -578,11 +578,11 @@ python3 -m tt_sim.perf.energy_rank \
 
 # The two that fit. Each activity CSV joins only with its own architecture's
 # session, because the labels are shared but the vectors are not.
-python3 -m tt_sim.perf.energy_rank \
+python3 -m framework.perf.energy_rank \
     --activity perfbench/energybench/activity-sim-blackhole-card.csv \
     --measured perfbench/card-sessions/2026-08-13-energybench-2/power.csv
 # -> 13/13 gates; LOO Spearman 0.8667, null 0.8667; ratios x1.98 / x4.48.
-python3 -m tt_sim.perf.energy_rank \
+python3 -m framework.perf.energy_rank \
     --activity perfbench/energybench/activity-sim-wormhole-card.csv \
     --measured perfbench/card-sessions/2026-08-17-wh-energybench/power.csv
 # -> 13/13 gates; LOO Spearman 0.9000, null 0.8000; ratios x1.22 / x1.65.
@@ -1038,7 +1038,7 @@ between a p150 and an n300, differ by 2.2×.
 
 ## The coefficients are quarantined, on purpose
 
-`tt_sim/perf/unit_costs.yaml` and `tt_sim/pe/tensix/tensix_instruction_costs.yaml`
+`framework/perf/unit_costs.yaml` and `framework/pe/tensix/tensix_instruction_costs.yaml`
 run a provenance ladder — `isa_doc > isa_doc_derived > vendor_source >
 vendor_source_derived > estimated > unknown` — whose whole purpose is to keep
 un-sourced numbers out of the cycle model. `costs_test.py` records that there are
@@ -1057,13 +1057,13 @@ obvious failure mode, which is not malice but tidying — a later reader moving 
 file "where the other cost tables are":
 
 1. **The file is stamped `provenance: fitted`**, a token that is *not in*
-   `tt_sim.perf.costs.PROVENANCE_RANK`. The cost loader raises `KeyError` on any
+   `framework.perf.costs.PROVENANCE_RANK`. The cost loader raises `KeyError` on any
    table carrying it, so pasting one of these entries into `unit_costs.yaml`
    breaks the loader rather than silently ranking the number.
-2. **`energy_rank.check_destination` refuses to write anywhere under `tt_sim/`**,
+2. **`energy_rank.check_destination` refuses to write anywhere under `framework/`**,
    and refuses the two cost-table filenames by name. A file cannot become a cost
    table by accident if it cannot be written next to one.
-3. **`tt_sim/perf/energy_quarantine_test.py`** asserts all of the above, plus
+3. **`framework/perf/energy_quarantine_test.py`** asserts all of the above, plus
    that neither cost table contains any energy vocabulary (`energy`, `joule`,
    `watt`, `picojoule`, …) today — because a coefficient does not have to arrive
    labelled `fitted` to do damage.
@@ -1080,7 +1080,7 @@ no values in it.
 
 **Will**, and now does — two sessions pass every gate, on two architectures:
 
-* that tt-sim orders these workloads by energy the way the board does, with a
+* that Wolfpine orders these workloads by energy the way the board does, with a
   stated leave-one-out rank correlation;
 * how far off the *ratios* are, per pair, with a median and a worst case;
 * a per-term fitted coefficient set with a written record of what it was fitted

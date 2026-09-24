@@ -29,7 +29,7 @@ Run from anywhere:
     python3 -m pytest driver/wormhole/server/multi_tensix_test.py
 """
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore
+from framework.bridge import DramCore, Fabric, TensixCore
 
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device
@@ -96,9 +96,9 @@ def test_every_worker_of_the_full_grid_resolves_to_itself_on_both_nocs():
     wrong_noc0 = [
         c for c in TENSIX_COORD_MAP if noc0.get(c) is None or noc0[c].id_pair != c
     ]
-    assert wrong_noc0 == [], (
-        f"NoC 0 misroutes {len(wrong_noc0)} workers: {wrong_noc0[:5]}"
-    )
+    assert (
+        wrong_noc0 == []
+    ), f"NoC 0 misroutes {len(wrong_noc0)} workers: {wrong_noc0[:5]}"
 
     wrong_noc1 = []
     for coord in TENSIX_COORD_MAP:

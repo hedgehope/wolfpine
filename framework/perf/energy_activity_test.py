@@ -8,7 +8,7 @@ divisor.
 
 import pytest
 
-from tt_sim.perf.energy_activity import (
+from framework.perf.energy_activity import (
     ACTIVITY_TERMS,
     CSV_COLUMNS,
     KEY_COLUMNS,
@@ -124,7 +124,7 @@ def test_a_backend_units_instr_retired_is_not_counted_as_risc_v():
 
 
 def test_stall_cycles_and_tensix_stall_cycles_do_not_mix():
-    """They share a unit_id on purpose (``tt_sim/trace/counters.py`` says so),
+    """They share a unit_id on purpose (``framework/trace/counters.py`` says so),
     and summing them would make both unreadable."""
     v = reduce_counters(
         {("2,1 TRISC0", "stall_cycles"): 5, ("2,1 TRISC0", "tensix_stall_cycles"): 11}

@@ -1,6 +1,6 @@
 """The Mover driven with the cycle costs: an issue cost and a transfer time.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.mover_cost_model_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.mover_cost_model_test``) or under
 pytest. Companion to ``unpacker_cost_model_test.py``; the two units were wired
 together on 2026-08-06.
 
@@ -11,7 +11,7 @@ work, at which point ``XMOV`` will execute in a single cycle - the mover
 proceeds with the task in the background." So the Tensix table's 1 is the issue
 cost, and the interesting half — how long the background task runs — is
 bandwidth-derived, from the ``mover.transfer`` rates in
-``tt_sim/perf/unit_costs.yaml``. Those rates are unusual in these files for
+``framework/perf/unit_costs.yaml``. Those rates are unusual in these files for
 being published as *measured*, with an ideal and a contended column per
 transfer kind.
 
@@ -34,17 +34,17 @@ from contextlib import contextmanager
 
 import yaml
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.backends.mover import MoverUnit
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.perf.model import mover_cost_model
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.backends.mover import MoverUnit
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.perf.model import mover_cost_model
 
 #: The table itself, for the assertions about what the *file* records rather
 #: than about what the model charges (the published bits-per-cycle figures, and
 #: the contended column being present and unspent). Read as YAML rather than
 #: through ``load_costs``: a consumer of the cost tables must reach them
-#: through ``tt_sim/perf/model.py``, which
+#: through ``framework/perf/model.py``, which
 #: ``test_the_consumers_only_reach_the_tables_through_the_model`` enforces.
 _UNIT_COSTS_YAML = (
     pathlib.Path(__file__).resolve().parents[2] / "perf" / "unit_costs.yaml"
@@ -85,7 +85,7 @@ def _mover(cost_model=True, count=None, mode=MoverUnit.XMOV_DIRECTION.XMOV_L1_TO
     """A backend whose mover is configured for one ``count``-byte transfer.
 
     ``handle_xmov`` reads the *mode* out of ``Destination_address`` (the two
-    are the same config field in tt-sim's decode), so the destination doubles
+    are the same config field in Wolfpine's decode), so the destination doubles
     as the mode selector and this fixture keeps the two consistent the way a
     real kernel's config would.
     """

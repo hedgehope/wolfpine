@@ -1,4 +1,4 @@
-"""Guards for :mod:`tt_sim.perf.retire_attribution`.
+"""Guards for :mod:`framework.perf.retire_attribution`.
 
 A guard that cannot fail is as damaging as one that cannot pass, so every gate
 has a passing case *and* a refusing case built from an input a real session
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from tt_sim.perf.retire_attribution import (
+from framework.perf.retire_attribution import (
     CALIBRATION_ZONE,
     E_INT_LIMIT,
     E_TOTAL_LIMIT,
@@ -497,7 +497,7 @@ def test_the_compensating_card_is_the_same_work_as_the_simulator_run():
 
 def test_the_calibration_zone_is_in_the_partition_but_not_graded(tmp_path):
     """It measures the instrument, and the two sides' marker costs are EXPECTED
-    to differ, because tt-sim charges a CSR instruction nothing. Grading it
+    to differ, because Wolfpine charges a CSR instruction nothing. Grading it
     would fail every honest run."""
     sim, hw = load_run(SIM), load_run(CARD_AGREE)
     assert CALIBRATION_ZONE in partition(sim)

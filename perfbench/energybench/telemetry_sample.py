@@ -50,7 +50,7 @@ MODES
              sized against.
 
 Standard library only: this runs on the card box, which has no venv, no numpy
-and no ``tt_sim/``.
+and no ``framework/``.
 """
 
 import argparse

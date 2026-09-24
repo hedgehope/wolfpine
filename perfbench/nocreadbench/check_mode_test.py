@@ -4,7 +4,7 @@
 Every gate here exists because its failure mode *looks like a result*. A
 ``--dram`` run that in fact read a worker's L1 reproduces the registered
 prediction perfectly — the L1 arm is what the prediction says the DRAM arm
-costs below the crossover — so "the card agrees with tt-sim" is exactly what a
+costs below the crossover — so "the card agrees with Wolfpine" is exactly what a
 broken run prints. A run taken under tt-metal's NoC instrumentation returns
 numbers that are 10–19 % larger *and unequally so between the arms*, which is
 the shape of the effect being measured rather than of noise.
@@ -202,7 +202,7 @@ def test_an_l1_arm_that_missed_its_own_figure_stops_the_comparison(capsys):
 
 
 def test_a_gap_below_the_crossover_is_called_out_even_when_the_totals_agree(capsys):
-    """The sharpest falsifier. Below the crossover tt-sim says both arms are
+    """The sharpest falsifier. Below the crossover Wolfpine says both arms are
     issue-loop bound and therefore equal; a gap there cannot be absorbed by any
     bandwidth term, so it must be reported even though both marginals are
     inside tolerance of their own figures."""

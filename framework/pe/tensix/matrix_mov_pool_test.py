@@ -14,7 +14,7 @@ directions. Semantics follow the tt-isa-documentation functional models, with
 modes the vendor reference simulator (ttsim) declines rejected rather than
 guessed.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.matrix_mov_pool_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.matrix_mov_pool_test``) or under
 pytest.
 """
 
@@ -22,12 +22,12 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.util.conversion import conv_to_uint32
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.util.conversion import conv_to_uint32
 
 MOVD2A = 0x08
 MOVB2D = 0x13

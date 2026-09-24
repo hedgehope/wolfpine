@@ -2,7 +2,7 @@
 # mechbench on a real card: collect the Tensix hardware stall counters for
 # rung 4's mechanism-attribution leg.
 #
-# YOU DO NOT NEED TO KNOW ANYTHING ABOUT tt-sim TO RUN THIS. It builds one
+# YOU DO NOT NEED TO KNOW ANYTHING ABOUT Wolfpine TO RUN THIS. It builds one
 # normal tt-metal program, runs it a handful of times with the performance
 # counters enabled, checks each run validated its own arithmetic, and leaves a
 # directory to send home. No Tracy, no tt-exalens, no board reset, no root.
@@ -22,10 +22,10 @@
 #                    log carrying two windows.
 #   --arms "elw mm"  which arms to run
 #   --corroborate    also run pass B (mask 39: FPU|PACK|UNPACK|INSTRN). Card-only
-#                    context -- tt-sim models none of those banks.
+#                    context -- Wolfpine models none of those banks.
 #   --l1             also run the five L1 bank passes, one run each. They share
 #                    one hardware mux and CANNOT be combined; tt-metal throws if
-#                    you try. tt-sim models none of them.
+#                    you try. Wolfpine models none of them.
 #   --list           print the schedule and the estimate, run nothing
 #   --skip-build     assume build/mechbench is current
 set -u
@@ -82,7 +82,7 @@ for pass in $PASSES; do
   label="${pass%%:*}"; mask="${pass##*:}"
   case "$label" in
     instrn) why="REQUIRED. INSTRN_THREAD bank; every counter the criterion uses." ;;
-    units)  why="corroboration only. FPU|PACK|UNPACK|INSTRN; tt-sim models none of the first three." ;;
+    units)  why="corroboration only. FPU|PACK|UNPACK|INSTRN; Wolfpine models none of the first three." ;;
     l1_*)   why="optional. One L1 bank; the five share a mux and cannot be combined." ;;
     *)      why="" ;;
   esac
@@ -97,11 +97,11 @@ echo "  out       : $OUT"
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 
-# A card box that also has a tt-sim checkout is exactly where this goes wrong:
+# A card box that also has a Wolfpine checkout is exactly where this goes wrong:
 # with TT_METAL_SIMULATOR left set, every run below completes, validates its own
 # arithmetic, records counter samples and writes a session directory that is a
 # SIMULATOR decomposition labelled as a card's -- which is the one artefact this
-# leg must never produce, since comparing it against tt-sim is comparing tt-sim
+# leg must never produce, since comparing it against Wolfpine is comparing Wolfpine
 # to itself. `dramratebench` and `energybench` have always refused it.
 if [ -n "${TT_METAL_SIMULATOR:-}" ]; then
   echo "TT_METAL_SIMULATOR is set ($TT_METAL_SIMULATOR)." >&2
@@ -113,7 +113,7 @@ fi
 # requires slow dispatch; a card defaults to FAST dispatch, so without this every
 # run aborts with rc=134 before doing any work. Measured on a Blackhole p150,
 # 2026-08-17, when nocevbench hit exactly this. The simulator runners have always
-# set it (tt-sim supports no other flow), which is why the gap survived in every
+# set it (Wolfpine supports no other flow), which is why the gap survived in every
 # card runner: the sim side cannot reproduce the failure.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"
 

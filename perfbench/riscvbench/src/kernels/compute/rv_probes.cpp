@@ -5,7 +5,7 @@
 // reason was the same every time: nothing back-pressures the baby RISC-V, so
 // unit occupancy is invisible to anything a kernel can time. Silicon said the
 // same thing from the other direction -- `perfbench/tensixbench` phase A reads
-// exactly 1.000 cycles per instruction against tt-sim for every probe of every
+// exactly 1.000 cycles per instruction against Wolfpine for every probe of every
 // unit at every data format, because `TensixFrontend.push_mop_instruction` is
 // an unbounded list append and the `.ttinsn` write returns immediately. **The
 // RISC-V front end is the term that makes every other term unobservable.**
@@ -30,7 +30,7 @@
 //
 // TIMESTAMPS come from RISCV_DEBUG_REG_WALL_CLOCK_L, exactly the register
 // tt-metal's device profiler reads for DeviceZoneScopedN. Reading it directly
-// keeps the measurement identical on silicon and against tt-sim, needs no Tracy
+// keeps the measurement identical on silicon and against Wolfpine, needs no Tracy
 // build, and sidesteps the profiler's dependence on a device AICLK a simulator
 // does not have.
 //
@@ -46,10 +46,10 @@
 // uninterpretable: "a `.ttinsn` costs 1 cycle" only means something next to
 // "an `addi` costs 1 cycle". Also the one phase whose predictions the tables
 // mostly make outright -- `riscv.integer_unit`, `riscv.load_latency` and
-// `riscv.store_throughput` in tt_sim/perf/unit_costs.yaml are all `isa_doc`,
-// and `tt_sim/pe/rv/cost.py` already CONSUMES three of them. So phase R is
+// `riscv.store_throughput` in framework/perf/unit_costs.yaml are all `isa_doc`,
+// and `framework/pe/rv/cost.py` already CONSUMES three of them. So phase R is
 // simultaneously the baseline and the instrument's own calibration: `mul`,
-// `div`, the L1 load chase and the L1 store rate are the four probes tt-sim
+// `div`, the L1 load chase and the L1 store rate are the four probes Wolfpine
 // moves, which is what makes a null result elsewhere distinguishable from an
 // un-instrumented one.
 //
@@ -84,8 +84,8 @@
 // same twenty instructions, so nothing else can move it.
 //
 // PHASE C -- control flow. `riscv.integer_unit.branch_mispredict_bubble` is
-// sourced (2 cycles on Wormhole, 4 on Blackhole) and `tt_sim/pe/rv/cost.py`
-// declines to charge it, for a stated reason: "neither the docs nor tt-sim
+// sourced (2 cycles on Wormhole, 4 on Blackhole) and `framework/pe/rv/cost.py`
+// declines to charge it, for a stated reason: "neither the docs nor Wolfpine
 // describe the predictor, so the number of mispredictions is unknowable and
 // charging every taken branch would be a fabrication". This phase attacks that
 // from the measurement side. Three probes execute an IDENTICAL instruction mix

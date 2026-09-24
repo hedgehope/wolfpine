@@ -19,7 +19,7 @@
 // This is the same "cancel the common term by subtraction" discipline that
 // rungs 1 and 2 of the calibration ladder in docs/plans/cost-model.md used.
 //
-// WHY UNROLLED TTI_* AND NOT A COMPUTE-API LOOP. tt-sim does not model the
+// WHY UNROLLED TTI_* AND NOT A COMPUTE-API LOOP. Wolfpine does not model the
 // RISC-V instruction fetch/issue path, so if the issuing baby core cannot feed
 // the Tensix unit fast enough we measure the front end, not the unit. Each
 // TTI_* macro is exactly one `.ttinsn` word in the RISC-V instruction stream --
@@ -518,7 +518,7 @@ void kernel_main() {
     RUN(12, TTI_SHIFTDMAREG(1, 0, 61, 1, 60);); // doc occupancy "3 or 4"
     RUN(13, TTI_CMPDMAREG(1, 0, 62, 1, 60););   // doc occupancy "3 or 4"
 
-    // Config unit. RDCFG is the op that made tt-sim's matmulblock guard compute
+    // Config unit. RDCFG is the op that made Wolfpine's matmulblock guard compute
     // the wrong answer when charged its documented ">= 2" -- see "The unit that
     // would not go" in docs/plans/cost-model.md. Read-only, into a spare GPR.
     RUN(14, TTI_RDCFG(60, 0););
@@ -568,7 +568,7 @@ void kernel_main() {
     // case that made the difference matter: the ISA doc gives it ">= 2", slot
     // 14 measures 1.000 on silicon, and both are true statements about
     // different quantities. Charging the doc's 2 as an occupancy is what made
-    // tt-sim's matmulblock guard compute the wrong answer.
+    // Wolfpine's matmulblock guard compute the wrong answer.
     //
     // `docs/plans/tensix-cost-benchmark.md` names the measurable form:
     //
@@ -629,9 +629,9 @@ void kernel_main() {
     // that the difference came from the condition and not from the construction;
     // a run in which BOTH move has shown the opposite and must not be believed.
     //
-    // Against tt-sim this reads ~0 for a second, independent reason: its Wait
+    // Against Wolfpine this reads ~0 for a second, independent reason: its Wait
     // Gate answers an unmapped STALLWAIT condition with "satisfied" (`case _:
-    // return True` in tt_sim/pe/tensix/frontend.py) and maps neither arch's
+    // return True` in framework/pe/tensix/frontend.py) and maps neither arch's
     // TRISC_CFG bit. That is a correct simulator reading, not a broken probe --
     // and it is also why this cannot hang the simulator.
     // -----------------------------------------------------------------------

@@ -30,10 +30,10 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.fabric import install_convention_guard
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.fabric import install_convention_guard
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP, wire_conventions
@@ -236,9 +236,9 @@ def main():
                 wrong += [(fidelity, *w) for w in _check_launch(device, fidelity)]
     device.tt_device.shutdown()
 
-    assert launches == len(FIDELITIES), (
-        f"expected {len(FIDELITIES)} launches, saw {launches}"
-    )
+    assert launches == len(
+        FIDELITIES
+    ), f"expected {len(FIDELITIES)} launches, saw {launches}"
     if wrong:
         fidelity, k, e, got, expected, a, b = wrong[0]
         bad_arms = sorted({(fid, arm) for fid, arm, *_ in wrong})

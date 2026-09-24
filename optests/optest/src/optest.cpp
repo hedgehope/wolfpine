@@ -2,7 +2,7 @@
 // through the compute kernel, which applies a *sequence* of ops (see
 // kernels/compute/compute_kernel.cpp) and emits one output tile per op. The
 // output tiles are read back and dumped as `OPDIFF_RESULT:<hex>`; optests/diff.sh
-// runs this same binary on tt-sim and on ttsim and compares the dumps. ttsim is
+// runs this same binary on Wolfpine and on ttsim and compares the dumps. ttsim is
 // the oracle — there is no local golden.
 //
 // Add an op: append a RUN_OP(...) in the compute kernel and bump NUM_OPS here.

@@ -20,7 +20,7 @@ the two sides compute the landing site independently:
   ``NUM_DRAM_BANKS`` (a JIT define) and the ``dram_bank_to_noc_xy`` /
   ``bank_to_dram_offset`` tables the host wrote into L1 at init.
 
-Nothing cross-checks the two. If tt-sim aliased the banks onto one flat store,
+Nothing cross-checks the two. If Wolfpine aliased the banks onto one flat store,
 or routed every bank to one endpoint, the kernel would still complete, every
 address would still be a legal address, and the result would simply be wrong —
 no fault, no ``TT_FATAL``, clean shutdown. So this test reads the destination
@@ -43,9 +43,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

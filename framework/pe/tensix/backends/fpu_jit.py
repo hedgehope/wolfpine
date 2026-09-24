@@ -138,7 +138,7 @@ def get_fused_mvmul():
         return None
     _resolved = True
     try:
-        from tt_sim.pe.tensix.backends.fpu_jit_kernel import mvmul_fused
+        from framework.pe.tensix.backends.fpu_jit_kernel import mvmul_fused
     except Exception:
         # No numba, an incompatible numba, or a compile failure. The numpy pair
         # is a complete implementation, so this is not an error.

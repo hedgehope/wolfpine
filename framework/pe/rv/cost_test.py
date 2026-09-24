@@ -1,7 +1,7 @@
 """The baby RISC-V load/store cost model, on and off.
 
-Runs standalone (``python3 -m tt_sim.pe.rv.cost_test``) or under pytest. The
-same split as the Tensix cost-model tests: ``tt_sim/perf/model_test.py`` pins
+Runs standalone (``python3 -m framework.pe.rv.cost_test``) or under pytest. The
+same split as the Tensix cost-model tests: ``framework/perf/model_test.py`` pins
 what the tables *say*, this pins what the RV interpreter *does* with what they
 say.
 
@@ -34,10 +34,10 @@ Six claims:
 import os
 from contextlib import contextmanager
 
-from tt_sim.device.device import DeviceMemory
-from tt_sim.memory.memory import DRAM
-from tt_sim.memory.memory_map import AddressRange, MemoryMap
-from tt_sim.pe.rv.cost import (
+from framework.device.device import DeviceMemory
+from framework.memory.memory import DRAM
+from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.pe.rv.cost import (
     RV_REGION_L1,
     RV_REGION_LOCAL_DATA_RAM,
     RV_REGION_MAILBOX_GROUP,
@@ -49,8 +49,8 @@ from tt_sim.pe.rv.cost import (
     classify_address,
     make_cost_state,
 )
-from tt_sim.pe.rv.rv32 import RV32IM
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.rv.rv32 import RV32IM
+from framework.util.conversion import conv_to_bytes
 
 LOCAL_RAM_BASE = 0xFFB00000
 
@@ -458,7 +458,7 @@ def test_the_load_rate_is_identical_on_both_architectures():
     from ``riscv.load_throughput``, which Blackhole's overrides leave alone
     (adding only the silicon corroboration), not from the "Maximum loads in
     flight" column, which Blackhole's table does not repeat at all — see
-    ``tt_sim/perf/model_test.py`` for the entry-level half of that claim."""
+    ``framework/perf/model_test.py`` for the entry-level half of that claim."""
     with _env(True):
         wormhole = make_cost_state("wormhole")
         blackhole = make_cost_state("blackhole")
@@ -563,7 +563,7 @@ def test_the_bounded_rows_are_charged_at_their_low_end():
 
 def test_the_branch_mispredict_penalty_is_sourced_and_deliberately_uncharged():
     """It is a cost per *mispredicted* branch, and nothing in the ISA docs or
-    in tt-sim describes the predictor, so the count is unknowable. Kept
+    in Wolfpine describes the predictor, so the count is unknowable. Kept
     reachable so a report can name the predictor as the gap."""
     with _env(True):
         assert make_cost_state("wormhole").model.branch_mispredict_observed == 3
@@ -636,7 +636,7 @@ def test_blackhole_a_dependent_multiply_chain_pays_the_ex2_latency():
     """ "Exactly one cycle in EX1, and then exactly one cycle in EX2": on
     Blackhole a multiply's occupancy is 1 but its result latency is 2, spent
     as a scoreboard entry like a load's. A dependent chain therefore runs at
-    2 cycles per multiply — silicon's ``rv_mul_dep`` reads 1.985 where tt-sim
+    2 cycles per multiply — silicon's ``rv_mul_dep`` reads 1.985 where Wolfpine
     read 1.000 before the entry existed. Wormhole publishes no multiply
     latency (its multiply *blocks*, charged as occupancy already), so its
     dependent chain is unchanged at the same 2 it always cost."""
@@ -714,7 +714,7 @@ def test_the_two_measured_dividends_are_charged_identically():
 
     ``perfbench/retirebench`` measured these two operands on one Blackhole
     card, three repeats, bit-identical each time: 0xFFF / 3 costs **14.018**
-    cycles on silicon and 0x12345678 / 3 costs **33.043**. tt-sim charges both
+    cycles on silicon and 0x12345678 / 3 costs **33.043**. Wolfpine charges both
     the band's floor of 6, so the pair it gets most wrong and the pair it gets
     least wrong are indistinguishable to it -- which is the whole content of
     "the model is a floor over a documented range".

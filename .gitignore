@@ -210,7 +210,7 @@ __marimo__/
 # perfbench RUN OUTPUT. tensixbench writes its CSV next to the binary, so this
 # is whatever the last local run produced -- send it to whoever asked for the
 # run; do not commit it. A *curated reference* measurement is a different
-# thing and is tracked deliberately, under tt_sim/perf/datasets/, next to the
+# thing and is tracked deliberately, under framework/perf/datasets/, next to the
 # harness that reads it; the rule below is deliberately scoped to the output
 # directory rather than to the filename so the two cannot be confused.
 perfbench/*/src/tensixbench-*.csv

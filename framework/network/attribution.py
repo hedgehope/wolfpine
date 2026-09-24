@@ -1,6 +1,6 @@
 """Which transfer failed — attributing a NoC request to the code that issued it.
 
-:class:`~tt_sim.network.alignment.NoCAlignmentError` names two addresses and the
+:class:`~framework.network.alignment.NoCAlignmentError` names two addresses and the
 rule they broke. That is enough to know a program has a bug and not enough to
 know *where*, which is the difference between "our compiler emits a misaligned
 GEMM read somewhere" and "line 88 of the reader kernel does". This module
@@ -15,7 +15,7 @@ register. ``NUI.write`` calls ``RequestInitiator.initiate`` **synchronously**,
 so the whole of ``handle_read_transfer`` / ``handle_write_transfer`` — including
 the alignment check — runs inside the issuing core's store instruction, on the
 issuing core's Python stack. The issuer is therefore not something that has to
-be threaded through :class:`~tt_sim.network.tt_noc.NUI.NoCDataRequest` and
+be threaded through :class:`~framework.network.tt_noc.NUI.NoCDataRequest` and
 carried to a later cycle: it is already right there, a few frames up.
 
 That matters because alignment checking is on by default, so anything recorded
@@ -23,7 +23,7 @@ per transfer is paid for by every transfer in every run — and every one of
 those payments is wasted, because the recording is only ever read when a
 transfer is *rejected*. Discovering the issuer at raise time instead costs
 exactly zero on the path where nothing is wrong. It is the same trade
-:class:`~tt_sim.network.tt_noc.NoCCoordinateError` already makes, whose
+:class:`~framework.network.tt_noc.NoCCoordinateError` already makes, whose
 description is likewise attached in an ``except`` clause rather than passed as
 an argument.
 
@@ -32,13 +32,13 @@ What is recovered, and how much it proves
 * **The core and PC.** From the innermost RV32 core on the stack (live state:
   ``pc_register`` still holds the executing instruction's PC, ``nextpc`` is a
   separate register written back at the end of the tick), falling back to
-  :attr:`~tt_sim.memory.memory.MemorySpace.caller_context` — the
+  :attr:`~framework.memory.memory.MemorySpace.caller_context` — the
   ``(unit_id, core_label, pc)`` tuple the interpreter already stamps on the
   memory space once per tick for exactly this purpose. Nothing is recovered for
   a transfer the *host* initiated over the wire bridge, which is correct: no
   core issued it.
 * **The function and source line**, via
-  :mod:`tt_sim.trace.elfdisc` + :class:`~tt_sim.trace.dwarf.DwarfIndex`, the
+  :mod:`framework.trace.elfdisc` + :class:`~framework.trace.dwarf.DwarfIndex`, the
   same machinery the ranked profile report uses. Only *byte-verified* ELFs are
   used — an ELF discovery falls back to "newest in the build cache" when it
   cannot prove residency, and a confidently wrong function name on a fatal
@@ -48,11 +48,11 @@ What is recovered, and how much it proves
   **page size in bytes** — the number that says whether a shard was split below
   tile granularity. This is *not* on the wire: the simulator is told addresses
   and payloads (``WRITE`` / ``READ`` / ``RESET_*`` / ``START`` / ``EXIT``, see
-  :mod:`tt_sim.bridge.protocol`), never buffer layouts, and there is no Tensix
+  :mod:`framework.bridge.protocol`), never buffer layouts, and there is no Tensix
   configuration register that holds it either — circular buffers are a software
   construct. It is recovered instead from the ``cb_interface`` array in the
   issuing core's local memory, which the firmware fills in from L1 before the
-  kernel runs and which tt-sim models like any other memory. Located by symbol
+  kernel runs and which Wolfpine models like any other memory. Located by symbol
   (never by scanning), decoded only when the decode is self-consistent, and
   reported only for a buffer that actually contains the transfer's address —
   so a layout change in a future tt-metal release costs the line, not its
@@ -82,7 +82,7 @@ _MAX_FRAMES = 60
 _TRUSTED_HOW = ("verified", "relocated", "explicit")
 
 #: Bytes of L1 searched when recovering a relocated kernel's load bias.
-#: Matches ``tt_sim.trace.auto._L1_SEARCH_BYTES``.
+#: Matches ``framework.trace.auto._L1_SEARCH_BYTES``.
 _L1_SEARCH_BYTES = 1 << 20
 
 #: The tt-metal firmware global holding one ``CBInterface`` per circular
@@ -118,7 +118,7 @@ _CB_ABSENT = "page size not visible to the simulator"
 class Issuer(NamedTuple):
     """The core that issued the transfer under inspection."""
 
-    #: ``"BRISC"``, ``"TRISC1"``, ... — the name :mod:`tt_sim.trace.elfdisc`
+    #: ``"BRISC"``, ``"TRISC1"``, ... — the name :mod:`framework.trace.elfdisc`
     #: also uses for a unit, so it indexes an ELF directly.
     core: str
     #: PC of the store to ``NOC_CMD_CTRL`` that started the transfer.
@@ -253,8 +253,8 @@ def describe_source(issuer: Issuer) -> Source:
     tried: list[str] = []
     trusted: list[tuple[str, str]] = []
     try:
-        from tt_sim.trace.dwarf import DwarfIndex
-        from tt_sim.trace.elfdisc import discover
+        from framework.trace.dwarf import DwarfIndex
+        from framework.trace.elfdisc import discover
 
         verifier, searcher = _elf_probes(issuer.core, issuer.memory)
         found = discover(verifier=verifier, searcher=searcher, units={issuer.core})
@@ -469,7 +469,7 @@ def _describe_page(issuer: Issuer, source: Source, addrs) -> str:
 def describe_transfer(request) -> str:
     """Size, transaction id and address spans, read off the NIU's registers.
 
-    ``request`` is a :class:`~tt_sim.network.tt_noc.NUI.RequestInitiator`, duck
+    ``request`` is a :class:`~framework.network.tt_noc.NUI.RequestInitiator`, duck
     typed rather than imported: this module is imported *by* the NoC, from the
     ``except`` clause that catches the alignment error, so importing it back
     would be a cycle. Every field is optional, so a partially-built initiator

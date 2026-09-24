@@ -24,7 +24,7 @@ and reads back cycle counts.
 
 ## Why
 
-`tt_sim/perf/unit_costs.yaml` records the cost of a NoC hop, a flit, a DRAM
+`framework/perf/unit_costs.yaml` records the cost of a NoC hop, a flit, a DRAM
 access and a dozen other things, each with a citation. One entry has no number
 at all:
 
@@ -36,7 +36,7 @@ congestion:
 ```
 
 tt-metal ships 740 rows of measured NoC latency, and
-[`tt_sim/perf/noc_dataset_sweep.py`](../../tt_sim/perf/noc_dataset_sweep.py)
+[`framework/perf/noc_dataset_sweep.py`](../../framework/perf/noc_dataset_sweep.py)
 established that a congestion model **cannot be derived from them** — not
 because they are coarse but because they are *unidentifiable*. Every
 multi-party row varies the number of concurrent flows by resizing a grid, so
@@ -67,7 +67,7 @@ The full pre-declared predictions — what each experiment shows under each
 hypothesis, *including what "no effect" looks like* — are printed by:
 
 ```bash
-python3 -m tt_sim.perf.noc_congestion_plan --hypotheses
+python3 -m framework.perf.noc_congestion_plan --hypotheses
 ```
 
 They were written before anything was run, and they are in the source rather
@@ -114,7 +114,7 @@ it is worth reading carefully: a saturating shape means the fitted slope is
 drawn through it. The report prints the per-shared-link means so the step is
 visible; do not lift the slope out of it.
 
-Against the **simulator** a flat shared-link reading used to be forced: tt-sim
+Against the **simulator** a flat shared-link reading used to be forced: Wolfpine
 charged an NIU for its own injection port and nothing whatever for a
 router-to-router link, so two flows sharing links could not interact, and
 running it there exercised everything except the effect being looked for.
@@ -141,7 +141,7 @@ it at kernel init. With two issuers on one NIU each RISC waits for the shared
 counter to advance by *its own* N, so **any** N acks release it and both
 kernels stop when half the traffic has landed. The ratio it prints is therefore
 about 1.0 whether the port serialises perfectly or does not exist. That was
-shown rather than argued: deleting `claim_injection_port` from tt-sim outright
+shown rather than argued: deleting `claim_injection_port` from Wolfpine outright
 moved the control by 0.04, in the wrong direction, while moving the absolute
 cost 35 %. On the card it read exactly **1.00** — 17234 cycles alone, 17151 and
 17221 together — which is precisely what "the port serialises perfectly and
@@ -165,7 +165,7 @@ dominates: the planner refuses a point carrying under 64 KiB per flow, which is
 exactly how the old control came to be mis-sized at 4 x 8 KiB.
 
 **It is not blind, and that was tested the same way the old one was convicted.**
-Against tt-sim with `claim_injection_port` intact the control reads **1.48x**
+Against Wolfpine with `claim_injection_port` intact the control reads **1.48x**
 and PASSes; with that function stubbed to return 0 and never advance
 `_tx_free_cycle` — the mechanism under test deleted outright — it reads
 **1.00x and FAILs**. A control that cannot detect the deletion of the effect it
@@ -264,14 +264,14 @@ claim elsewhere is then read against.
 
 # 2. plan the experiments against THAT map (this is where the invariants are
 #    asserted; it refuses to emit a confounded plan)
-python3 -m tt_sim.perf.noc_congestion_plan \
+python3 -m framework.perf.noc_congestion_plan \
     --grid nocbench-grid-blackhole.csv --out plan.csv --experiments all
 
 # 3. run it
 ./build/nocbench --plan plan.csv -v               # -> nocbench-<arch>.csv
 
 # 4. read it
-python3 -m tt_sim.perf.noc_congestion_sweep --measured nocbench-blackhole.csv
+python3 -m framework.perf.noc_congestion_sweep --measured nocbench-blackhole.csv
 ```
 
 Useful flags: `--experiments hops,size,readport,shared` (the minimum),
@@ -296,7 +296,7 @@ hung a card. They are explained where they are enforced, in
 
 ## Against the simulator
 
-Same binary, different environment; `perfbench/run.sh` sets it up. tt-sim only
+Same binary, different environment; `perfbench/run.sh` sets it up. Wolfpine only
 materialises the worker tiles it is told about, and a multi-core plan touches
 many, so the plan file records the exact value to use in a comment
 (`# tt_sim_tensix_coords=...`):
@@ -307,7 +307,7 @@ TT_METAL_HOME=/path/to/tt-metal TT_SIM_COST_MODEL=1 \
 ```
 
 **Do not set `TT_SIM_TENSIX_COORDS`.** It used to be required and is now the
-thing to avoid: setting it is how tt-sim is told the pool is *pinned*, and a
+thing to avoid: setting it is how Wolfpine is told the pool is *pinned*, and a
 pinned pool switches off on-demand materialisation, so the plan dies on its
 first kernel launch outside the pool. Left alone, the run materialises every
 worker the plan addresses as it reaches them (12 tiles, 11 on demand, for the
@@ -351,14 +351,14 @@ harness's current refusals exist for.
 Two runs, **zero coordinate mismatches and zero invariant complaints in both**,
 `RESULT: CONGESTION MEASURED`. Banked in
 [`docs/bh_arch.md`](../../docs/bh_arch.md) §4, with the datasets in
-`tt_sim/perf/datasets/` and the running record in
+`framework/perf/datasets/` and the running record in
 [`docs/plans/cost-model.md`](../../docs/plans/cost-model.md). Reproduce the
 whole analysis with no hardware:
 
 ```bash
-python3 -m tt_sim.perf.noc_congestion_sweep                      # the main run
-python3 -m tt_sim.perf.noc_congestion_sweep \
-    --measured tt_sim/perf/datasets/nocbench-blackhole-sizes.csv # the size sweep
+python3 -m framework.perf.noc_congestion_sweep                      # the main run
+python3 -m framework.perf.noc_congestion_sweep \
+    --measured framework/perf/datasets/nocbench-blackhole-sizes.csv # the size sweep
 ```
 
 **The step is one transaction's link occupancy, and the size sweep is what
@@ -478,7 +478,7 @@ carries no such column.
 **5. The `vc` experiment hung the card, and is now unidirectional.** The first
 and only `direction=BIDIR` point never returned; all 79 unidirectional flows in
 the same session completed. It is not the virtual channel: every one of those 79
-flows issued its writes on VC 0. It is not the kernel: tt-sim runs the identical
+flows issued its writes on VC 0. It is not the kernel: Wolfpine runs the identical
 binary and the identical plan (64 x 4096 B, bidirectional, VC 0-3) to completion
 in 4958 cycles. tt-metal's own `core_bidirectional` suite disables its entire
 directed-ideal family — same-kernel and different-kernel, write-VC sweep
@@ -591,7 +591,7 @@ TT_SIM_COST_MODEL=1 ../../run_card_session.sh --sim --arch blackhole noc noc-epo
   made a flat shared-link reading on the simulator a null rather than a
   non-reading back when that reading was forced.
 
-One incidental finding for anyone porting this: tt-sim *used to* answer 0 for
+One incidental finding for anyone porting this: Wolfpine *used to* answer 0 for
 `NOC_CFG(NOC_ID_LOGICAL)` on Blackhole — it decoded Wormhole's index (`0xE`,
 offset `0x138`) where Blackhole numbers the register `0x12` (offset `0x148`) —
 which is what tt-metal's firmware fills `my_x[]` / `my_y[]` from, so those read
@@ -599,4 +599,4 @@ which is what tt-metal's firmware fills `my_x[]` / `my_y[]` from, so those read
 (`ArchProfile.noc_id_logical_cfg_index`), but the kernel still reads
 `NOC_NODE_ID` instead, and an all-zero self-report is still treated as "this
 device does not answer that register" rather than as "every kernel ran on core
-(0, 0)" — which keeps the harness working against an older tt-sim.
+(0, 0)" — which keeps the harness working against an older Wolfpine.

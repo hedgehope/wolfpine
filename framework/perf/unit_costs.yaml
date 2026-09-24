@@ -2,16 +2,16 @@
 # the baby RISC-V cores, the Mover, and L1 itself.
 #
 # The Tensix per-instruction table is the sibling file
-# ``tt_sim/pe/tensix/tensix_instruction_costs.yaml``, which sits next to the
+# ``framework/pe/tensix/tensix_instruction_costs.yaml``, which sits next to the
 # instruction table it parallels (ROADMAP.md section I). These units have no
 # YAML to sit next to, and what they do have is an arch-level constant table --
-# ``tt_sim/arch/profile.py`` -- so this file lives next to the loader instead.
-# Both files share one schema and one loader (``tt_sim/perf/costs.py``).
+# ``framework/arch/profile.py`` -- so this file lives next to the loader instead.
+# Both files share one schema and one loader (``framework/perf/costs.py``).
 #
-# CONSUMED by two sections, both through tt_sim/perf/model.py and both behind
+# CONSUMED by two sections, both through framework/perf/model.py and both behind
 # TT_SIM_COST_MODEL:
 #
-#   * ``riscv`` -> tt_sim/pe/rv/cost.py. Note what that consumer does *not* do
+#   * ``riscv`` -> framework/pe/rv/cost.py. Note what that consumer does *not* do
 #     -- the load-latency table is spent as a load-use interlock, not as
 #     occupancy, because the ISA docs define it as "N - 1 independent
 #     instructions need to follow the load if the latency is to be entirely
@@ -21,7 +21,7 @@
 #     cycles" and is ALSO what the table's "Maximum loads in flight" column
 #     says, so that column stays unconsumed rather than being charged twice.
 #     See its entry, and docs/plans/cost-model.md.
-#   * ``noc.hops`` -> tt_sim/network/tt_noc.py, as the flight time of a packet:
+#   * ``noc.hops`` -> framework/network/tt_noc.py, as the flight time of a packet:
 #     ``endpoint + per_hop * hops``, with the hop count a forward distance on
 #     each NoC's own (directional, wrapping) torus. ``noc.flit_bits`` and the
 #     hops' ``throughput_flits_per_cycle`` go to the same consumer as
@@ -31,7 +31,7 @@
 #     and the router buffers, i.e. everything that would model one packet
 #     waiting behind *another's*.
 #
-#   * ``dram.access_latency`` -> tt_sim/device/tiles.py, as the time a DRAM
+#   * ``dram.access_latency`` -> framework/device/tiles.py, as the time a DRAM
 #     endpoint holds an arriving request before it services it. Deliberately
 #     not part of the flight above: a flight time is a property of the
 #     distance, this is a property of the device, and keeping them apart is
@@ -61,7 +61,7 @@
 #     unconsumed.
 #
 # The ``mover`` section's ``transfer`` rates are consumed since 2026-08-06 by
-# ``MoverCostModel`` (tt_sim/perf/model.py): a Mover transfer holds the mover
+# ``MoverCostModel`` (framework/perf/model.py): a Mover transfer holds the mover
 # unit for ceil(bytes / ideal rate) cycles. The ``l1`` section has no consumer.
 # See docs/plans/cost-model.md for the schema, the provenance convention, and
 # what calibration would take.
@@ -181,7 +181,7 @@ noc:
     congestion "can negatively impact latency" without quantifying it, and
     neither vendor tree has an intra-chip per-hop congestion model.
 
-    CONSUMED since 2026-08-03 by tt_sim/network/tt_noc.py, exactly as written
+    CONSUMED since 2026-08-03 by framework/network/tt_noc.py, exactly as written
     above: a packet is delayed by ``2 * ~5 + 9 * hops`` before the destination
     NIU services it. The hop count is the *forward* distance on the NoC's own
     torus, so it is directional -- an outbound and a return trip between two
@@ -407,8 +407,8 @@ noc:
       two terms. What the dataset DOES give is a bound: all-to-all over an
       N-core grid at 64 KiB shows aggregate bandwidth rising 3.4x (Wormhole)
       and 6.0x (Blackhole) for 14x and 28x the cores, i.e. the per-core share
-      falling ~4x. Any congestion model tt-sim gains must reproduce that curve.
-      `python3 -m tt_sim.perf.noc_dataset_sweep` prints the whole argument
+      falling ~4x. Any congestion model Wolfpine gains must reproduce that curve.
+      `python3 -m framework.perf.noc_dataset_sweep` prints the whole argument
       with the numbers, and names the four hardware measurements that would
       settle it.
 
@@ -430,7 +430,7 @@ noc:
       by ~65.5 where 4096 / 64 is 64.
 
       RE-MEASURED ACROSS SIX TRANSACTION SIZES, same day, same card, separate
-      run (tt_sim/perf/datasets/nocbench-blackhole-sizes.csv), and THAT CHANGED
+      run (framework/perf/datasets/nocbench-blackhole-sizes.csv), and THAT CHANGED
       THE VERDICT ABOVE ABOUT WHAT IS EXPRESSIBLE -- though not about what is
       wired. The 0-to-1-shared-link delta is 0.0 / 0.0 / 28.1 / 63.1 / 124.5 /
       250.4 cycles at 64 / 512 / 2048 / 4096 / 8192 / 16384 bytes, against
@@ -458,7 +458,7 @@ noc:
       destinations' routes ONCE, so the fan-out is not serialised against
       itself on the launch-message path.
 
-      What tt-sim then reproduces, run through the same harness as the card
+      What Wolfpine then reproduces, run through the same harness as the card
       (perfbench/nocbench/src/nocbench-blackhole-sim-links.report.txt): 0.0
       cycles at 512 B, +59.4 at 4096 B against an occupancy of 64, the whole
       effect at the FIRST shared link, and every uncontended figure in the file
@@ -492,7 +492,7 @@ noc:
       `blackhole/six`), so the only evidence it was not dead code was the
       archived nocbench run. The blocker was that the congestion probes could
       not reach the simulator: `perfbench/run.sh` and `run_card_session.sh`
-      both exported `TT_SIM_TENSIX_COORDS`, which tt-sim reads as "the pool is
+      both exported `TT_SIM_TENSIX_COORDS`, which Wolfpine reads as "the pool is
       PINNED" and which switches off on-demand materialisation, so a multi-core
       plan died on its first kernel launch. With that removed the probe runs on
       both arches and the term FIRES: Blackhole 7,590 link claims / 45 waits,
@@ -551,7 +551,7 @@ dram:
       256 bits/cycle at the same clock -- one fact recorded twice, in the two
       forms the two consumers want -- and a test asserts the two forms agree.
     note: >
-      CONSUMED since 2026-08-04 by tt_sim/device/tiles.py, as the *second*
+      CONSUMED since 2026-08-04 by framework/device/tiles.py, as the *second*
       serialisation a DRAM transfer pays. It exists because the ``noc``
       section's per-link bandwidth and this one are two different queues at two
       different rates -- 32 B/cycle on the wire, 24 B/cycle at the channel --
@@ -822,7 +822,7 @@ riscv:
       ``else_window_cycles_offset`` is the "- 1" of that formula, kept as data
       rather than as a magic number in whatever consumes this.
 
-      CONSUMED since 2026-08-06 by tt_sim/pe/rv/cost.py, in the shape the
+      CONSUMED since 2026-08-06 by framework/pe/rv/cost.py, in the shape the
       sentence has rather than as a rate: ``else_loads_per_window`` slots, each
       held for the region's N + ``else_window_cycles_offset`` cycles, and a
       load that finds no free slot stalls until one frees. On a stream of one
@@ -907,7 +907,7 @@ riscv:
       is the shared backend, not the per-thread push path.
 
       TWO RUNS, ON ONE CARD, one operator, one power state, one day.
-      tt_sim/perf/datasets/riscvbench-blackhole.csv is the primary
+      framework/perf/datasets/riscvbench-blackhole.csv is the primary
       (``--blocks 32``, phase T valid); riscvbench-blackhole-blocks8.csv is the
       companion whose own validity gate refused it and which agrees to within
       0.012 cycles on every figure above. BLACKHOLE ONLY -- Wormhole's page
@@ -969,7 +969,7 @@ riscv:
       page only.
 
       TWO RUNS, ON ONE CARD, one operator, one power state, one day; the
-      primary is tt_sim/perf/datasets/riscvbench-blackhole.csv with phase T
+      primary is framework/perf/datasets/riscvbench-blackhole.csv with phase T
       valid. This field records a disagreement; it does not resolve one, and it
       changes neither a number above nor the provenance rank. See
       docs/plans/riscv-front-end-benchmark.md and docs/bh_arch.md.
@@ -982,7 +982,7 @@ mover:
     honest than most of the table and is reproduced as-is. Neither ttsim (whose
     XMOV is an instantaneous memcpy) nor tt-metal has anything on the Mover, so
     the ISA doc is the only source. CONSUMED since 2026-08-06 by MoverCostModel
-    (tt_sim/perf/model.py): a transfer holds the mover unit for
+    (framework/perf/model.py): a transfer holds the mover unit for
     ceil(bytes * 8 * per_cycles / moved_bits) cycles at the IDEAL column --
     charging the contended column would need a sourced rule for when
     contention applies, which the page does not give, so the ideal rate is the
@@ -1108,7 +1108,7 @@ arch_overrides:
           vendor.
         note: >
           **A difference, charged as a latency, and that is the honest reading
-          of it.** 99 is (DRAM service) - (L1 service), and tt-sim charges an
+          of it.** 99 is (DRAM service) - (L1 service), and Wolfpine charges an
           L1 endpoint nothing, so charging 99 at the DRAM endpoint reproduces
           the measured DRAM-vs-L1 difference exactly while remaining a *floor*
           on the absolute device latency -- hence ``bound: at_least``. The
@@ -1121,7 +1121,7 @@ arch_overrides:
 
           What is NOT modelled, and none of it is folded into this number:
           bank conflicts and refresh windows (ROADMAP section I names both;
-          no source quantifies either, and tt-sim has no bank model for DRAM
+          no source quantifies either, and Wolfpine has no bank model for DRAM
           at all), read/write turnaround, and the *device's* own occupancy --
           how long the array is unavailable to a second request. This 99 is a
           latency; no source publishes the re-issue interval or the pipelining
@@ -1204,7 +1204,7 @@ arch_overrides:
         ``isa_doc`` figure belongs, not what it is.
 
         TWO RUNS, ON ONE CARD, one operator, one day, and they are not
-        averaged: tt_sim/perf/datasets/nocbench-blackhole.csv is the run with
+        averaged: framework/perf/datasets/nocbench-blackhole.csv is the run with
         the controls in it (87 flows, `size` and `readport` both PASS,
         `readport` 1.92x) and nocbench-blackhole-sizes.csv is a separate 96-flow
         sweep that carries none. The two share two of twelve cells and agree to
@@ -1345,7 +1345,7 @@ arch_overrides:
             no refresh window, no device occupancy, no size dependence.
 
             One thing this closes. While the read-derived 126 was charged to
-            writes as well, ``tt_sim/perf/noc_dataset_sweep_test.py`` pinned
+            writes as well, ``framework/perf/noc_dataset_sweep_test.py`` pinned
             that row as the assembled model's single ``KNOWN_OVER_CHARGED``
             entry -- the one place the assembled model predicted a transfer
             costing *more* than tt-metal measured it, by 37 to 52 cycles over
@@ -1415,7 +1415,7 @@ arch_overrides:
           points there are, and the two-point secant is the whole fit.
 
           THE DERIVATION IS NOT NEW AND WAS NOT ADJUSTED TO REACH THIS NUMBER.
-          It is what ``tt_sim.perf.noc_dataset_sweep`` has printed under
+          It is what ``framework.perf.noc_dataset_sweep`` has printed under
           "implied sustained bandwidth, from the large-transfer slope" since
           2026-08-08, unchanged, for every series on both arches at once.
 
@@ -1630,7 +1630,7 @@ arch_overrides:
     riscv:
       # Every `corroboration` in this block is one silicon campaign:
       # perfbench/riscvbench on a Blackhole card, 2026-08-05, banked as
-      # tt_sim/perf/datasets/riscvbench-blackhole.csv (--blocks 32, phases R,
+      # framework/perf/datasets/riscvbench-blackhole.csv (--blocks 32, phases R,
       # T, C and F valid, Q refused) with riscvbench-blackhole-blocks8.csv as
       # the companion. They live under `arch_overrides.blackhole` rather than
       # in the base section for the obvious reason: a Blackhole measurement is
@@ -1653,7 +1653,7 @@ arch_overrides:
           only readable next to the four probes that read above it.
 
           TWO RUNS, ON ONE CARD, one operator, one power state, one day; the
-          primary is tt_sim/perf/datasets/riscvbench-blackhole.csv with phase R
+          primary is framework/perf/datasets/riscvbench-blackhole.csv with phase R
           valid. The companion --blocks 8 run reads 0.995 for the same probes,
           the 0.004 being its shorter baseline rather than the device.
       load_throughput:
@@ -1691,7 +1691,7 @@ arch_overrides:
           force for these accesses is the L1 d-cache MISS row.
 
           TWO RUNS, ON ONE CARD, one operator, one power state, one day;
-          tt_sim/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
+          framework/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
           companion run reads 1.745.
       instruction_fetch:
         corroboration: >
@@ -1725,7 +1725,7 @@ arch_overrides:
           a documented quantity and neither is recorded here.
 
           FOUR RUNS, ON ONE CARD, one operator, one power state, one day;
-          tt_sim/perf/datasets/riscvbench-blackhole.csv (phases F and G valid),
+          framework/perf/datasets/riscvbench-blackhole.csv (phases F and G valid),
           its --blocks 8 companion, and riscvbench-blackhole-gset1.csv and
           -gset2.csv, which are the only measurements of the 6144- and
           7168-byte bodies. The --blocks 8 run reads 0.991-0.995 flat, 1.150 at
@@ -1777,14 +1777,14 @@ arch_overrides:
           differs between the two chips for a documented reason -- Wormhole's
           multiply blocks the integer unit, so both readings would be 2.0
           there. Nothing has run this on Wormhole. As of 2026-08-06
-          tt_sim/pe/rv/cost.py spends ``multiply`` + ``multiply_ex2`` as a
+          framework/pe/rv/cost.py spends ``multiply`` + ``multiply_ex2`` as a
           scoreboard entry on the result register, so a dependent chain in
-          tt-sim reads 2.000 against this 1.985 where it previously read 1.000
+          Wolfpine reads 2.000 against this 1.985 where it previously read 1.000
           (the occupancy was charged, the latency was not).
 
           THE DIVIDE LANDS AT THE TOP OF ITS RANGE, not the bottom. 33.001 is
           the ``max`` of the documented 6-33, for one dividend/divisor pair
-          (0x12345678 / 3, recorded in the dataset header). ``tt_sim/perf/
+          (0x12345678 / 3, recorded in the dataset header). ``framework/perf/
           model.py`` charges every bound at its low end, so it charges 6 where
           this operand costs 33 -- an under-charge of 27 cycles per divide, in
           the direction the cost model's stated policy asks for but by a factor
@@ -1856,12 +1856,12 @@ arch_overrides:
           CHEAPER than not-taken ones on this part. A four-cycle bubble
           occurring on any appreciable fraction of these branches could not
           hide in that. The size may be perfectly correct and untested; the
-          rate is what was measured, and it is why ``tt_sim/pe/rv/cost.py``
+          rate is what was measured, and it is why ``framework/pe/rv/cost.py``
           charging nothing for branches now has evidence behind it rather than
           only an argument.
 
           TWO RUNS, ON ONE CARD, one operator, one power state, one day;
-          tt_sim/perf/datasets/riscvbench-blackhole.csv, phases R and C valid.
+          framework/perf/datasets/riscvbench-blackhole.csv, phases R and C valid.
           The companion --blocks 8 run reads 33.004, 1.988 and 0.995, and its
           phase C was refused by the benchmark's own gate -- for the taken
           probes specifically, whose slope over that shorter baseline is barely
@@ -1893,7 +1893,7 @@ arch_overrides:
           periodic flush on top of it.
 
           TWO CONSUMERS, AND NEITHER IS A HIT RATE. Since 2026-08-06
-          tt_sim/pe/rv/cost.py keeps a per-core line-tag model built from this
+          framework/pe/rv/cost.py keeps a per-core line-tag model built from this
           geometry -- ``lines`` tags of ``line_bytes``, no data -- and charges
           an L1 load ``l1_dcache_hit`` when its line's tag is resident and
           ``l1_dcache_miss`` when it is not, with the documented flushes
@@ -1903,7 +1903,7 @@ arch_overrides:
           periodic flush) so the modelled count stays a floor. Before that,
           every L1 load charged the hit row outright and a pointer chase read
           ~2 where silicon reads 8.098. The other consumer is
-          tt_sim/perf/riscv_bench_sweep.py, which reads only the capacity to
+          framework/perf/riscv_bench_sweep.py, which reads only the capacity to
           pick which row a BENCHMARK PROBE of known working set is predicted
           against.
       load_latency:
@@ -1942,7 +1942,7 @@ arch_overrides:
             the TRISC stack, at 0xFFB00F98    1.985 cycles
 
           THE STACK ROW IS THE CLEAN ONE. 0xFFB00F98 is core-local data RAM --
-          classified by tt_sim/pe/rv/cost.classify_address, the simulator's own
+          classified by framework/pe/rv/cost.classify_address, the simulator's own
           classifier, so the prediction and the simulation cannot disagree --
           and ``core_local_data_ram: 2`` is what it reads.
 
@@ -1955,9 +1955,9 @@ arch_overrides:
           that. The measurement is the reason the capacity was looked up, not
           the reason the row applies. ``rv_load_indep`` agrees from a different
           construction: see ``load_throughput`` above. Since 2026-08-06 the
-          simulator agrees too: tt_sim/pe/rv/cost.py's L0 line model charges
+          simulator agrees too: framework/pe/rv/cost.py's L0 line model charges
           this row to any L1 load whose line is not among the tracked tags, so
-          the same chase in tt-sim now pays 8 per load where it used to pay
+          the same chase in Wolfpine now pays 8 per load where it used to pay
           the hit row's 2.
 
           WHAT IS NOT EXPLAINED is ``rv_load_indep``: its four addresses span
@@ -1970,7 +1970,7 @@ arch_overrides:
           strength of it.
 
           TWO RUNS, ON ONE CARD, one operator, one power state, one day;
-          tt_sim/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
+          framework/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
           companion run reads 8.100 and 1.988.
       store_throughput:
         l1_period_cycles: 5
@@ -2014,7 +2014,7 @@ arch_overrides:
           discriminator the benchmark has, and nothing has done it.
 
           TWO RUNS, ON ONE CARD, one operator, one power state, one day;
-          tt_sim/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
+          framework/perf/datasets/riscvbench-blackhole.csv, phase R valid. The
           companion run reads 5.217, 0.994 and 0.995.
       local_data_ram_reset_cycles:
         cycles: 2048

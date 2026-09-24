@@ -4,7 +4,7 @@ A third program tree, alongside `examples/` (functional, arch-agnostic tt-metal
 programs) and `optests/` (differential op tests against the vendor reference
 simulator). These are **timing** programs: real tt-metal binaries whose output
 is device cycle counts, built so that the *same binary* runs on silicon and
-against tt-sim and the two can be diffed.
+against Wolfpine and the two can be diffed.
 
 ```
 perfbench/
@@ -29,7 +29,7 @@ perfbench/
 │                       estimation, plus the card protocol and the analysis
 ├── mechbench/          the other odd one out: it measures nothing new about
 │                       hardware. It runs one Tensix-bound program on silicon
-│                       and on tt-sim under the same tt-metal build and compares
+│                       and on Wolfpine under the same tt-metal build and compares
 │                       the two *decompositions* -- rung 4's mechanism-
 │                       attribution leg
 ├── nocevbench/         mechbench's sibling: the same idea applied to data
@@ -81,14 +81,14 @@ exists. See [`energybench/README.md`](energybench/README.md).
 
 The first two are complements, and the second exists because of the first's headline
 result: `tensixbench` measures what a Tensix unit costs, and found that against
-tt-sim **every** probe of **every** unit reads exactly 1.000 cycles because
+Wolfpine **every** probe of **every** unit reads exactly 1.000 cycles because
 nothing back-pressures the core that issued it. `riscvbench` measures that core.
 
 | | tensixbench | riscvbench | nocbench | nocreadbench | dramratebench |
 | --- | --- | --- | --- | --- | --- |
 | **Run it on hardware** | `tensixbench/run_card.sh` — or [its README](tensixbench/README.md) | `riscvbench/run_card.sh` — or [its README](riscvbench/README.md) | `nocbench/run_card.sh` — or [its README](nocbench/README.md) | `nocreadbench/run_card.sh` — or [its README](nocreadbench/README.md) | `dramratebench/run_card.sh` — or [its README](dramratebench/README.md) |
-| **Why it is shaped this way** | [`../docs/plans/tensix-cost-benchmark.md`](../docs/plans/tensix-cost-benchmark.md) | [`../docs/plans/riscv-front-end-benchmark.md`](../docs/plans/riscv-front-end-benchmark.md) | [`../docs/plans/cost-model.md`](../docs/plans/cost-model.md), "Rung 2" and its addendum | [`../docs/plans/cost-model.md`](../docs/plans/cost-model.md), "The read floor" | `dram.channel_serialisation` in [`../tt_sim/perf/unit_costs.yaml`](../tt_sim/perf/unit_costs.yaml), and `DramChannels` in `tt_sim/device/tiles.py` |
-| **Analyse the results** | `python3 -m tt_sim.perf.tensix_bench_sweep --measured <csv>` | `python3 -m tt_sim.perf.riscv_bench_sweep --measured <csv>` | `python3 -m tt_sim.perf.noc_congestion_sweep --measured <csv>` | by hand, against the README's prediction table | `python3 -m tt_sim.perf.dram_rate_sweep --measured <csv>` |
+| **Why it is shaped this way** | [`../docs/plans/tensix-cost-benchmark.md`](../docs/plans/tensix-cost-benchmark.md) | [`../docs/plans/riscv-front-end-benchmark.md`](../docs/plans/riscv-front-end-benchmark.md) | [`../docs/plans/cost-model.md`](../docs/plans/cost-model.md), "Rung 2" and its addendum | [`../docs/plans/cost-model.md`](../docs/plans/cost-model.md), "The read floor" | `dram.channel_serialisation` in [`../framework/perf/unit_costs.yaml`](../framework/perf/unit_costs.yaml), and `DramChannels` in `framework/device/tiles.py` |
+| **Analyse the results** | `python3 -m framework.perf.tensix_bench_sweep --measured <csv>` | `python3 -m framework.perf.riscv_bench_sweep --measured <csv>` | `python3 -m framework.perf.noc_congestion_sweep --measured <csv>` | by hand, against the README's prediction table | `python3 -m framework.perf.dram_rate_sweep --measured <csv>` |
 
 `nocreadbench` is the newest and the only one whose *most important* reading
 needs no arithmetic at all: `NIU_MST_REQS_OUTSTANDING_ID(0)` is a counter of the
@@ -97,11 +97,11 @@ own whether an outstanding-request limit exists to be modelled.
 
 `nocbench` is the odd one out in two ways. It is the only one whose experiment
 is *planned* by a separate, tested Python module
-(`tt_sim.perf.noc_congestion_plan`) rather than being wired into the C++, because
+(`framework.perf.noc_congestion_plan`) rather than being wired into the C++, because
 the thing that makes or breaks a congestion measurement is which confounds are
 held fixed, and an invariant that lives in tested code is checkable in a way that
 one living in a comment is not. And it is the only one that reads the simulator
-and a card on the same axis: tt-sim **does** model link congestion
+and a card on the same axis: Wolfpine **does** model link congestion
 (`NocLinkRegistry`, wired 2026-08-05), so the shared-link sweep is not forced
 flat there and the run is a real comparison rather than a null. What the
 simulator does not model is **buffer back-pressure and virtual channels** — the
@@ -134,7 +134,7 @@ Every probe ends in one of seven statuses. `MEANINGFUL` means the probe's own
 control moved. `COLLECTED` means the CSV is written but nothing in-session can
 grade it — the knee hunts are like this, and saying so is more honest than
 claiming a verdict the run did not earn. `DEFERRED` means the CSV is written but
-the *analysis* needs `tt_sim/`, which a card box usually does not have; the
+the *analysis* needs `framework/`, which a card box usually does not have; the
 session writes no report at all rather than a file called `.report.txt` holding
 a traceback. `DEGENERATE` means the control did not move, which on a card is a
 broken run rather than a result. `SKIPPED`, `FAILED`, `SUSPECT` and `UNCLEAR`
@@ -176,7 +176,7 @@ needs a planner ships its plan pre-built (below). That is the whole of it:
 rsync -av --exclude 'build/' perfbench/ <card-box>:~/perfbench/
 ```
 
-The card box needs a built tt-metal and nothing else — no venv, no `tt_sim/`, no
+The card box needs a built tt-metal and nothing else — no venv, no `framework/`, no
 `driver/`, no repo checkout. `TT_METAL_HOME` is the only way anything is told
 where tt-metal lives; no path is baked in.
 
@@ -218,25 +218,25 @@ ones, which share the same `src/build/` trees and would otherwise poison them.
 `card_session_verdicts_test.sh` exercises it in both directions and asserts the
 runner list is complete.
 
-Two steps are *analysis*, not collection, and they do need `tt_sim/`:
+Two steps are *analysis*, not collection, and they do need `framework/`:
 
 - the **`nocbench` planner**, which decides the congestion experiment; and
 - the four **report generators** (`*_bench_sweep`, `noc_congestion_sweep`, `dram_rate_sweep`).
 
-If `tt_sim/` is not importable the session says so, runs the five benches
+If `framework/` is not importable the session says so, runs the five benches
 anyway, collects every CSV, and skips only the planner-dependent `noc` and
 `noc-epoch` probes. Nothing is silently lost: `nocbench-grid.csv` is still
 dumped and sent back, and it is what lets the plan be built at home. Analysis of
 a CSV is not time-critical; being at the card is.
 
-**You do not need `tt_sim/` on the card box for the congestion probes either** —
+**You do not need `framework/` on the card box for the congestion probes either** —
 plan at home instead. `perfbench/nocbench/noc-plan-blackhole.csv` is a
 **pre-built plan** for the harvested Blackhole card, generated from that card's
 own 2026-08-05 `--dump-grid` capture:
 
 ```bash
-python3 -m tt_sim.perf.noc_congestion_plan \
-  --grid tt_sim/perf/datasets/nocbench-grid-blackhole.csv \
+python3 -m framework.perf.noc_congestion_plan \
+  --grid framework/perf/datasets/nocbench-grid-blackhole.csv \
   --out perfbench/nocbench/noc-plan-blackhole.csv \
   --shared-sizes 64,512,2048,8192,16384
 ```
@@ -247,7 +247,7 @@ overrides.
 
 `perfbench/nocbench/noc-plan-wormhole.csv` is the same thing for Wormhole with
 one difference that must travel with it: it was generated from the
-**simulator's** grid dump (`tt_sim/perf/datasets/nocbench-grid-wormhole-sim.csv`),
+**simulator's** grid dump (`framework/perf/datasets/nocbench-grid-wormhole-sim.csv`),
 not a card's, because no Wormhole part has ever dumped one. It is therefore
 valid only for an **unharvested** Wormhole part, and it is provisional until a
 card confirms it. That is safe rather than hopeful: the session dumps the live
@@ -262,15 +262,15 @@ grid and checks **every** addressed tile against it, refusing with the offending
 coordinates rather than measuring. Regenerate the plan if the card, its
 harvesting, or the experiment arguments change.
 
-Copy `tt_sim/` only if you want the **analysis** on the card box too — the three
+Copy `framework/` only if you want the **analysis** on the card box too — the three
 report generators (`*_bench_sweep`, `noc_congestion_sweep`). It cannot be
-trimmed to `tt_sim/perf/`: `noc_congestion_plan` imports `tt_sim.network.tt_noc`,
-which reaches `tt_sim.perf.model` and `costs.py`, and `tensix_bench_sweep`
+trimmed to `framework/perf/`: `noc_congestion_plan` imports `framework.network.tt_noc`,
+which reaches `framework.perf.model` and `costs.py`, and `tensix_bench_sweep`
 imports `costs_test`; transitively that needs **numpy** and **pyyaml**. Analysis
 is not time-critical; being at the card is.
 
 Do **not** copy `perfbench/run.sh` expecting it to help — it is the
-simulator-side runner and points `TT_METAL_SIMULATOR` at tt-sim. The card path
+simulator-side runner and points `TT_METAL_SIMULATOR` at Wolfpine. The card path
 never uses it, and `run_card_session.sh` refuses outright if that variable is
 set.
 
@@ -319,11 +319,11 @@ verdicts now live in `card_session_verdicts.sh` with a test that replays that
 session's own files. The summary block at the end is the handover checklist —
 read it before packing up.
 
-`--sim` runs the same block against tt-sim at smoke sizes, for checking the
+`--sim` runs the same block against Wolfpine at smoke sizes, for checking the
 harness. It stamps every artefact `NOT-A-MEASUREMENT`, and it is the only way
 past the guard that otherwise refuses to run with `TT_METAL_SIMULATOR` set.
 Against the simulator most probes read `DEGENERATE` **and that is correct** —
-tt-sim's NIU queue is unbounded, nothing back-pressures the core that issues a
+Wolfpine's NIU queue is unbounded, nothing back-pressures the core that issues a
 Tensix instruction, and it models no NoC buffer back-pressure or virtual
 channels. Link congestion is **not** on that list: it has been modelled since
 2026-08-05 (`NocLinkRegistry`), which is why the two congestion probes are the
@@ -331,7 +331,7 @@ exception in the table below. Everything else there is the observed result of
 `--sim --arch blackhole` at smoke sizes with the cost model **off**, not a
 prediction:
 
-| probe | against tt-sim | on a card |
+| probe | against Wolfpine | on a card |
 | --- | --- | --- |
 | `nocread` | `DEGENERATE` — the NIU queue is unbounded, so E0 reads the full burst by construction | the whole question |
 | `cmdbuf` | `DEGENERATE` — no command buffer is modelled; reads the "absent" sentinel | a peak occupancy that MOVED off its rest value, or the run says nothing |
@@ -339,11 +339,11 @@ prediction:
 | `rv`, `rv-pairs` | `DEGENERATE` — riscvbench's own live-instrument check fires: `mul_dep`, `div` and `store_spread` all read ~1.0 | meaningful |
 | `rv-qdrain` | `COLLECTED` — it is the knee hunt; nothing in-session grades it | `COLLECTED` |
 | `rv-gset` | `SKIPPED` — minutes per gset against the simulator | `COLLECTED` |
-| `tensix-rdcfg` | `DEGENERATE` — measured, 2026-08-12, and for a reason internal to the simulator. The visibility sweep's controls both pass (a stale reading and a fresh reading are each representable) and it reports `TTBENCH_VIS_DMIN: 1`: tt-sim's Configuration Unit writes the destination GPR in the issue cycle, so it models no `RDCFG` latency at all and the documented `>= 2` cannot be reached there. The C12 liveness control does not move either — and **not** only because of the 12-bit mask: widening `_read_wait_res` to 13 bits changes nothing, because tt-sim's config unit retires inside the cycle that issued, so `hasInflightInstructionsFromThread` is empty whenever another thread's Wait Gate looks. Giving the unit a genuine one-cycle post-retire residency makes the control move (`TTBENCH_C12_LIVE: 2.03 4.60 t3`), which is how the control was shown to fire in both directions. On Wormhole the C12 slots report `SKIPPED` — the condition does not exist there | `MEANINGFUL`, or an evidenced negative |
+| `tensix-rdcfg` | `DEGENERATE` — measured, 2026-08-12, and for a reason internal to the simulator. The visibility sweep's controls both pass (a stale reading and a fresh reading are each representable) and it reports `TTBENCH_VIS_DMIN: 1`: Wolfpine's Configuration Unit writes the destination GPR in the issue cycle, so it models no `RDCFG` latency at all and the documented `>= 2` cannot be reached there. The C12 liveness control does not move either — and **not** only because of the 12-bit mask: widening `_read_wait_res` to 13 bits changes nothing, because Wolfpine's config unit retires inside the cycle that issued, so `hasInflightInstructionsFromThread` is empty whenever another thread's Wait Gate looks. Giving the unit a genuine one-cycle post-retire residency makes the control move (`TTBENCH_C12_LIVE: 2.03 4.60 t3`), which is how the control was shown to fire in both directions. On Wormhole the C12 slots report `SKIPPED` — the condition does not exist there | `MEANINGFUL`, or an evidenced negative |
 | `dram` | `MEANINGFUL`, reporting **NO ENDPOINT BOUND** — and that is correct there. The probe widens `TT_SIM_TENSIX_COORDS` to two tiles for its own run, so the sweep and the barrier really do execute (`max_barrier_spins` 22, both tags verified), and both arms then scale ×2.00 exactly. On **Blackhole** the endpoint queue is switched off by construction: no DRAM tile page is published for that part, so `dram_gddr_channel_size` is `None`, `DramChannels.bytes_per_cycle` is `None`, and every `claim()` is a no-op. Perfect linear scaling is what an unmodelled endpoint gives. With one tile it reads `DEGENERATE` instead, for want of a second point. **On Wormhole with `TT_SIM_COST_MODEL=1` it reads `ENDPOINT BOUND`** — see below. **And the smoke sizes are load-bearing in that sentence**: at the vendor's own 1 MiB / 4096 B, twelve Blackhole tiles read `ENDPOINT BOUND` too, ratio 0.25, with the endpoint queue still switched off — the flat arm is sitting on the DRAM tile's 64 B/cycle NoC link, which a scaling ratio cannot tell from a channel. `dramratebench/README.md` has the table | the whole question |
-| `noc`, `noc-epoch` | `SKIPPED` by default, but **`MEANINGFUL` / `COLLECTED` when you name them** — see below | the experiment, or `DEFERRED` if the box has no `tt_sim/` |
+| `noc`, `noc-epoch` | `SKIPPED` by default, but **`MEANINGFUL` / `COLLECTED` when you name them** — see below | the experiment, or `DEFERRED` if the box has no `framework/` |
 
-**The congestion probes now run against tt-sim, on both arches, and they are the
+**The congestion probes now run against Wolfpine, on both arches, and they are the
 one place `--sim` produces a reading worth reading.** They are still opt-in —
 `--sim` skips them unless you name them — but the reason is cost, not
 impossibility: they are minutes each where the rest of the block is seconds.
@@ -362,14 +362,14 @@ Three things had to be true for this to work, and the first two were bugs in
 this harness rather than limits of the simulator:
 
 * **The `--sim` block used to export `TT_SIM_TENSIX_COORDS`.** Setting that
-  variable — even to the one worker the server builds anyway — is how tt-sim is
+  variable — even to the one worker the server builds anyway — is how Wolfpine is
   told the pool is *pinned*, and a pinned pool switches off on-demand
   materialisation. A multi-core plan then died on its first kernel launch
   outside the pool. Unset, the same run materialises 12 workers (11 on demand)
   and completes.
 * **`HAVE_TT_SIM` was probed before the venv reached `PATH`**, so a session
   standing in the repo collected both CSVs and then reported them `DEFERRED`
-  "because `tt_sim/` is not on this box".
+  "because `framework/` is not on this box".
 * **The shipped `noc-plan-<arch>.csv` is not usable against the simulator.** It
   was planned for a *harvested* card; the simulator has the whole grid, so every
   tile it names exists and the plan passes the tile check, but its physical
@@ -379,7 +379,7 @@ this harness rather than limits of the simulator:
 It also **used to hang**, which is why the skip existed at all. It no longer
 does: the server names the first missing tile and stops the host with it, so
 even a genuinely under-provisioned run exits in about three seconds rather than
-waiting forever (`tt_sim/bridge/hostlink.py`).
+waiting forever (`framework/bridge/hostlink.py`).
 
 So **ten of the twelve probes read `DEGENERATE` or `SKIPPED` against the
 simulator and every one of those is correct** — and the other two are the
@@ -390,7 +390,7 @@ asked to spend one and not the other.
 
 Two readings are worth stating twice, because at the card they will look like
 differences and are not. `tensix-rdcfg` reads `d_min = 1` for a reason internal
-to tt-sim rather than anything about the hardware: its Configuration Unit writes
+to Wolfpine rather than anything about the hardware: its Configuration Unit writes
 the destination GPR in the cycle that issued the `RDCFG`, so there is no latency
 to be invisible to a consumer, and the same single-cycle retirement is why
 condition **C12** (`CFGEXU`, "any thread has an instruction in any stage of the
@@ -400,7 +400,7 @@ Configuration Unit pipeline") never observes anything either.
 additionally trims the condition mask to raw bits 11:0 so C12 is cut off before
 the gate sees it — the ISA page gives the field as 13 bits
 (`TT_STALLWAIT(/* u9 */ BlockMask, /* u13 */ ConditionMask)`) while the width
-tt-sim took from ttsim's `data/bh/tensix_isa.json` is 12. **That is a source
+Wolfpine took from ttsim's `data/bh/tensix_isa.json` is 12. **That is a source
 conflict worth raising upstream**, but it is not the whole story here: widening
 the field to 13 bits leaves the control flat, and only giving the unit a real
 one-cycle post-issue residency makes it move. Two separate gaps, and the second
@@ -414,7 +414,7 @@ neither should be retaken.
 
 ### The `dram` probe against the term it exists to test
 
-Two things were learned by running it against tt-sim before any card time, and
+Two things were learned by running it against Wolfpine before any card time, and
 both change how its result must be read.
 
 **It detects the endpoint-occupancy term where the term is live.** Blackhole
@@ -443,7 +443,7 @@ an absolute threshold is really a question about how wide the sweep was. The
 question the experiment asks is *did concentrating the readers cost anything
 relative to spreading them*, and that is `onechan_scale / fanchan_scale`. It is
 graded at 0.75 — concentrating cost at least a quarter of the scaling that
-spreading achieved — and tt-sim's own 0.56 is a regression case in
+spreading achieved — and Wolfpine's own 0.56 is a regression case in
 `card_session_verdicts_test.sh`.
 
 **The `samecore` arm does not fire on either part, and that is measured.** It
@@ -468,7 +468,7 @@ checks are in [`docs/plans/wormhole-session.md`](../docs/plans/wormhole-session.
 Read that before scheduling anything. Two things from it belong here:
 `mechbench`, `nocreadbench` and `dramratebench` have **never touched a card**
 and their first contact is a deliberate de-risking pass, not a measurement; and
-on Wormhole tt-sim shadows **56 of 80 workers on NoC 1** in the default
+on Wormhole Wolfpine shadows **56 of 80 workers on NoC 1** in the default
 untranslated mode, so a multi-core simulator side runs with
 `TT_METAL_MOCK_CLUSTER_DESC_PATH` set or it is not comparable to a card.
 
@@ -583,7 +583,7 @@ the cross-thread control that says whether C12 was blind or inert.
   bidirectional flows outright, under two tests, because the first and only such
   point never returned on a Blackhole card while all 79 unidirectional flows in
   the same session completed — and tt-metal's own `core_bidirectional` suite
-  skips its entire directed-ideal family with `// Timeout issue (#36428)`. tt-sim
+  skips its entire directed-ideal family with `// Timeout issue (#36428)`. Wolfpine
   runs the identical plan to completion, so nothing can be learned here without
   the card, and reaching it means hand-writing a plan CSV that defeats a tested
   safety invariant and risks hanging the card mid-session. The virtual-channel
@@ -593,7 +593,7 @@ the cross-thread control that says whether C12 was blind or inert.
 ### The magic bump, answered
 
 Both probes built on 2026-08-09 widened a result layout, and every tracked
-dataset in `tt_sim/perf/datasets/` carries its collecting binary's magic in the
+dataset in `framework/perf/datasets/` carries its collecting binary's magic in the
 `#` header — `magic=0x7B10CE02` for tensixbench, `magic=0x7B10CF03` for
 riscvbench. **Whether the sweep readers validate that was established before
 either was bumped**, not after, because a bump that made eleven reference
@@ -602,11 +602,11 @@ worth.
 
 They do not, and three independent things say so:
 
-1. `read_csv` in both `tt_sim/perf/tensix_bench_sweep.py` and
+1. `read_csv` in both `framework/perf/tensix_bench_sweep.py` and
    `riscv_bench_sweep.py` splits every `#` line into `key=value` tokens and
    stores them in a `meta` dict. `magic` lands there like any other token, and
    **no code path anywhere consults `meta["magic"]`** — the only greps for the
-   word in `tt_sim/` are in two test fixtures.
+   word in `framework/` are in two test fixtures.
 2. Re-reading every tracked dataset with its header rewritten to a bumped value
    yields byte-identical rows.
 3. The strongest one is already in the tree and has been for a while:

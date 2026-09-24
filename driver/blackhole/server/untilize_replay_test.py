@@ -23,7 +23,7 @@ Blackhole-only ``dst_access_mode`` (raw bit 17), paired with the
 ``DEST_ACCESS_CFG`` remap/swizzle the math thread enables -- so the second half
 of each PACR's 32 datums comes from Dst row ``base + 16`` rather than
 ``base + 1``, and one PACR emits one 32-datum row spanning two faces. Two decode
-gaps had to close for it: ``dst_access_mode`` did not exist in tt-sim's PACR
+gaps had to close for it: ``dst_access_mode`` did not exist in Wolfpine's PACR
 argument table at all, and the same bit was being swallowed by ``AddrMode``,
 whose shared Wormhole encoding runs to bit 23 -- so ``ADDR_MOD_1`` decoded as a
 section nothing programs and the pack Y counter never advanced. Wormhole's own
@@ -50,9 +50,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

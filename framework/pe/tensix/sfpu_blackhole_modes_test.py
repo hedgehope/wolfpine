@@ -11,15 +11,15 @@ Every case below is checked against ttsim (``src/tensix.cpp`` under
 layouts), and each is paired with the Wormhole behaviour so the arch gating is
 verified in both directions.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.sfpu_blackhole_modes_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.sfpu_blackhole_modes_test``) or
 under pytest. Instructions are encoded exactly as tt-metal's ``ckernel_ops.h``
 does and pushed through a real ``VectorUnit``, so the decoder and the handler
 are both exercised.
 """
 
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.util.conversion import conv_to_uint32
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.util.conversion import conv_to_uint32
 
 
 def _vector_unit(blackhole):

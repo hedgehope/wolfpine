@@ -6,7 +6,7 @@ set -euo pipefail
 # Defaults to the schema inside whichever tt-metal $TT_METAL_HOME points at;
 # pass a path as $1 to override. Hard-coding a checkout here only ever worked
 # on one machine.
-SCHEMA="${1:-${TT_METAL_HOME:?set TT_METAL_HOME, or pass the .fbs path as the first argument}/tt_metal/third_party/umd/device/simulation/tt_simulation_device.fbs}"
+SCHEMA="${1:-${TT_METAL_HOME:?set TT_METAL_HOME, or pass the .fbs path as the first argument}/tt_metal/third_party/umd/device/simulation/frameworkulation_device.fbs}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/_flatbuf"
 

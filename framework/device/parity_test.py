@@ -28,12 +28,12 @@ import inspect
 
 import pytest
 
-from tt_sim.device import blackhole as blackhole_module
-from tt_sim.device import wormhole as wormhole_module
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.deadlock import DeadlockDetector
-from tt_sim.device.tt_device import DeviceTileDiagnostics, TT_Device
-from tt_sim.device.wormhole import Wormhole
+from framework.device import blackhole as blackhole_module
+from framework.device import wormhole as wormhole_module
+from framework.device.blackhole import Blackhole
+from framework.device.deadlock import DeadlockDetector
+from framework.device.tt_device import DeviceTileDiagnostics, TT_Device
+from framework.device.wormhole import Wormhole
 
 ARCH_MODULES = {"wormhole": wormhole_module, "blackhole": blackhole_module}
 DEVICES = pytest.mark.parametrize(
@@ -144,7 +144,7 @@ def test_every_architecture_enables_tracing_from_the_environment(
 ):
     calls = []
     monkeypatch.setattr(
-        "tt_sim.device.tt_device.enable_from_env",
+        "framework.device.tt_device.enable_from_env",
         lambda device=None: calls.append(device),
     )
     device = device_class()

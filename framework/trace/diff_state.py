@@ -2,14 +2,14 @@
 
 Usage:
 
-    python3 -m tt_sim.trace.diff_state <a.json> <b.json>
+    python3 -m framework.trace.diff_state <a.json> <b.json>
 
 Designed for catching nondeterminism / regressions: capture a state
 dump on a known-good run, capture another on a candidate commit, diff.
 A clean run prints ``state matches``; any divergence pinpoints the
 first field that differs and exits non-zero.
 
-The cross-simulator workflow (driving tt-sim and ``libttsim.so`` on
+The cross-simulator workflow (driving Wolfpine and ``libttsim.so`` on
 the same kernel) is documented in ROADMAP §H Phase 7 but the
 ``libttsim.so`` side isn't wired up here — generate two dumps via
 your own orchestration and feed both to this tool.

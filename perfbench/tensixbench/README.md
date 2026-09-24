@@ -1,7 +1,7 @@
 # tensixbench — running it on real hardware
 
 **You have a Tenstorrent card. This page is everything you need; you do not need
-to know anything about tt-sim.** It asks you to build one program, run it a
+to know anything about Wolfpine.** It asks you to build one program, run it a
 handful of times, and send back the CSV files. Budget **20 minutes**, most of it
 the build.
 
@@ -187,7 +187,7 @@ So the prediction has two strengths, and they are worth keeping apart:
   measured.
 
 **What each outcome would mean for the cost tables**
-(`tt_sim/pe/tensix/tensix_instruction_costs.yaml`, whose MATH entries carry no
+(`framework/pe/tensix/tensix_instruction_costs.yaml`, whose MATH entries carry no
 format axis today, and `docs/plans/tensix-cost-benchmark.md`, which lists data
 format under "what is not measured, and why"):
 
@@ -370,7 +370,7 @@ probe in phase A measures **occupancy**, and `BlackholeA0/.../RDCFG.md` says
 "The issuing thread is not blocked, so it can potentially start its next
 instructions (of any kind) during `RDCFG`'s subsequent cycles" — so slot 14
 reading exactly 1.000 on Blackhole silicon is not a contradiction, and charging
-the doc's 2 as an occupancy is what made tt-sim's `matmulblock` guard compute
+the doc's 2 as an occupancy is what made Wolfpine's `matmulblock` guard compute
 the wrong answer.
 
 **On Wormhole it is the other way round.** `WormholeB0/.../RDCFG.md` says "The
@@ -476,7 +476,7 @@ recursion.
 | per-`d` counts | 0 or `N`, never in between | a mixture, which means the RISC-V front end did not deliver the sequence at one instruction per cycle and the separation is not what it says |
 
 **It is free of the C12 problem.** It issues no `STALLWAIT` and consults no
-condition bit, so it is untouched by tt-sim reading Blackhole's condition mask as
+condition bit, so it is untouched by Wolfpine reading Blackhole's condition mask as
 12 bits where the ISA page gives 13. It also runs on either architecture.
 
 #### The dependence pair, slots 26/27
@@ -548,7 +548,7 @@ and `RMWCIB0` with `Mask = 0` is the identity by its own functional model
 (`*CfgAddress = (NewValue & Mask) | (OldValue & ~Mask)`).
 
 To reproduce a run comparable with the tracked datasets in
-`tt_sim/perf/datasets/`, pass `--probes 0xFFFFF`: those were collected before
+`framework/perf/datasets/`, pass `--probes 0xFFFFF`: those were collected before
 slots 20–29 existed, and all ten default ON.
 
 ---
@@ -641,14 +641,14 @@ for the exact fidelity-phase question phase B has to infer.
 Back on a machine with this repo:
 
 ```bash
-export PYTHONPATH=/path/to/tt-sim
-python3 -m tt_sim.perf.tensix_bench_sweep --measured tensixbench-blackhole.csv
+export PYTHONPATH=/path/to/wolfpine
+python3 -m framework.perf.tensix_bench_sweep --measured tensixbench-blackhole.csv
 ```
 
 and, to diff hardware against the simulator running the same binary:
 
 ```bash
-python3 -m tt_sim.perf.tensix_bench_sweep \
+python3 -m framework.perf.tensix_bench_sweep \
     --measured tensixbench-blackhole.csv \
     --reference sim-blackhole.csv
 ```
@@ -658,15 +658,15 @@ rows of *"Issue-limit discriminator: the same burst from 1, 2 and 3 TRISCs"* in
 each and put them side by side:
 
 ```bash
-python3 -m tt_sim.perf.tensix_bench_sweep --measured tensixbench-blackhole.csv
-python3 -m tt_sim.perf.tensix_bench_sweep --measured tensixbench-blackhole-dvalid-per-thread.csv
+python3 -m framework.perf.tensix_bench_sweep --measured tensixbench-blackhole.csv
+python3 -m framework.perf.tensix_bench_sweep --measured tensixbench-blackhole-dvalid-per-thread.csv
 ```
 
 The X2 format sweep has its own mode, because the format is a per-run
 configuration rather than a column and the comparison is therefore across files:
 
 ```bash
-python3 -m tt_sim.perf.tensix_bench_sweep --formats \
+python3 -m framework.perf.tensix_bench_sweep --formats \
     tensixbench-blackhole-unpacr-nop-bf16.csv \
     tensixbench-blackhole-unpacr-nop-fp32.csv \
     tensixbench-blackhole-unpacr-nop-tf32.csv \
@@ -691,15 +691,15 @@ the cycle cost model on. Keep `--blocks` small: the simulator runs a few tens of
 thousands of cycles per second.
 
 Phase B is the slow half. `--fidelities LoFi` (or `HiFi2`, or `HiFi4`) runs one
-fidelity per process, which is what makes it checkable at all against tt-sim:
+fidelity per process, which is what makes it checkable at all against Wolfpine:
 any single fidelity at `--iters 1` finishes in a couple of minutes, and the
 three are indistinguishable there anyway — the math thread issues one `MOP`
-whatever the fidelity, and tt-sim's coprocessor never back-pressures the issuing
+whatever the fidelity, and Wolfpine's coprocessor never back-pressures the issuing
 core, so all three slopes are identical by construction. On hardware always run
 all three; the difference is the whole point and it needs at least two in one
 CSV.
 
-> Two phase B launches **in the same process** stall against tt-sim: LoFi
+> Two phase B launches **in the same process** stall against Wolfpine: LoFi
 > completes in ~2 minutes and a second `LaunchProgram` then runs for 25+ minutes
 > without finishing, while the same fidelity launched on its own finishes in
 > ~2 minutes. Phase A does three launches per process and is unaffected. That is
@@ -718,7 +718,7 @@ TT_METAL_HOME=/path/to/tt-metal ./perfbench/run.sh tensixbench -- \
     --phase a --blocks 1 --probes 0xE0001 --dvalid-unpacr-nop --src-format bf16
 ```
 
-Against tt-sim every format reads exactly `1.000`, and that is **forced** rather
+Against Wolfpine every format reads exactly `1.000`, and that is **forced** rather
 than informative: nothing back-pressures the issuing core there, so no phase-A
 probe of any unit at any format can read anything else. The simulator run proves
 the plumbing — that the kernel builds, that the `UNPACR_NOP` word is accepted,

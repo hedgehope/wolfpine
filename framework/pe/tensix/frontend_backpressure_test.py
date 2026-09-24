@@ -11,7 +11,7 @@ every probe of every unit).
 
 The mechanism under test: a core-facing push into a thread's frontend is
 refused (``MemoryStall``) once that thread has
-:data:`~tt_sim.pe.tensix.frontend.CORE_PUSH_INFLIGHT_BOUND` instructions in
+:data:`~framework.pe.tensix.frontend.CORE_PUSH_INFLIGHT_BOUND` instructions in
 flight, and both push paths — the ``.ttinsn`` extension and a plain ``sw`` to
 the push buffer — turn the refusal into a ``PEStall`` so the core retries with
 the PC unmoved. The bound is a **conservative uncalibrated mechanism
@@ -29,22 +29,22 @@ the core exactly as silicon measures them
   first wait gate in tick order would win the slot every cycle and starve the
   other cores for ever).
 
-Run standalone (``python3 -m tt_sim.pe.tensix.frontend_backpressure_test``) or
+Run standalone (``python3 -m framework.pe.tensix.frontend_backpressure_test``) or
 under pytest.
 """
 
 import os
 from contextlib import contextmanager
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.pe import ProcessingElement
-from tt_sim.pe.rv.isa.tt_isa import RV_TT_ISA
-from tt_sim.pe.tensix.frontend import CORE_PUSH_INFLIGHT_BOUND
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.util.conversion import conv_to_bytes
+from framework.arch import WORMHOLE_PROFILE
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.memory.memory import MemoryStall
+from framework.pe.pe import ProcessingElement
+from framework.pe.rv.isa.tt_isa import RV_TT_ISA
+from framework.pe.tensix.frontend import CORE_PUSH_INFLIGHT_BOUND
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.util.conversion import conv_to_bytes
 
 #: ``TTI_NOP`` — backend resource NONE, so it never queues in a backend unit.
 NOP = 0x02 << 24
@@ -125,7 +125,7 @@ def test_core_push_is_refused_at_the_inflight_bound():
 
 
 def test_internal_expansion_pushes_are_never_refused():
-    """Only the core-facing write is bounded. tt-sim's MOP/replay expanders
+    """Only the core-facing write is bounded. Wolfpine's MOP/replay expanders
     emit a whole template in one tick, so their output legitimately exceeds
     the bound; what that inflated count then does is refuse the *next core
     push*, which is the honest proxy for the expansion work in flight."""
@@ -302,9 +302,9 @@ def test_three_threads_sharing_a_one_ipc_unit_approach_three_x_each():
         accepted = _run(cp, 300, pushes, start_cycle=250)
         for thread_id, n in accepted.items():
             rate = 300 / n
-            assert 2.8 <= rate <= 3.2, (
-                f"thread {thread_id}: {rate:.2f} cyc/instr (accepted {n}/300)"
-            )
+            assert (
+                2.8 <= rate <= 3.2
+            ), f"thread {thread_id}: {rate:.2f} cyc/instr (accepted {n}/300)"
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,3 @@
-from tt_sim.trace.writers.jsonl import JSONLLogger
+from framework.trace.writers.jsonl import JSONLLogger
 
 __all__ = ["JSONLLogger"]

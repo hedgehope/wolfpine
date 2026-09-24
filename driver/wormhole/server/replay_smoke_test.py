@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pynng
 
-from tt_sim.bridge import Fabric, TraceWriter, Transport
-from tt_sim.bridge import protocol as proto
+from framework.bridge import Fabric, TraceWriter, Transport
+from framework.bridge import protocol as proto
 
 
 def _run_server(addr, fabric, tracer, ready):
@@ -118,9 +118,9 @@ def main():
 
         n_recorded = _record_phase(addr_a, trace)
         n_lines = sum(1 for line in trace.open() if line.strip())
-        assert n_lines == n_recorded, (
-            f"trace has {n_lines} lines but server saw {n_recorded} messages"
-        )
+        assert (
+            n_lines == n_recorded
+        ), f"trace has {n_lines} lines but server saw {n_recorded} messages"
 
         stdout = _replay_phase(addr_b, trace)
         if "0 READ mismatches" not in stdout:

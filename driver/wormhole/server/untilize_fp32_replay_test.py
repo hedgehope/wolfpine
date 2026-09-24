@@ -11,13 +11,13 @@ kernel is the same source, but tt-metal JITs it differently (the pack config
 carries ``PCK_DEST_RD_CTRL_Read_32b_data`` and the math thread runs the 32-bit
 DEST path), so the default arm's trace cannot stand in for it.
 
-What it guards. tt-sim used to take the packer's DEST read width from the *pack
+What it guards. Wolfpine used to take the packer's DEST read width from the *pack
 source format* rather than from ``PCK_DEST_RD_CTRL_Read_32b_data``, so under a
 16-bit format it read DEST 16 bits at a time even when DEST held fp32: 896, 960
 and 896 of 1024 datums wrong on the three ops, with op 0 -- the *tiled control*,
 which shares nothing with untilize but the pack -- landing only the top-left
 8 rows x 16 columns. The unit-level pin is
-``tt_sim/pe/tensix/pack_dest_rd_ctrl_test.py``; this guard is the integrated
+``framework/pe/tensix/pack_dest_rd_ctrl_test.py``; this guard is the integrated
 one, over a real kernel, real config plumbing and a real pack.
 
 Why 128 datums still came back right, and why that matters here. A 32-bit DEST
@@ -35,7 +35,7 @@ The golden -- the ramp, tiled for op 0 and row-major for ops 1 and 2 -- is
 imported from the default arm's guard rather than recomputed: bf16 operands
 accumulated in fp32 and packed back to bf16 are still exact, so both arms must
 produce byte-identical output, and importing it is what makes that a property of
-the code rather than of two copies staying in step. tt-sim reproduces this arm
+the code rather than of two copies staying in step. Wolfpine reproduces this arm
 bit-for-bit against ttsim-Wormhole as well (``TT_SIM_ARCH=wormhole
 UNTILIZE_FP32=1 ./optests/diff.sh untilize``), which is also how the trace was
 captured, with ``TT_SIM_RECORD`` pointed at ``traces/untilize_fp32.trace``.
@@ -48,9 +48,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .untilize_replay_test import EXPECTED, NUM_OPS, OP_IS_TILED, OP_NAMES, TILE_ELEMS

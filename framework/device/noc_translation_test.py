@@ -20,14 +20,14 @@ The four things that have to hold, on both architectures:
 
 import pytest
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.tt_noc import (
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.tt_noc import (
     NoCCoordinateError,
     _endpoint_noc_coord,
     resolved_nui,
 )
-from tt_sim.util.bits import extract_bits
+from framework.util.bits import extract_bits
 
 # Every functional worker on each architecture, so the census is the full grid
 # rather than the handful a program happens to launch on.
@@ -145,9 +145,9 @@ def test_translated_coords_resolve_on_both_nocs(
             ):
                 entry = directory.get(coord)
                 assert entry is not None, f"{arch} NoC{noc} {coord}"
-                assert resolved_nui(entry) is tile.get_noc_nui(noc), (
-                    f"{arch} NoC{noc} {coord}"
-                )
+                assert resolved_nui(entry) is tile.get_noc_nui(
+                    noc
+                ), f"{arch} NoC{noc} {coord}"
 
 
 @pytest.mark.parametrize("arch", ["wormhole", "blackhole"])
@@ -212,7 +212,7 @@ def test_noc_node_id_stays_the_physical_node_id(
 
     ``NOC_NODE_ID`` reports that, and keeps reporting it: on silicon the
     firmware self-address derived from it still routes, because the NIU goes on
-    accepting physical coordinates alongside translated ones. tt-sim models the
+    accepting physical coordinates alongside translated ones. Wolfpine models the
     same thing by *adding* translated keys rather than substituting them, so
     the physical coord stays a directory key. Pinned so that a future change
     which "unifies" the two registers has to argue with this test.
@@ -466,12 +466,12 @@ def test_an_unmodelled_translated_destination_still_raises(arch, monkeypatch):
     A translated coordinate naming a tile kind this architecture does not model
     at all (Blackhole ethernet) misses the directory and becomes a
     ``NullEndpoint`` holding the translated key, which is off-grid. With the
-    cost model on that is a ``NoCCoordinateError``. Nothing tt-sim models sits
+    cost model on that is a ``NoCCoordinateError``. Nothing Wolfpine models sits
     there, so there is no physical cell to substitute and no honest distance to
     charge; the named error is the right outcome and is pinned here so it stays
     a decision rather than a surprise.
     """
-    from tt_sim.network.tt_noc import NullEndpoint
+    from framework.network.tt_noc import NullEndpoint
 
     monkeypatch.setenv("TT_SIM_COST_MODEL", "1")
     device = (

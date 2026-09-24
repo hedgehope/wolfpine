@@ -1,10 +1,10 @@
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.pe.tensix import semaphore_contract
-from tt_sim.pe.tensix.backends.backend_base import TensixBackendUnit
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.bits import extract_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.mem_mapable import MemMapable
+from framework.pe.tensix import semaphore_contract
+from framework.pe.tensix.backends.backend_base import TensixBackendUnit
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.perf.model import unit_cost_model
+from framework.util.bits import extract_bits, get_nth_bit
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 
 class TensixSyncUnit(TensixBackendUnit, MemMapable):
@@ -23,7 +23,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         ``max`` powers on at zero and only a ``SEMINIT`` gives it a meaning, so
         ``initialised`` records whether one has run. Without that flag "Value >=
         Max" is true for every post to a semaphore nobody configured, which is
-        most of them: see :mod:`tt_sim.pe.tensix.semaphore_contract`.
+        most of them: see :mod:`framework.pe.tensix.semaphore_contract`.
         """
 
         def __init__(self):
@@ -54,7 +54,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
     #: what the shared, Wormhole-shaped ``tensix_instructions.yaml`` already
     #: decodes, so only this one has to be re-read from the raw word -- without
     #: which bits 14:13 leak in and select spurious conditions. See
-    #: :meth:`_read_wait_res` for why 13 rather than the 12 tt-sim used to read,
+    #: :meth:`_read_wait_res` for why 13 rather than the 12 Wolfpine used to read,
     #: and for the source conflict behind the difference.
     BLACKHOLE_WAIT_RES_BITS = 13
 
@@ -71,7 +71,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
     #: unpackers, all four packers. Blackhole's 0x0F is C0-C3: ThCon requests,
     #: both unpackers, the packer.
     #:
-    #: tt-sim used ``0x7F`` on both until 2026-08-12, which on Blackhole is not
+    #: Wolfpine used ``0x7F`` on both until 2026-08-12, which on Blackhole is not
     #: a superset of the right answer but a *different* set: bits 4, 5 and 6
     #: there are C4 (an instruction in any stage of the Matrix Unit pipeline),
     #: C5 and C6 (``SrcA`` / ``SrcB`` not yet handed back to the unpackers). The
@@ -99,7 +99,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         # costs of this unit are not occupancy at all: SEMWAIT / STALLWAIT
         # "consist purely of passing them over to the Wait Gate", so the wait
         # is unbounded and belongs to the gate, and ATGETM's stall on a held
-        # mutex is likewise a gate cost. tt-sim already models both
+        # mutex is likewise a gate cost. Wolfpine already models both
         # functionally.
         self.cost_model = unit_cost_model(
             "SYNC", "blackhole" if backend.blackhole else "wormhole"
@@ -242,7 +242,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         """``SEMPOST.md``: increment, saturating at 15.
 
         The saturation is the documented behaviour and is left exactly as it
-        was; :mod:`tt_sim.pe.tensix.semaphore_contract` only refuses to carry
+        was; :mod:`framework.pe.tensix.semaphore_contract` only refuses to carry
         on past the two states in which the counter has stopped meaning what
         the program thinks it means. The check runs before any semaphore in the
         mask is touched, so the raise leaves the atomic block's state
@@ -292,7 +292,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         THE TWO SOURCES DISAGREE ABOUT BLACKHOLE, and this reads the ISA
         documentation rather than the vendor data file. Recorded here in full
         because the disagreement is the only reason the constant is not
-        obvious, and because tt-sim followed the other side of it until
+        obvious, and because Wolfpine followed the other side of it until
         2026-08-12.
 
         **13 bits (raw 12:0), which is what this returns.** The BlackholeA0
@@ -374,7 +374,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         else:
             # ``SEMWAIT.md`` calls an empty condition mask ``UndefinedBehavior``
             # on *both* arches -- there is no documented answer to copy, so this
-            # arm is tt-sim's choice and always was. It stands in the
+            # arm is Wolfpine's choice and always was. It stands in the
             # "STALLWAIT with the all-resources default" reading, which now
             # means the reading in *this* arch's numbering rather than always
             # Wormhole's; a Blackhole 0x7F selected the Matrix Unit pipeline and
@@ -403,7 +403,7 @@ class TensixSyncUnit(TensixBackendUnit, MemMapable):
         and polls with ``lw`` instead, so ``Max`` -- whose only consumer is
         ``SEMWAIT``'s C1 -- is not this core's back-pressure and passing it
         says nothing about its discipline. ttsim's memory-mapped path draws the
-        same line. See :mod:`tt_sim.pe.tensix.semaphore_contract`.
+        same line. See :mod:`framework.pe.tensix.semaphore_contract`.
         """
         idx = int(addr / 4)
         assert idx < 8

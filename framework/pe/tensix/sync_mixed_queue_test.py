@@ -12,12 +12,12 @@ config unit's ordering bug (see ``docs/plans/cost-model.md``), and it is a
 functional bug rather than a cost-model one, so it is tested here rather than
 alongside the cost wiring.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.sync_mixed_queue_test``) or under
+Run standalone (``python3 -m framework.pe.tensix.sync_mixed_queue_test``) or under
 pytest.
 """
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
 
 
 def _sync_unit():

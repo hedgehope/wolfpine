@@ -13,14 +13,14 @@ it claims. That is what ``perfbench/riscvbench``'s own per-phase validity gate
 (monotonicity, R^2, the "is the instrument live?" control) is for, and it runs
 on the device.
 
-Run:  python3 -m pytest tt_sim/perf/riscv_bench_sweep_test.py
+Run:  python3 -m pytest framework/perf/riscv_bench_sweep_test.py
 """
 
 import io
 
 import pytest
 
-from tt_sim.perf import riscv_bench_sweep as sweep
+from framework.perf import riscv_bench_sweep as sweep
 
 HEADER = (
     "# riscvbench raw points\n"
@@ -160,7 +160,7 @@ def test_the_control_is_matched_per_phase(tmp_path):
 
 def test_predictions_come_from_the_tables_not_from_this_module():
     """Doubling a table field must move the prediction."""
-    from tt_sim.perf import costs
+    from framework.perf import costs
 
     base = sweep.predictions("wormhole")["rv_div"].cycles
 
@@ -233,7 +233,7 @@ def test_a_pointer_chase_is_predicted_against_the_dcache_MISS_row():
     it reaches under any organisation of the cache. That is a documentary fact
     (``bh_riscv#l0-data-cache``), which is why it may move a prediction.
     """
-    from tt_sim.perf.model import _LOAD_LATENCY_KEYS, RV_REGION_L1
+    from framework.perf.model import _LOAD_LATENCY_KEYS, RV_REGION_L1
 
     pred = sweep.predictions("blackhole")["rv_load_chase"]
     assert pred.path == "riscv.load_latency.l1_dcache_miss"
@@ -256,7 +256,7 @@ def test_the_row_is_chosen_by_working_set_against_the_published_capacity():
     Both directions are exercised so that a future probe with a small working
     set is predicted against the row it would actually reach.
     """
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     riscv = load_costs("blackhole").section("riscv")
     capacity = riscv["l0_data_cache"]["capacity_bytes"]
@@ -437,7 +437,7 @@ def test_resolution_covers_the_control_over_subtraction(tmp_path):
 
     So the unconditional control subtraction over-corrects by up to
     slope(control)/unroll, and a residual smaller than that is inside the
-    instrument rather than a finding. This is not hypothetical: against tt-sim
+    instrument rather than a finding. This is not hypothetical: against Wolfpine
     with the cost model on, `rv_store_spread`'s raw slope is exactly 320 per
     block of 64 stores -- 5.000 each with no room for the loop -- and reports
     4.969.
@@ -836,7 +836,7 @@ def test_the_noise_floor_scales_with_the_measured_control(tmp_path):
 
 def test_loop_form_refuses_a_backlog_that_is_still_growing(tmp_path):
     """An unbounded queue absorbs the whole of every doubling, so its backlog
-    doubles too -- which is what tt-sim does and what a depth must not be read
+    doubles too -- which is what Wolfpine does and what a depth must not be read
     off. It clears the noise floor and is still not an asymptote."""
     text = _loop_text(tmp_path, _loop_slot(lambda n: n - 16))
     assert "BACKLOG STILL GROWING" in text
@@ -1003,7 +1003,7 @@ def test_no_verdict_without_a_second_thread_count(tmp_path):
 
 
 def test_an_unbounded_queue_resolves_nothing_and_the_read_out_says_which(tmp_path):
-    """tt-sim's forced answer: `push_mop_instruction` is a list append, so the
+    """Wolfpine's forced answer: `push_mop_instruction` is a list append, so the
     backlog doubles with every doubling of the burst and never settles. No
     depth may be divided out of that, at any thread count."""
     growing = _share_slot(depth=10**6, service=3, threads=1)
@@ -1248,7 +1248,7 @@ def test_the_bracket_narrows_with_a_phase_g_point_and_stays_a_loop_body_size(tmp
 def test_the_additions_are_reported_present_so_a_forced_null_is_not_an_absence(
     tmp_path,
 ):
-    """Against tt-sim both new phases read their null BY CONSTRUCTION -- no
+    """Against Wolfpine both new phases read their null BY CONSTRUCTION -- no
     instruction cache is modelled and the Tensix queue is a list append -- so a
     reader has to be able to tell that from a probe that never ran."""
     rows, _ = sweep.read_csv(

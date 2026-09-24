@@ -1,8 +1,8 @@
 """The matrix unit driven with and without the modelled cycle costs.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.matrix_cost_model_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.matrix_cost_model_test``) or
 under pytest. This is the unit half of Phase 5 of
-``docs/plans/event-driven-pump.md``: ``tt_sim/perf/model_test.py`` pins what
+``docs/plans/event-driven-pump.md``: ``framework/perf/model_test.py`` pins what
 the tables *say*, and this pins what the FPU *does* with what they say.
 
 Three claims:
@@ -12,7 +12,7 @@ Three claims:
    always has. That is the property the replay guards depend on.
 2. With it set, ``MVMUL`` is charged one cycle at every one of the four
    fidelity phases (see
-   :meth:`tt_sim.perf.model.UnitCostModel.fidelity_occupancy` for why that is
+   :meth:`framework.perf.model.UnitCostModel.fidelity_occupancy` for why that is
    the right answer rather than a missing multiplier).
 3. A cost above one cycle really does occupy the unit: the next instruction
    waits for the deadline, and ``hasInflightInstructionsFromThread`` — which
@@ -25,8 +25,8 @@ Three claims:
 import os
 from contextlib import contextmanager
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
+from framework.arch import WORMHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
 
 #: INCRWC with ``rwc_a = 1``: the cheapest matrix-unit op with a visible
 #: side effect, so a test can tell a retired instruction from a stalled one.
@@ -156,7 +156,7 @@ def test_a_multi_cycle_cost_holds_the_unit_and_back_pressures_the_thread():
     """An occupied unit refuses the next instruction rather than queueing it.
 
     Queueing was the original shape and it is wrong for a reason worth keeping
-    written down: tt-sim's frontend treats an instruction as issued the moment
+    written down: Wolfpine's frontend treats an instruction as issued the moment
     a unit accepts it, so an instruction parked in an occupied unit's queue
     retires *after* the thread's next instruction has already run in a
     different unit — a reordering of one thread's program. See

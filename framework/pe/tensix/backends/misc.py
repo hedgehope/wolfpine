@@ -1,6 +1,6 @@
-from tt_sim.pe.tensix.backends.backend_base import TensixBackendUnit
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.util.bits import extract_bits, get_nth_bit
+from framework.pe.tensix.backends.backend_base import TensixBackendUnit
+from framework.pe.tensix.registers import SrcRegister
+from framework.util.bits import extract_bits, get_nth_bit
 
 
 class MiscellaneousUnit(TensixBackendUnit):
@@ -62,42 +62,42 @@ class MiscellaneousUnit(TensixBackendUnit):
         1. REAL BLACKHOLE KERNELS ISSUE IT. ``TTI_SETDVALID(0b10)`` appears in
            ``tt_llk_blackhole/llk_lib/llk_math_eltwise_unary_datacopy.h`` (the
            ROW, SCALAR and COL broadcast paths of the 32-bit unpack-to-dest
-           datacopy) and in ``ckernel_debug.h``. The four opcodes tt-sim does
+           datacopy) and in ``ckernel_debug.h``. The four opcodes Wolfpine does
            reject on Blackhole are ones no kernel reaches; this is not one of
-           them, and refusing it would break a compute path tt-sim exists to
+           them, and refusing it would break a compute path Wolfpine exists to
            run in exchange for nothing.
         2. THE ILL-SPECIFIED PART IS ALREADY MODELLED AS WELL AS IT CAN BE.
            What Blackhole adds to the model is
            ``ImpliedSrc{A,B}Fmt[bank] = UnpredictableValue()`` -- and the same
            paragraph says what the hardware does in practice: "it records a
-           stale/held copy of a previous unpack's output format". tt-sim's
+           stale/held copy of a previous unpack's output format". Wolfpine's
            implied format IS that stale copy: ``MatrixUnit.implied_srcA_format``
            / ``implied_srcB_format`` read the format latched on the Src bank by
-           the last unpack into it, and nothing here disturbs it. So tt-sim
+           the last unpack into it, and nothing here disturbs it. So Wolfpine
            already produces the documented in-practice behaviour. An
            unpredictable value is not a value that can be modelled; the honest
            options were this one and refusing, and refusing costs a real kernel
            path.
         3. NO DIFFERENTIAL IS AVAILABLE EITHER WAY. Because the vendor sim
            declines the instruction on Blackhole, ``optests/diff.sh`` cannot
-           check tt-sim against it there. Refusing would not buy a check; it
+           check Wolfpine against it there. Refusing would not buy a check; it
            would only remove a path.
 
         WHAT IS NOT MODELLED, and is the caveat this docstring exists to carry:
 
         - The ``UnpredictableValue`` itself. A kernel that depends on the
           implied format after a Blackhole ``SETDVALID`` is relying on
-          behaviour the docs tell it not to rely on; tt-sim will give it the
+          behaviour the docs tell it not to rely on; Wolfpine will give it the
           previous unpack's format, silently and deterministically, and
           hardware need not.
         - The instruction's own precondition. Handing a bank to the Matrix Unit
           that it already owns is ``NonContractualBehavior``
           (``TTSIM_VERIFY(!(p_tensix->src_a_valid & (1 << unpack_bank)), ...)``)
-          and tt-sim does it without complaint. That is exactly what
+          and Wolfpine does it without complaint. That is exactly what
           ``perfbench/tensixbench``'s original per-thread setup did, and it
           produced a 12x apparent matrix-unit slowdown on silicon that took an
           experiment to retract -- see
-          docs/plans/matrix-unit-thread-contention.md. tt-sim has no per-bank
+          docs/plans/matrix-unit-thread-contention.md. Wolfpine has no per-bank
           valid bit to check it against today; adding one is the fix, and it
           would want a Wormhole-side audit first because a false positive here
           fires on correct kernels.

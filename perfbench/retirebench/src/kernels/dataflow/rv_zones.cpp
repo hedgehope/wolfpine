@@ -4,8 +4,8 @@
 // by a read of `mcycle` and a read of `minstret`, all nested inside one outer
 // window. The zones telescope to the window by construction -- whatever is not
 // inside a zone is the window minus the sum of the zones -- so the same binary
-// run on silicon and against tt-sim yields two partitions of the same quantity
-// and `tt_sim.perf.retire_attribution` can compare their interiors rather than
+// run on silicon and against Wolfpine yields two partitions of the same quantity
+// and `framework.perf.retire_attribution` can compare their interiors rather than
 // only their totals.
 //
 // THE INSTRUMENT, and the one constraint that shapes every line below.
@@ -27,7 +27,7 @@
 // WHAT THE HARDWARE CAN AND CANNOT SAY. Per zone it gives elapsed cycles and
 // retired instructions, and that is all of it. `mhpmcounter3/4` exist but the
 // encodings of their `mhpmevent3/4` selectors are unpublished, so no event can
-// be given a meaning -- tt-sim's own CSR file refuses those counters once an
+// be given a meaning -- Wolfpine's own CSR file refuses those counters once an
 // event is selected, and nothing here selects one. There is no PC sampler and
 // no instruction-trace buffer in tt-metal 0.74, UMD or the public ISA docs. So
 // the MECHANISM split has to come from the program's structure: each zone is
@@ -154,7 +154,7 @@ void kernel_main() {
     // the dividend") and one operand cannot stand for the band. 0xFFF is a
     // 12-bit dividend, the top of the range the in-tree Blackhole replay guards
     // actually execute; 0x12345678 is 29 significant bits, the operand
-    // riscvbench read 33.001 cycles at. tt-sim charges its documented floor of 6
+    // riscvbench read 33.001 cycles at. Wolfpine charges its documented floor of 6
     // for both. THE TWO ZONES ARE THEREFORE A PREDICTION: div_small should be
     // close and div_large should not, and if a card says otherwise that is the
     // measurement, not a defect in either zone.
@@ -243,7 +243,7 @@ void kernel_main() {
     // Control flow. The two zones execute the IDENTICAL dynamic instruction
     // sequence -- one `xori` and one conditional branch to a target one
     // instruction ahead, which is where the not-taken branch falls through to --
-    // and differ in exactly one bit: whether the branch was taken. tt-sim
+    // and differ in exactly one bit: whether the branch was taken. Wolfpine
     // charges neither, and says so: the mispredict bubble is sourced (4 cycles
     // on Blackhole) but the predictor is undocumented, so the number of
     // mispredictions is unknowable and charging every taken branch would be a

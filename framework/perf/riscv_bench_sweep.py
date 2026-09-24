@@ -4,13 +4,13 @@
 **every single one moved zero simulated cycles**. The diagnosis is the same each
 time and the file states it outright: *"the constraint is the un-modelled RISC-V
 front end"*. ``perfbench/tensixbench`` said the same thing from the measurement
-side -- against tt-sim every phase A probe of every unit at every data format
+side -- against Wolfpine every phase A probe of every unit at every data format
 reads exactly ``1.000`` cycles per instruction, because nothing back-pressures
 the issuing core.
 
 So this module consumes the dataset that would settle it: ``perfbench/
 riscvbench``, one tt-metal program that runs unchanged on silicon and against
-tt-sim, timing the front end itself. The methodology, and what each measurement
+Wolfpine, timing the front end itself. The methodology, and what each measurement
 can and cannot establish, is in ``docs/plans/riscv-front-end-benchmark.md``.
 
 What the input is
@@ -52,12 +52,12 @@ Run it
 
 ::
 
-    python3 -m tt_sim.perf.riscv_bench_sweep
-    python3 -m tt_sim.perf.riscv_bench_sweep --measured hw.csv
-    python3 -m tt_sim.perf.riscv_bench_sweep --measured hw.csv --reference sim.csv
+    python3 -m framework.perf.riscv_bench_sweep
+    python3 -m framework.perf.riscv_bench_sweep --measured hw.csv
+    python3 -m framework.perf.riscv_bench_sweep --measured hw.csv --reference sim.csv
 
 With no ``--measured`` the sweep reads the **primary tracked reference
-measurement** (:data:`PRIMARY_DATASET`) in ``tt_sim/perf/datasets/``, so the
+measurement** (:data:`PRIMARY_DATASET`) in ``framework/perf/datasets/``, so the
 comparison reproduces with no hardware and no arguments. Each dataset's ``#``
 header carries its own provenance -- card, firmware, KMD, flags, row count,
 per-phase validity -- because a measurement separated from those is not one.
@@ -73,7 +73,7 @@ same "degrade gracefully" contract ``noc_dataset_sweep`` and
 ``tensix_bench_sweep`` use.
 
 With ``--reference`` it additionally diffs two runs of the same binary --
-silicon against tt-sim -- which is the differential form ``optests/diff.sh``
+silicon against Wolfpine -- which is the differential form ``optests/diff.sh``
 established for values, applied to cycles.
 """
 
@@ -180,11 +180,11 @@ QUEUE_DRAIN_DATASET = "riscvbench-qdrain.csv"
 #: than inlined so that widening it is a visible edit.
 RESOLUTION_SIGMA = 2.0
 
-#: Which probes ``tt_sim/pe/rv/cost.py`` actually charges today. Its module
+#: Which probes ``framework/pe/rv/cost.py`` actually charges today. Its module
 #: docstring is the authority and lists four things it models -- the load-use
 #: interlock, the sustained-load rate, the L1 store rate and the integer
 #: unit's multiply/divide -- and four it deliberately does not: branch
-#: mispredicts ("neither the docs nor tt-sim describe the predictor"),
+#: mispredicts ("neither the docs nor Wolfpine describe the predictor"),
 #: instruction fetch and i-cache misses, per-region request throughput, and
 #: regions the load-latency table does not name. Nothing anywhere charges the
 #: ``.ttinsn`` push.
@@ -196,7 +196,7 @@ RESOLUTION_SIGMA = 2.0
 #: cannot see.
 #:
 #: This is what makes the sweep's "wired" axis mean something: a probe can carry
-#: a perfectly good table prediction and still be a measurement of tt-sim's
+#: a perfectly good table prediction and still be a measurement of Wolfpine's
 #: silence rather than of its arithmetic.
 TT_SIM_CHARGES = frozenset(
     {
@@ -212,7 +212,7 @@ TT_SIM_CHARGES = frozenset(
     }
 )
 
-#: MMIO base, from ``tt_sim/pe/rv/cost.py``. Used only to say, in the report,
+#: MMIO base, from ``framework/pe/rv/cost.py``. Used only to say, in the report,
 #: which load-latency row the stack probe landed in.
 _MMIO_BASE = 0xFFB00000
 
@@ -318,7 +318,7 @@ confirmation.
 
 2. WHERE THE TABLES MAKE A CLAIM, the claim is a floor and not an equality.
    Bounded entries (`at_least`, `range`) are read at their low end, exactly as
-   `tt_sim/perf/model.py` charges them, so measured >= predicted. A NEGATIVE
+   `framework/perf/model.py` charges them, so measured >= predicted. A NEGATIVE
    residual beyond the instrument's resolution is the interesting failure: it
    means the table over-charges, and invents back-pressure the hardware does not
    have.
@@ -332,15 +332,15 @@ confirmation.
      * the branch PREDICTOR (phase C). The tables give the mispredict BUBBLE --
        2 cycles on Wormhole, 4 on Blackhole -- which is how much one costs. How
        OFTEN one happens is undescribed, which is exactly why
-       `tt_sim/pe/rv/cost.py` declines to charge it.
+       `framework/pe/rv/cost.py` declines to charge it.
      * the instruction CACHE (phase F). The docs give the fetch period and no
        cache size and no miss cost.
      * unconditional jumps (`c_jal`). No entry of any kind.
 
 AND ONE THING THAT IS NOT A PREDICTION AT ALL, but is the axis that matters
-most for tt-sim. Only eight of these probes are consumed by
-`tt_sim/pe/rv/cost.py`; the rest measure a term the simulator does not model.
-Against tt-sim those eight are the instrument's own calibration -- they are the
+most for Wolfpine. Only eight of these probes are consumed by
+`framework/pe/rv/cost.py`; the rest measure a term the simulator does not model.
+Against Wolfpine those eight are the instrument's own calibration -- they are the
 reason a run of 1.000s elsewhere is a FINDING rather than the signature of a
 benchmark that measured nothing. The `wired` column says which is which."""
 
@@ -385,7 +385,7 @@ def _cycles_of(entry):
 def _latency_key(arch, region):
     """Which ``riscv.load_latency`` key ``arch`` uses for a canonical region.
 
-    Read out of ``tt_sim/perf/model.py``'s own private mapping rather than
+    Read out of ``framework/perf/model.py``'s own private mapping rather than
     restated, and deliberately so: Blackhole's table is not a superset of
     Wormhole's -- it renames rows, splits L1 into a d-cache hit and a miss, and
     moves TDMA between groups -- so a second copy of that mapping here would be
@@ -393,7 +393,7 @@ def _latency_key(arch, region):
     same reasoning ``tensix_bench_sweep.unwired_units`` uses for reading its
     list out of the test that owns it.
     """
-    from tt_sim.perf.model import _LOAD_LATENCY_KEYS
+    from framework.perf.model import _LOAD_LATENCY_KEYS
 
     return _LOAD_LATENCY_KEYS[arch].get(region)
 
@@ -445,7 +445,7 @@ def _l1_load_row(riscv, arch, working_set_bytes=None):
     strength of that would be fitting the table to the measurement, which is the
     one thing this whole apparatus exists to not do.
     """
-    from tt_sim.perf.model import RV_REGION_L1, l1_dcache_miss_key
+    from framework.perf.model import RV_REGION_L1, l1_dcache_miss_key
 
     table = riscv.get("load_latency") or {}
     key = _latency_key(arch, RV_REGION_L1)
@@ -468,7 +468,7 @@ def predictions(arch, meta=None):
     loader. Nothing is hardcoded: doubling a field in the YAML moves the
     prediction, which is what a test asserts.
     """
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     table = load_costs(arch)
     riscv = table.section("riscv")
@@ -520,9 +520,9 @@ def predictions(arch, meta=None):
                 derivation=f"{mul} (EX1) + {ex2} (EX2) = {mul + ex2}. Blackhole's "
                 "multiply pipelines across two stages, so its OCCUPANCY is one "
                 "cycle but its LATENCY is two, and a dependent chain pays the "
-                "latency. tt-sim charges both since 2026-08-06: the latency is "
+                "latency. Wolfpine charges both since 2026-08-06: the latency is "
                 "a scoreboard entry on the result register (see "
-                "tt_sim/pe/rv/cost.py), so a tt-sim dependent chain reads 2.000 "
+                "framework/pe/rv/cost.py), so a Wolfpine dependent chain reads 2.000 "
                 "against silicon's 1.985.",
             )
     div, div_bound = _cycles_of(integer.get("divide_general"))
@@ -558,8 +558,8 @@ def predictions(arch, meta=None):
             f"of {capacity} (riscv.l0_data_cache.capacity_bytes), so it cannot be "
             "resident and this is the row it reaches whatever the cache's "
             "unpublished organisation. The hit row is not a conservative reading "
-            "of this probe -- it is a different row. tt-sim agrees since "
-            "2026-08-06: its per-core L0 line model (tt_sim/pe/rv/cost.py) "
+            "of this probe -- it is a different row. Wolfpine agrees since "
+            "2026-08-06: its per-core L0 line model (framework/pe/rv/cost.py) "
             "charges the miss row to any L1 load whose line is not resident, so "
             "this chase pays 8 per load in simulation too, where it used to pay "
             "the hit row's ~2.",
@@ -648,8 +648,8 @@ def predictions(arch, meta=None):
         except ValueError:
             addr = None
         if addr is not None:
-            from tt_sim.pe.rv.cost import classify_address
-            from tt_sim.perf.model import RV_REGION_NAMES
+            from framework.pe.rv.cost import classify_address
+            from framework.perf.model import RV_REGION_NAMES
 
             region = classify_address(addr)
             key = _latency_key(arch, region)
@@ -661,7 +661,7 @@ def predictions(arch, meta=None):
                     bound,
                     f"riscv.load_latency.{key}",
                     note=f"the stack landed at {stack_addr}, which "
-                    f"tt_sim/pe/rv/cost.classify_address puts in "
+                    f"framework/pe/rv/cost.classify_address puts in "
                     f"{RV_REGION_NAMES[region]}",
                 )
             other, other_bound = _cycles_of(stores.get("other_regions_period_cycles"))
@@ -948,7 +948,7 @@ the measured value DOWN. They are added per series and reported as `resol`:
      one that stalls, and which of those a probe does is the thing being
      measured, so the correction cannot be applied selectively.
 
-     This is not a theoretical worry. Against tt-sim with the cost model on, the
+     This is not a theoretical worry. Against Wolfpine with the cost model on, the
      `rv_store_spread` probe's raw slope is EXACTLY 320 cycles per block of 64
      stores -- 5.000 each, with no room in it for the loop's two cycles -- and
      the unconditional subtraction reports 4.969. Same arithmetic, same size,
@@ -1175,7 +1175,7 @@ def _floor_verdict(kept, emit):
             "  -- but read 'Is the instrument live?' at the end of this report FIRST.\n"
             "  A device on which nothing back-pressures the issuing core makes every\n"
             "  probe read 1.000 and therefore makes every prediction above 1 look like\n"
-            "  an over-charge. That is what tt-sim looks like with TT_SIM_COST_MODEL\n"
+            "  an over-charge. That is what Wolfpine looks like with TT_SIM_COST_MODEL\n"
             "  unset, and it is a statement about the simulator rather than about the\n"
             "  tables."
         )
@@ -1199,7 +1199,7 @@ def _by_axis(kept, emit):
         ("unit", lambda s: s["unit"]),
         ("bound", lambda s: s["bound"] or "-"),
         ("prediction kind", lambda s: s["kind"]),
-        ("charged by tt_sim/pe/rv/cost.py", lambda s: "yes" if s["wired"] else "no"),
+        ("charged by framework/pe/rv/cost.py", lambda s: "yes" if s["wired"] else "no"),
         ("beyond the fit's resolution", lambda s: "yes" if s["resolved"] else "no"),
     ):
         emit()
@@ -1306,8 +1306,8 @@ def _fusion_check(series, emit, meta=None):
             "  compiler-generated instruction stream does not reach -- or does not\n"
             "  exist on this device at all.\n"
             "\n"
-            "  AGAINST tt-sim this verdict is FORCED and says nothing about any\n"
-            "  hardware: tt-sim has no instruction cache, decodes one `.ttinsn` per\n"
+            "  AGAINST Wolfpine this verdict is FORCED and says nothing about any\n"
+            "  hardware: Wolfpine has no instruction cache, decodes one `.ttinsn` per\n"
             "  cycle in RV_TT_ISA.run, and appends to an unbounded queue. A null\n"
             "  here from a simulator run tests this harness end to end and nothing\n"
             "  else."
@@ -1327,7 +1327,7 @@ def _branch_check(series, arch, emit):
     taken = _measured(series, "c_t")
     if nt is None or taken is None:
         return
-    from tt_sim.perf.costs import load_costs
+    from framework.perf.costs import load_costs
 
     integer = (load_costs(arch).section("riscv").get("integer_unit")) or {}
     bubble, _ = _cycles_of(integer.get("branch_mispredict_bubble"))
@@ -1369,8 +1369,8 @@ def _branch_check(series, arch, emit):
         f"  architecture, looking like {observed} cycles of occupancy from outside\n"
         "  (`riscv.integer_unit.branch_mispredict_bubble`, isa_doc). That is the\n"
         "  SIZE of one mispredict. How OFTEN one happens is what these deltas say,\n"
-        "  and it is the reason tt_sim/pe/rv/cost.py charges nothing here:\n"
-        '  "neither the docs nor tt-sim describe the predictor, so the number of\n'
+        "  and it is the reason framework/pe/rv/cost.py charges nothing here:\n"
+        '  "neither the docs nor Wolfpine describe the predictor, so the number of\n'
         "  mispredictions is unknowable and charging every taken branch would be a\n"
         '  fabrication."\n'
     )
@@ -1383,7 +1383,7 @@ def _branch_check(series, arch, emit):
             "  VERDICT: no direction-dependent cost this instrument can resolve.\n"
             "  Either there is no predictor and no penalty, or every pattern here is\n"
             "  predicted correctly. `cost.py`'s refusal to charge a mispredict costs\n"
-            "  nothing on evidence like this -- but note that AGAINST tt-sim the\n"
+            "  nothing on evidence like this -- but note that AGAINST Wolfpine the\n"
             "  verdict is forced: it has no predictor and no bubble, so a null is\n"
             "  what its own construction guarantees."
         )
@@ -1597,7 +1597,7 @@ def _queue_check(rows, emit):
         "  cascade and the clock reads all cancel between them. That pair is stable to\n"
         "  the third decimal across six thread slots and two runs.\n"
         "\n"
-        "  AGAINST tt-sim every answer here is FORCED: `TensixFrontend.\n"
+        "  AGAINST Wolfpine every answer here is FORCED: `TensixFrontend.\n"
         "  push_mop_instruction` is an unbounded list append, so the core runs ahead\n"
         "  at every burst length by construction and a null says nothing about any\n"
         "  hardware."
@@ -1776,7 +1776,7 @@ def _queue_loop_readout(probes, emit):
             f"added\n         {prev_step:+.0f} then {last_step:+.0f} cycles), so it is not "
             "an asymptote and no depth in\n         entries is resolvable. Either the queue "
             f"is deeper than n={ns[-1]}, or nothing\n         back-pressures this core at "
-            "all -- which is what tt-sim is by construction."
+            "all -- which is what Wolfpine is by construction."
         )
     else:
         emit(
@@ -2006,7 +2006,7 @@ def _sharing_verdict(depths, emit):
     if base is None or base[1] is None or base[1]["entries"] is None:
         emit(
             "  NO VERDICT: the single-thread slot resolved no depth, so there is no\n"
-            "  baseline to compare against. Against tt-sim this is forced --\n"
+            "  baseline to compare against. Against Wolfpine this is forced --\n"
             "  `TensixFrontend.push_mop_instruction` is an unbounded list append, so the\n"
             "  backlog is still growing at every burst length in every slot and no depth\n"
             "  is resolvable anywhere. That is a fact about the simulator and says\n"
@@ -2407,7 +2407,7 @@ def _live_check(series, emit):
     The trap `tensixbench` fell into: a run of 1.000s is simultaneously the
     expected simulator output and the signature of a benchmark that measured
     nothing. These four probes have a documented cost above one cycle on at
-    least one architecture and are consumed by ``tt_sim/pe/rv/cost.py``, so they
+    least one architecture and are consumed by ``framework/pe/rv/cost.py``, so they
     are the control that tells the two apart.
     """
     emit()
@@ -2433,7 +2433,7 @@ def _live_check(series, emit):
             "  ALL of them read ~1.0. Every one has a documented cost above one cycle\n"
             "  on at least one architecture, so this is the signature of a run that\n"
             "  measured nothing -- or of a device on which NOTHING back-pressures the\n"
-            "  issuing core, which is what tt-sim looks like with TT_SIM_COST_MODEL\n"
+            "  issuing core, which is what Wolfpine looks like with TT_SIM_COST_MODEL\n"
             "  unset. On silicon, treat it as a broken run.\n"
             "\n"
             "  Every other verdict in this report is unsafe until this one passes."
@@ -2450,7 +2450,7 @@ def _additions_present(rows, emit):
     """Did phases S and G run at all? A null is not an absence.
 
     The same trap :func:`_live_check` exists for, in the form the two newer
-    phases take it. Against tt-sim BOTH are forced: it models no instruction
+    phases take it. Against Wolfpine BOTH are forced: it models no instruction
     cache, so every phase-G footprint reads the same; and its Tensix queue is a
     list append, so no phase-S slot resolves a depth. A reader who cannot tell
     that from "the probe never ran" has learnt nothing from either, so this
@@ -2475,7 +2475,7 @@ def _additions_present(rows, emit):
             + ", ".join(f"{p} {present[p]} points" for p in sorted(share))
             + "\n    Structural check: `s_co_sync` must exceed `s_co_plain` at every burst\n"
             "    length -- a drain cannot be free. If they are equal the phase measured\n"
-            "    nothing, whatever the verdict above said. Against tt-sim the backlog\n"
+            "    nothing, whatever the verdict above said. Against Wolfpine the backlog\n"
             "    grows without bound and every slot refuses a depth: forced, and a fact\n"
             "    about the simulator."
         )
@@ -2485,13 +2485,13 @@ def _additions_present(rows, emit):
             + ", ".join(f"{p} {present[p]} points" for p in sorted(fetch))
             + f"\n    Exactly ONE of {SHARE_G_INTERMEDIATES} is compiled per `--gset`, so a\n"
             "    file holding one of them is a complete run and not a truncated one.\n"
-            "    Against tt-sim all footprints read alike: no instruction cache is\n"
+            "    Against Wolfpine all footprints read alike: no instruction cache is\n"
             "    modelled, so the flat row is forced and says nothing about hardware."
         )
 
 
 def _differential(rows, reference_rows, arch, emit, meta=None):
-    """The same binary, two devices: silicon against tt-sim, per series."""
+    """The same binary, two devices: silicon against Wolfpine, per series."""
     emit()
     emit("-" * 78)
     emit("Differential: the same binary on both devices")

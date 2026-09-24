@@ -2,7 +2,7 @@
 
 A forgotten ``TT_METAL_MOCK_CLUSTER_DESC_PATH`` is the one way translated
 operation can go wrong quietly: the host emits untranslated coordinates, every
-one of them misses tt-sim's directory, and the traffic lands on a ``NullCore``
+one of them misses Wolfpine's directory, and the traffic lands on a ``NullCore``
 that zero-fills reads and swallows writes. The run then finishes with wrong
 numbers or hangs. So the guard is tested for what it catches *and* for what it
 must not cry wolf about — a false positive here would break every existing
@@ -13,7 +13,7 @@ import pytest
 
 from driver.blackhole.server import coords as bh_coords
 from driver.wormhole.server import coords as wh_coords
-from tt_sim.bridge import Fabric, install_convention_guard
+from framework.bridge import Fabric, install_convention_guard
 
 ARCHES = {"wormhole": wh_coords, "blackhole": bh_coords}
 

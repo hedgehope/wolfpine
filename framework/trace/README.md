@@ -1,4 +1,4 @@
-# Structured tracing (`tt_sim/trace/`)
+# Structured tracing (`framework/trace/`)
 
 A typed pub/sub event bus. The simulator publishes architectural events
 (instruction retirement, Tensix dispatch, NoC traffic, kernel lifecycle);
@@ -6,7 +6,7 @@ external consumers subscribe and turn the stream into whatever they
 need. Today: JSONL for ad-hoc analysis and Perfetto / Chrome Trace
 Event Format for visual timelines on `ui.perfetto.dev`. Later phases
 add Spike commitlog, Parquet counters, Cachegrind, and LCOV writers
-as additional consumers of the same bus. tt-sim does not build viewers.
+as additional consumers of the same bus. Wolfpine does not build viewers.
 
 > **Consuming a trace rather than extending the simulator?** Read
 > [`docs/trace-schema.md`](../../docs/trace-schema.md) instead. That is
@@ -22,7 +22,7 @@ invariants + state-dump diff testing); read that for the full plan.
 ## Quick start
 
 ```bash
-export PYTHONPATH=~/tt-sim:$PYTHONPATH
+export PYTHONPATH=~/wolfpine:$PYTHONPATH
 cd driver/wormhole
 TT_SIM_TRACE=/tmp/one.jsonl python3 one/one.py                 # JSONL for ad-hoc
 TT_SIM_TRACE_PERFETTO=/tmp/one.json.gz python3 one/one.py      # visual timeline
@@ -147,7 +147,7 @@ core   0: 3 0x00003788 (0xffb01137) x 2 0xffb01000
 The trailing `x<N> 0x<value>` is omitted on instructions that don't
 write to an architectural register (stores, branches, jumps without
 link, writes to `x0`). All files report `core   0:` and machine-mode
-privilege `3` — tt-sim's per-unit commitlog files are drop-in
+privilege `3` — Wolfpine's per-unit commitlog files are drop-in
 comparable against a single-hart Spike run via plain `diff`.
 
 **Differential testing.** A small helper compares two commitlog files
@@ -156,7 +156,7 @@ and reports the first divergence with five lines of context:
 ```bash
 spike --log-commits ./test.elf > /tmp/spike.commitlog
 TT_SIM_TRACE_COMMITLOG=/tmp/ttsim/ python3 your_driver.py
-python3 -m tt_sim.trace.diff_spike /tmp/ttsim/brisc.commitlog /tmp/spike.commitlog
+python3 -m framework.trace.diff_spike /tmp/ttsim/brisc.commitlog /tmp/spike.commitlog
 ```
 
 Caveat: the diff workflow is only meaningful for pure-RV32IM ELFs that
@@ -224,7 +224,7 @@ noc_flight_cycles           36         3,384
 Still gated on §I, with nothing to read yet: packer back-pressure and
 unpacker idle cycles (neither unit is wired to the tables — the packer
 charges its `PACR` issue cost only, the unpacker is uncosted), and L1
-bank conflicts (tt-sim models no banks).
+bank conflicts (Wolfpine models no banks).
 
 ### NoC transactions (Parquet)
 
@@ -263,7 +263,7 @@ destination endpoint — and telescope to it on every row. Note that
 not the split's arrival; that one is
 `cycle - arrival_to_service_cycles`. `arrival_to_service_cycles` is
 **zero except at a DRAM tile**, and the zero is the finding rather than
-an omission: tt-sim models no arrival buffering, no
+an omission: Wolfpine models no arrival buffering, no
 outstanding-transaction credit limit and no response reordering, so a
 hardware residual there is entirely unattributed. Full account in
 `docs/trace-schema.md` §4.4a.
@@ -278,7 +278,7 @@ duckdb -c "
 # model on:   request/read flight 235, response/read 46  (Blackhole `four`)
 ```
 
-**VC occupancy remains gated on §I** — tt-sim models no virtual
+**VC occupancy remains gated on §I** — Wolfpine models no virtual
 channels, so there is no `vc` column rather than a column of zeroes.
 
 ### Memory accesses (Callgrind / KCachegrind)
@@ -292,7 +292,7 @@ collapses cleanly per instruction:
 ```
 events: Dr Dw
 positions: instr
-ob=tt-sim
+ob=Wolfpine
 fl=memory
 fn=L1_pc_0x00003780
 0x20 1 0
@@ -304,7 +304,7 @@ tree shows hottest PCs, with addresses underneath. Accesses without a
 PC (NoC-driven or internal-engine traffic; ~10% of the typical trace)
 group under a synthetic `<region>_no_pc` function.
 
-<!-- BEGIN: ranked bottleneck report (tt_sim/trace/report.py) -->
+<!-- BEGIN: ranked bottleneck report (framework/trace/report.py) -->
 ### Ranked bottleneck report (`TT_SIM_PROFILE`)
 
 The one-shot entry point. `TT_SIM_PROFILE=<dir>` enables the counter
@@ -315,7 +315,7 @@ exit. Set `TT_SIM_COST_MODEL=1` alongside it or nothing can stall.
 
 ```bash
 TT_SIM_COST_MODEL=1 TT_SIM_PROFILE=/tmp/myrun ./build/six
-python3 -m tt_sim.trace.report /tmp/myrun --stdout     # re-render
+python3 -m framework.trace.report /tmp/myrun --stdout     # re-render
 ```
 
 Three design points that matter to anyone extending this:
@@ -440,7 +440,7 @@ files (32 GPRs + PC) and per-NUI counter sets. Schema is versioned
 Compare two dumps with the included tool:
 
 ```bash
-python3 -m tt_sim.trace.diff_state \
+python3 -m framework.trace.diff_state \
     /tmp/before/kernel_done_0003.json \
     /tmp/after/kernel_done_0003.json
 ```
@@ -472,7 +472,7 @@ The env-driven path above is the easy mode. For finer control,
 module-level singletons are exposed directly:
 
 ```python
-from tt_sim.trace import (
+from framework.trace import (
     JSONLLogger,
     get_bus,
     get_registry,
@@ -491,7 +491,7 @@ get_registry().dump("/tmp/run.ids.json")
 
 The bus is **off by default**. With it disabled, each publish site
 costs ~88 ns (a single attribute check returning False — measured by
-`python3 -m tt_sim.trace.benchmark`), well under the 100 ns target so
+`python3 -m framework.trace.benchmark`), well under the 100 ns target so
 hooks can stay compiled in.
 
 ## Event schema
@@ -573,7 +573,7 @@ Emitted at the four `NUI.clock_tick` snoop sites.
 `response` on `(txn_id, src, dst, txn_type)` for the round trip.
 
 The two interior stamps split that flight three ways;
-`tt_sim.trace.noc_flight_split(event)` returns
+`framework.trace.noc_flight_split(event)` returns
 `(issue→injection, injection→arrival, arrival→service)` and is exported
 so nobody re-derives the clamping. `docs/trace-schema.md` §4.4a says how
 much of each leg is modelled — the short version being that the third is
@@ -595,7 +595,7 @@ not measurements.
 
 ### `MemEvent` (category `mem`)
 
-Emitted on every read/write through `MemorySpace` (`tt_sim/memory/memory.py`).
+Emitted on every read/write through `MemorySpace` (`framework/memory/memory.py`).
 Covers L1, DRAM, and the MMIO range across every tile. Source `unit_id`
 is derived from `caller_context` (set by the RV core whose load/store
 triggered the access); when unavailable, falls back to
@@ -627,7 +627,7 @@ decode register operands from the raw `instruction` field if needed.
 
 Emitted as each Tensix backend unit completes an instruction —
 single hook in `TensixBackendUnit.clock_tick`
-(`tt_sim/pe/tensix/backends/backend_base.py`) covers every
+(`framework/pe/tensix/backends/backend_base.py`) covers every
 unit uniformly. Source `unit_id` is the per-tile backend unit
 (`MATRIX`, `SFPU`, `PACKER`, `UNPACKER`, `MOVER`, `THCON`, `SYNC`,
 `TDMA`, `CFG`).
@@ -653,7 +653,7 @@ and `DispatchEvent.target_unit` / `StallEvent.blocked_on` are a *third*,
 the ISA's `ex_resource` (`MATH`, `SFPU`, `PACK`, …). `SFPU` is `Vector`
 is `SFPU`; `MATRIX` is `Matrix` is `MATH`. Join on `unit_id`, which is
 the canonical key, and translate with
-`tt_sim.trace.BACKEND_UNIT_ALIASES` — a join on the wrong one returns
+`framework.trace.BACKEND_UNIT_ALIASES` — a join on the wrong one returns
 nothing rather than failing. Full table in
 [`docs/trace-schema.md`](../../docs/trace-schema.md).
 
@@ -699,7 +699,7 @@ owns the Src bank is reported as blocked on `MATH`, not on `UNPACK`.
 | `semaphore`  | `int` | Semaphore index for a semaphore wait, else `-1`.   |
 
 `reason` is drawn from a frozen vocabulary exported as
-`tt_sim.trace.STALL_REASONS`, so a consumer can switch on it
+`framework.trace.STALL_REASONS`, so a consumer can switch on it
 exhaustively. There is deliberately no generic `"stalled"` — every
 name is a mechanism the model actually knows:
 
@@ -777,7 +777,7 @@ The pattern (gate, construct, publish — and **only when the gate
 allows**, so construction cost stays off the hot path):
 
 ```python
-from tt_sim.trace import EventCategory, InstrEvent, get_bus
+from framework.trace import EventCategory, InstrEvent, get_bus
 
 bus = get_bus()
 if self.unit_id is not None and bus.is_enabled(EventCategory.INSTR):
@@ -800,16 +800,16 @@ window during device construction before
 
 Components publishing events need a `unit_id: tuple | None` attribute
 set externally during device construction. See
-`tt_sim/device/tt_device.py:TensixTile._register_trace_ids` for the
+`framework/device/tt_device.py:TensixTile._register_trace_ids` for the
 assignment pattern.
 
 ## Adding a new event type
 
-1. Add to `EventCategory` in `tt_sim/trace/events.py` if introducing a
+1. Add to `EventCategory` in `framework/trace/events.py` if introducing a
    new category.
 2. Add to the `Unit` enum if the source isn't covered.
 3. Define the dataclass with `CATEGORY` and `SCHEMA_VERSION` `ClassVar`s.
-4. Export from `tt_sim/trace/__init__.py`.
+4. Export from `framework/trace/__init__.py`.
 5. Bump `SCHEMA_VERSION` on the relevant event (or globally in
    `events.py`) if existing field semantics change. Writers should
    refuse unknown versions rather than silently mis-render.
@@ -824,7 +824,7 @@ holds onto whatever output handle it needs. Pattern from
 `writers/jsonl.py`:
 
 ```python
-from tt_sim.trace import EventCategory, get_bus
+from framework.trace import EventCategory, get_bus
 
 class MyWriter:
     def __init__(self):

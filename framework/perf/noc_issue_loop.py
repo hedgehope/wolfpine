@@ -3,7 +3,7 @@
 Why this module exists
 ----------------------
 
-``tt_sim.perf.noc_dataset_sweep`` predicts tt-metal's measured NoC dataset. Its
+``framework.perf.noc_dataset_sweep`` predicts tt-metal's measured NoC dataset. Its
 original predictor drove the initiator's NoC command registers **from Python**
 and pumped until ``NIU_MST_REQS_OUTSTANDING`` returned to zero. That models the
 network and the endpoint and nothing else -- but the measurement is a
@@ -12,7 +12,7 @@ barrier*, so a RISC-V core's own instruction stream is inside every measured
 number and was outside every predicted one.
 
 The sweep recorded the difference as a constant 77-94 cycle residual and called
-it "one unmodelled issuing-core path". **It is not unmodelled.** tt-sim runs
+it "one unmodelled issuing-core path". **It is not unmodelled.** Wolfpine runs
 baby RISC-V cores against a published pipeline and a published load-latency
 table, and a kernel that issues a NoC transaction pays for its own stores and
 polls like any other code. What was missing was that the *harness* never ran

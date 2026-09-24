@@ -1,6 +1,6 @@
 """Tests for the occupancy model that consumes the cycle-cost tables.
 
-Runs standalone (``python3 -m tt_sim.perf.model_test``) or under pytest.
+Runs standalone (``python3 -m framework.perf.model_test``) or under pytest.
 
 Four things are pinned, in decreasing order of how much they matter:
 
@@ -21,8 +21,8 @@ Four things are pinned, in decreasing order of how much they matter:
 import os
 from contextlib import contextmanager
 
-from tt_sim.perf.costs import CycleCost, load_costs
-from tt_sim.perf.model import (
+from framework.perf.costs import CycleCost, load_costs
+from framework.perf.model import (
     BOUND_POLICY,
     UnitCostModel,
     cost_model_enabled,
@@ -91,7 +91,7 @@ def test_enabling_it_yields_a_cached_model_per_unit_and_arch():
 
 
 def test_every_bound_in_the_vocabulary_has_a_policy():
-    from tt_sim.perf.costs import BOUNDS
+    from framework.perf.costs import BOUNDS
 
     assert set(BOUND_POLICY) == set(BOUNDS)
 
@@ -114,14 +114,14 @@ def test_the_l1_dcache_miss_row_is_charged_only_through_the_line_model():
     *default* charge, the low end of the pair. The miss row reaches the charge
     only through the residency question: ``l1_load_miss_latency`` (with the
     published ``l0_lines`` / ``l0_line_bytes`` geometry) feeds the per-core
-    line-tag model in ``tt_sim/pe/rv/cost.py``, which charges it to a load
+    line-tag model in ``framework/pe/rv/cost.py``, which charges it to a load
     whose line is provably not resident, and ``l1_dcache_miss_key`` remains
     what ``riscv_bench_sweep`` predicts a known-working-set probe against.
     Wormhole publishes no L0, so every one of those is ``None`` there and its
     single L1 row is untouched. The behavioural pins (a chase misses, a hot
-    loop hits, stores and fences flush) are in ``tt_sim/pe/rv/cost_test.py``.
+    loop hits, stores and fences flush) are in ``framework/pe/rv/cost_test.py``.
     """
-    from tt_sim.perf.model import (
+    from framework.perf.model import (
         _LOAD_LATENCY_KEYS,
         RV_REGION_L1,
         l1_dcache_miss_key,
@@ -156,7 +156,7 @@ def test_the_sustained_load_rate_reads_the_formula_not_the_in_flight_column():
     repeat. That the two agree at 4 is the evidence that they are one
     mechanism, so it is asserted here rather than argued in a comment.
     """
-    from tt_sim.perf.model import (
+    from framework.perf.model import (
         RV_REGION_L1,
         RV_REGION_LOCAL_DATA_RAM,
         RV_REGION_TILECTRL_PIC_NOC,
@@ -192,7 +192,7 @@ def test_the_multiply_latency_is_published_on_blackhole_only():
     exactly one cycle in EX2"): occupancy 1, result latency 1 + 1 = 2, spent
     as a scoreboard entry. Wormhole publishes only the blocking occupancy of
     2, so its latency is ``None`` and nothing there changed."""
-    from tt_sim.perf.model import riscv_cost_model
+    from framework.perf.model import riscv_cost_model
 
     with _env("1"):
         assert riscv_cost_model("blackhole").multiply == 1

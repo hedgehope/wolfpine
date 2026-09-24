@@ -2,18 +2,18 @@ import os
 
 import numpy as np
 
-from tt_sim.pe.tensix.backends.backend_base import DataFormat, TensixBackendUnit
-from tt_sim.pe.tensix.backends.fpu_jit import get_fused_mvmul
-from tt_sim.pe.tensix.backends.vector import VectorUnit
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.util import DataFormatConversions
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.bits import extract_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_float, conv_to_uint32
+from framework.pe.tensix.backends.backend_base import DataFormat, TensixBackendUnit
+from framework.pe.tensix.backends.fpu_jit import get_fused_mvmul
+from framework.pe.tensix.backends.vector import VectorUnit
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.util import DataFormatConversions
+from framework.perf.model import unit_cost_model
+from framework.util.bits import extract_bits, get_nth_bit
+from framework.util.conversion import conv_to_float, conv_to_uint32
 
 #: Environment variable that turns the Src dvalid release check off, following
 #: the ``TT_SIM_DISABLE_ALIGNMENT_CHECKS`` convention in
-#: ``tt_sim/network/alignment.py``.
+#: ``framework/network/alignment.py``.
 DISABLE_DVALID_CHECK_ENV_VAR = "TT_SIM_DISABLE_DVALID_CHECKS"
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -135,7 +135,7 @@ class MatrixUnit(TensixBackendUnit):
           fidelity phase this instruction runs at — the whole point of Phase 5
           for this unit, and the one cost in the MATH table that a flat number
           cannot express. See
-          :meth:`~tt_sim.perf.model.UnitCostModel.fidelity_occupancy`;
+          :meth:`~framework.perf.model.UnitCostModel.fidelity_occupancy`;
         * everything else takes the table's occupancy, which for this unit is
           ``1 / throughput_ipc`` (``isa_doc_derived``).
 
@@ -1663,7 +1663,7 @@ class MatrixUnit(TensixBackendUnit):
                 dst.getDst16bRows(dstRows)
             )
 
-        # The optional Numba path (tt_sim/pe/tensix/backends/fpu_jit.py) fuses
+        # The optional Numba path (framework/pe/tensix/backends/fpu_jit.py) fuses
         # the two passes into one scalar loop nest over the same indices. It is
         # bit-exact with the pair below -- fpu_accumulate_test.py fuzzes them
         # against each other -- and returns None whenever numba is absent,

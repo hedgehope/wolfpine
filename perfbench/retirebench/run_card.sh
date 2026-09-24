@@ -2,7 +2,7 @@
 # retirebench on a real card: collect the per-zone mcycle/minstret table for
 # rung 4's RV-bound leg.
 #
-# YOU DO NOT NEED TO KNOW ANYTHING ABOUT tt-sim TO RUN THIS. It builds one
+# YOU DO NOT NEED TO KNOW ANYTHING ABOUT Wolfpine TO RUN THIS. It builds one
 # normal tt-metal program, runs it a handful of times, checks each run validated
 # its own result buffer, and leaves a directory to send home. No Tracy front end,
 # no device profiler, no tt-exalens, no board reset, no root.
@@ -84,7 +84,7 @@ echo "  out       : $OUT"
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 
-# A card box that also has a tt-sim checkout is exactly where this goes wrong:
+# A card box that also has a Wolfpine checkout is exactly where this goes wrong:
 # with TT_METAL_SIMULATOR left set, every run below completes, validates its own
 # result buffer and writes a session directory that is a SIMULATOR artefact
 # labelled as a card's -- and this leg's whole output is the difference between
@@ -99,7 +99,7 @@ fi
 # path and requires slow dispatch. A card defaults to FAST dispatch, so without
 # this every run aborts with rc=134 before it reaches a single zone -- measured
 # on a Blackhole p150, 2026-08-17, and the reason four earlier card runners did
-# no work at all. `run_sim.sh` has always set it (tt-sim supports no other flow),
+# no work at all. `run_sim.sh` has always set it (Wolfpine supports no other flow),
 # which is exactly why the gap survives review: the simulator side can never
 # reproduce the failure. Overridable, because a future program on the
 # command-queue flow would want it unset.
@@ -262,7 +262,7 @@ done
   echo "  rsync -av $OUT/ <home>:~/$(basename "$OUT")/"
   echo ""
   echo "At home, per repeat:"
-  echo "  python3 -m tt_sim.perf.retire_attribution \\"
+  echo "  python3 -m framework.perf.retire_attribution \\"
   echo "      --sim  <simulator artefact at the same --scale> \\"
   echo "      --card $OUT/runs/card-1/retirebench-blackhole-card-1.json"
 } | tee -a "$SUMMARY"

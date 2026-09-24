@@ -54,7 +54,7 @@ instructions have all retired. Returning 0 immediately -- what this used to do
 not finished.
 
 ``wait`` here is modelled by returning :class:`MemoryStall`, the same mechanism
-:class:`~tt_sim.misc.mailbox.Mailbox` and :class:`~tt_sim.misc.ttsync.TTSync`
+:class:`~framework.misc.mailbox.Mailbox` and :class:`~framework.misc.ttsync.TTSync`
 use: the memory request is not serviced and the issuing core re-attempts it on
 the next cycle, which matches the document's note that the waits "happen within
 the memory subsystem" and hold up that memory region rather than the core's
@@ -70,11 +70,11 @@ See ``ROADMAP.md`` §3.
 
 import sys
 
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
-from tt_sim.util.bits import get_bits
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory import MemoryStall
+from framework.pe.rv.babyriscv import BabyRISCV, BabyRISCVCoreType
+from framework.util.bits import get_bits
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 
 class PCBuf(MemMapable):
@@ -114,7 +114,7 @@ class PCBuf(MemMapable):
         """Condition 3: no in-flight Tensix instructions from thread ``i``.
 
         ``CoprocessorDoneCheck`` answers "is the thread still busy", so idle is
-        its negation -- the same reading :class:`~tt_sim.misc.ttsync.TTSync`
+        its negation -- the same reading :class:`~framework.misc.ttsync.TTSync`
         takes of it.
         """
         if self.tensix_coprocessor is None:

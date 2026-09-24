@@ -40,7 +40,7 @@ Every case drives a real backend through ``read_unpack_state`` /
 ``perform_unpack_state`` on both architectures, and each asserts against the
 *specific* wrong image the pre-change walk produced as well as the right one.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.unpack_untilize_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.unpack_untilize_test``) or under
 pytest.
 """
 
@@ -50,9 +50,9 @@ from itertools import product
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
 
 BF16 = 5  # DataFormat.BF16, as it appears in a tile descriptor / REG2
 

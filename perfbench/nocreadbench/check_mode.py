@@ -25,7 +25,7 @@ and a row whose ``mode`` column disagrees with its own probe is refused.
 
 Deliberately standalone: it imports nothing but the standard library, so it runs
 on a card box that has only ``perfbench/nocreadbench/`` rsynced onto it and no
-tt-sim at all.
+Wolfpine at all.
 
     ./check_mode.py --expect stateless nocreadbench-wormhole.csv
     ./check_mode.py stateless.csv stateful.csv      # the paired verdict
@@ -54,9 +54,9 @@ WORMHOLE_CONTROL = {(4, 16): 44.08, (16, 64): 44.00, (64, 128): 43.97}
 #: instruction different (1 cycle, 2.3 %) is visible as a WARN.
 CONTROL_TOLERANCE = 0.03
 
-#: tt-sim's ABSOLUTE prediction for the ``--dram`` arm, registered here **before
+#: Wolfpine's ABSOLUTE prediction for the ``--dram`` arm, registered here **before
 #: any card ran it**, keyed ``(arch, source, tx_bytes) -> marginal cycles per
-#: transaction``. Produced by running *this program* against tt-sim with the
+#: transaction``. Produced by running *this program* against Wolfpine with the
 #: cost model on (``TT_SIM_COST_MODEL=1``) and differencing the same burst axis
 #: the card run is differenced along, so the two sides are the same arithmetic
 #: on the same experiment and not a model quantity compared to a measurement.
@@ -68,7 +68,7 @@ CONTROL_TOLERANCE = 0.03
 #:   independent of payload size. Both are already validated against silicon
 #:   (Wormhole 44.00 predicted vs 45.03 measured; Blackhole 47.00 predicted and
 #:   measured exactly), so they are the part of this table least at risk.
-#: * the **transfer** — payload over the sustained rate. tt-sim charges an L1
+#: * the **transfer** — payload over the sustained rate. Wolfpine charges an L1
 #:   read the NoC link (32 B/cycle Wormhole, 64 Blackhole) and a DRAM read the
 #:   link plus the DRAM channel's excess, and **nothing else**: no endpoint
 #:   queueing, no outstanding-transaction credit, no response reordering.
@@ -97,7 +97,7 @@ SIM_DRAM_PREDICTION = {
 
 #: The smallest payload at which the TRANSFER, rather than the issue loop, sets
 #: each architecture's DRAM marginal, per the table above. STRICTLY BELOW this
-#: size tt-sim predicts the DRAM and L1 arms are the SAME NUMBER, which is the
+#: size Wolfpine predicts the DRAM and L1 arms are the SAME NUMBER, which is the
 #: sharpest falsifier in the arm: a bandwidth term cannot explain a gap there.
 DRAM_CROSSOVER = {"wormhole": 2048, "blackhole": 4096}
 
@@ -232,7 +232,7 @@ def check_source_arm(rows, notes):
     same failure mode: ``--dram`` on a stale binary, on a JIT cache that kept the
     old kernel, or in a shell that dropped the argument produces a well-formed
     file whose rates are an L1 read wearing a DRAM label -- and *that* reading is
-    what "the card agrees with tt-sim" looks like, so it would be believed.
+    what "the card agrees with Wolfpine" looks like, so it would be believed.
 
     ``landed`` is the first word the TIMED burst put at its landing address. The
     host stamps worker source regions ``0x5A5A....`` and DRAM tiles
@@ -316,7 +316,7 @@ def dram_marginals(rows):
     ``dramsize`` experiments. Differencing consecutive burst lengths removes the
     loop's constant term -- its prologue, the closing barrier, the launch -- so
     what is left is the cost of one more transaction in flight, which is the
-    quantity tt-sim charges as pure bandwidth and the only one the registered
+    quantity Wolfpine charges as pure bandwidth and the only one the registered
     prediction is about.
 
     The marginal reported per key is the mean over the intervals that exclude
@@ -403,14 +403,14 @@ def report_one(path, expect, quiet):
     # to reproduce. On any other part there is not, and saying so is the honest
     # answer -- an arm that ESTABLISHES a control is not an arm that lost one.
     #
-    # A SIMULATOR run is checked against nothing. tt-sim's issue loop is a
+    # A SIMULATOR run is checked against nothing. Wolfpine's issue loop is a
     # different program from the card's (its own RV32 model, its own compiler
     # output, no NIU backpressure at all), so comparing its marginal to the
     # card's control band manufactures a "CONTROL MOVED" from two numbers that
     # were never the same measurement. The header records which it was.
     if header.get("sim") == "1":
         print(
-            "  note sim=1: this is a tt-sim run and is NOT a measurement. No card "
+            "  note sim=1: this is a Wolfpine run and is NOT a measurement. No card "
             "control is applied to it; its own two arms are still comparable to "
             "each other."
         )
@@ -545,7 +545,7 @@ def dram_verdict(arch, marg, header):
             (missed_dram if kind == "dram" else missed_l1).append((size, got, want))
 
     # THE SHARPEST FALSIFIER -- with the caveat that cost the 2026-08-24 session
-    # its headline. Below the crossover tt-sim says the issue loop binds both
+    # its headline. Below the crossover Wolfpine says the issue loop binds both
     # arms, so DRAM and L1 must be the same number, and a gap there looks like a
     # per-transaction endpoint cost no bandwidth term can absorb.
     #
@@ -603,7 +603,7 @@ def dram_verdict(arch, marg, header):
             band = "" if size < safe_knee else "  [ABOVE THE IMPLIED KNEE]"
             print(
                 f"   SUB-CROSSOVER {size:>5} B: dram {dram:7.2f} - l1 {l1:7.2f} "
-                f"= {gap:+6.2f}  (tt-sim says 0.00){band}"
+                f"= {gap:+6.2f}  (Wolfpine says 0.00){band}"
             )
         if implied_knee:
             print(
@@ -715,7 +715,7 @@ def print_predictions(arch):
         return 1
     crossover = DRAM_CROSSOVER.get(arch)
     print(
-        f"  tt-sim's ABSOLUTE prediction for {arch}, marginal cycles per transaction:"
+        f"  Wolfpine's ABSOLUTE prediction for {arch}, marginal cycles per transaction:"
     )
     print("")
     print("     payload    DRAM source    L1 source    what the model says binds")

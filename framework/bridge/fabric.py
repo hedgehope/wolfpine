@@ -43,7 +43,7 @@ class Fabric:
         self.unmapped_callback: Callable[[tuple[int, int]], None] | None = None
         # Invoked when a NullCore-backed coord receives a go=GO (kernel launch).
         # Wired by ``__main__.py`` to error out: a launch on an un-materialised
-        # worker means the program needs more cores than tt-sim was started with.
+        # worker means the program needs more cores than Wolfpine was started with.
         self.kernel_launch_callback: Callable[[tuple[int, int]], None] | None = None
         # Optional ``coord -> core | None`` consulted before the NullCore
         # fallback. ``LazyTensixPool`` installs one that answers with a
@@ -147,7 +147,7 @@ def install_convention_guard(
         theirs = "an untranslated (SoC-physical)" if translated else "a translated"
         lines = [
             "[server] ERROR: NoC coordinate-convention mismatch.",
-            f"[server]   tt-sim is keyed for {ours} coordinates ({reason}),",
+            f"[server]   Wolfpine is keyed for {ours} coordinates ({reason}),",
             f"[server]   but the host addressed {coord[0]}-{coord[1]}, which is "
             f"{theirs} coordinate.",
         ]
@@ -199,7 +199,7 @@ def install_worker_guards(
 
     * host writes to it — warn once, naming the coord and the env var to add;
     * a kernel launch (``go=GO``) on it — a hard error, because the program
-      needs more cores than tt-sim was started with and its peers will block
+      needs more cores than Wolfpine was started with and its peers will block
       forever on NoC traffic this core will never send.
 
     Arch-agnostic and shared by every server entry point on purpose: this used
@@ -212,7 +212,7 @@ def install_worker_guards(
     strands the host for ever (120 s and counting on ``examples/one`` with one
     mistyped coord, versus a 7 s self-diagnosed failure when the server stayed
     up). The exit is now conditional on having *first* stopped the tt-metal host
-    (:mod:`tt_sim.bridge.hostlink`). If no host can be identified we keep
+    (:mod:`framework.bridge.hostlink`). If no host can be identified we keep
     serving instead: the run then reaches its own end with meaningless results,
     which is a worse answer than stopping but a much better one than never
     answering at all. Either way the ERROR naming the coord is already on
@@ -222,7 +222,7 @@ def install_worker_guards(
     it defaults to ``$NNG_SOCKET_ADDR``. ``host_stopper`` is injectable so tests
     can drive both outcomes.
 
-    **``lazy=True``** says a :class:`~tt_sim.bridge.materialise.LazyTensixPool`
+    **``lazy=True``** says a :class:`~framework.bridge.materialise.LazyTensixPool`
     is installed, so every functional worker can be built on demand and neither
     guard has anything to say about one: the warning and the hard error both
     described a *pinned* pool that the program had outgrown, which is a state
@@ -259,7 +259,7 @@ def install_worker_guards(
             print(
                 f"[server] ERROR: kernel launch (go=GO) sent to "
                 f"{coord[0]}-{coord[1]}, which is not a functional worker in "
-                f"soc_descriptor.yaml — tt-sim has no tile to run it on and "
+                f"soc_descriptor.yaml — Wolfpine has no tile to run it on and "
                 f"the traffic is being zero-filled. Results from that core "
                 f"are meaningless.",
                 file=sys.stderr,
@@ -272,8 +272,8 @@ def install_worker_guards(
         where = f"{coord[0]}-{coord[1]}"
         print(
             f"[server] ERROR: kernel launch (go=GO) sent to functional worker "
-            f"{where} (tile {tensix_coord_map[coord]}), which tt-sim did not "
-            f"materialise — the program runs on more cores than tt-sim was "
+            f"{where} (tile {tensix_coord_map[coord]}), which Wolfpine did not "
+            f"materialise — the program runs on more cores than Wolfpine was "
             f"started with. The host is now waiting for a go-message "
             f"completion from a tile that does not exist. Add `{where}` to "
             f"TT_SIM_TENSIX_COORDS (currently: {configured}), or raise "

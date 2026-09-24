@@ -27,11 +27,11 @@ import textwrap
 
 import pytest
 
-from tt_sim.trace import elfdisc, report
-from tt_sim.trace.bus import EventBus
-from tt_sim.trace.dwarf import DwarfIndex, SourceLoc, _lookup_function
-from tt_sim.trace.events import InstrEvent
-from tt_sim.trace.hotspots import HotspotAggregator
+from framework.trace import elfdisc, report
+from framework.trace.bus import EventBus
+from framework.trace.dwarf import DwarfIndex, SourceLoc, _lookup_function
+from framework.trace.events import InstrEvent
+from framework.trace.hotspots import HotspotAggregator
 
 CORE = (0, 18, 18, "TRISC1")
 OTHER = (0, 18, 18, "BRISC")
@@ -246,7 +246,7 @@ def test_the_lcov_writer_still_emits_records_off_a_real_elf(dwarf_elf, tmp_path)
     """The only pre-existing `DwarfIndex` consumer. It moved from exact to
     floor lookup and from tuples to `SourceLoc`; this is the guard that the
     move did not silently empty its output."""
-    from tt_sim.trace.writers.lcov import LCOVWriter
+    from framework.trace.writers.lcov import LCOVWriter
 
     index = DwarfIndex()
     index.load(dwarf_elf, unit="TRISC1")
@@ -395,7 +395,9 @@ def test_the_report_round_trips_through_disk(tmp_path):
     report.write(built, tmp_path)
     payload = json.loads((tmp_path / "report.json").read_text())
     assert payload["attributed_cycles"] == 4
-    assert (tmp_path / "report.md").read_text().startswith("# tt-sim bottleneck report")
+    assert (
+        (tmp_path / "report.md").read_text().startswith("# Wolfpine bottleneck report")
+    )
     assert report.main([str(tmp_path)]) == 0
 
 
@@ -420,7 +422,7 @@ def test_discovery_finds_one_elf_per_core(tmp_path):
 
 def test_discovery_can_be_scoped_to_one_unit(tmp_path):
     """Identification parses up to ``VERIFY_LIMIT`` ELFs per unit and role, so
-    a caller that wants one core's ELF -- ``tt_sim.network.attribution``,
+    a caller that wants one core's ELF -- ``framework.network.attribution``,
     naming the kernel behind a rejected NoC transfer -- must be able to say so
     rather than pay for a whole-device scan on a fatal error path."""
     roots = [_fake_cache(tmp_path, "matmul")]

@@ -1,7 +1,7 @@
 // Deterministic differential version of upstream's `sfpu_eltwise_chain`
 // programming example (softplus = log(exp(x) + 1) through the SFPU).
 //
-// Upstream aborts on tt-sim with `PCC not high enough. Result PCC: 0.9986145,
+// Upstream aborts on Wolfpine with `PCC not high enough. Result PCC: 0.9986145,
 // Expected PCC: 0.999` while ttsim (the vendor reference) passes at ~0.99986
 // over 8 runs (spread 0.99985..0.99988) -- so the gap is real, not sampling
 // noise. But upstream seeds its input from `std::random_device`, so the two
@@ -16,7 +16,7 @@
 //     page read/write are all preserved -- these are what optests/sfpuchain
 //     (which matches bit-exactly) does NOT cover;
 //   * the input is fixed and the output tile is dumped as
-//     `OPDIFF_RESULT:<hex>`, so optests/diff.sh can compare tt-sim against
+//     `OPDIFF_RESULT:<hex>`, so optests/diff.sh can compare Wolfpine against
 //     ttsim bit-for-bit instead of comparing two PCCs of different data.
 //
 // No host tilize/untilize: the tile is dumped in device order, which is all a

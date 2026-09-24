@@ -25,9 +25,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP
@@ -57,9 +57,9 @@ OP_NAMES = ["MAX/COL", "MAX/ROW", "MAX/SCALAR", "SUM/COL", "SUM/SCALAR"]
 def _load_expected():
     """ttsim's dump of the same program, as one contiguous hex string."""
     text = EXPECTED_DUMP.read_text().strip()
-    assert len(text) == DATA_SIZE * 4, (
-        f"{EXPECTED_DUMP.name} holds {len(text) // 4} elements, expected {DATA_SIZE}"
-    )
+    assert (
+        len(text) == DATA_SIZE * 4
+    ), f"{EXPECTED_DUMP.name} holds {len(text) // 4} elements, expected {DATA_SIZE}"
     return [int(text[i : i + 4], 16) for i in range(0, len(text), 4)]
 
 

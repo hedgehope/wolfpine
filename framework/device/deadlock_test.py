@@ -1,4 +1,4 @@
-"""Tests for the progress watchdog (:mod:`tt_sim.device.deadlock`).
+"""Tests for the progress watchdog (:mod:`framework.device.deadlock`).
 
 The watchdog is sampled rather than polled per cycle (see the module
 docstring), so there are two things to pin down and they pull in opposite
@@ -23,9 +23,9 @@ import re
 
 import pytest
 
-from tt_sim.arch import WORMHOLE_PROFILE
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.deadlock import (
+from framework.arch import WORMHOLE_PROFILE
+from framework.device.blackhole import Blackhole
+from framework.device.deadlock import (
     _CONFIRM_TICKS,
     _WEDGE_CONFIRM_CYCLES,
     DEFAULT_UNIT_STALL_THRESHOLD,
@@ -34,10 +34,10 @@ from tt_sim.device.deadlock import (
     deadlock_config_from_env,
     unit_stall_config_from_env,
 )
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.pe.rv.babyriscv import BabyRISCVCoreType
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
+from framework.device.wormhole import Wormhole
+from framework.pe.rv.babyriscv import BabyRISCVCoreType
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixInstructionDecoder
 
 # BRISC boots at L1 offset 0 on both architectures.
 BRISC_START = 0x0
@@ -506,7 +506,7 @@ class _FakeBlockedUnit:
 
     The real thing needs a compute kernel to reach the blocking site, and what
     is under test here is the detector's counting rule, not the unpacker's.
-    ``tt_sim/pe/tensix/setdvalid_srcrow_test`` pins the unpacker end.
+    ``framework/pe/tensix/setdvalid_srcrow_test`` pins the unpacker end.
     """
 
     def __init__(self, waiting=(0, "UNPACR_NOP", "SrcB", 0)):

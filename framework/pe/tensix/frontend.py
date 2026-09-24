@@ -1,13 +1,13 @@
 from abc import ABC
 
-from tt_sim.device.clock import Clockable
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.memory.memory import MemoryStall
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.util import TensixInstructionDecoder
-from tt_sim.trace import DispatchEvent, EventCategory, StallEvent, get_bus
-from tt_sim.util.bits import extract_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_uint32
+from framework.device.clock import Clockable
+from framework.memory.mem_mapable import MemMapable
+from framework.memory.memory import MemoryStall
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.util import TensixInstructionDecoder
+from framework.trace import DispatchEvent, EventCategory, StallEvent, get_bus
+from framework.util.bits import extract_bits, get_nth_bit
+from framework.util.conversion import conv_to_uint32
 
 #: Instructions one thread may have in flight inside its frontend (MOP FIFO +
 #: replay FIFO + wait-gate FIFO) before a *core* push is refused and the
@@ -29,7 +29,7 @@ from tt_sim.util.conversion import conv_to_uint32
 #: the longer burst sweep runs on a card, calibrate it there.
 #:
 #: The count deliberately includes the MOP/replay expansions already inside
-#: the frontend, not just words the core pushed: tt-sim's expanders emit a
+#: the frontend, not just words the core pushed: Wolfpine's expanders emit a
 #: whole template in one tick rather than one instruction per cycle, so the
 #: expansion products are the only honest proxy for the work in flight ahead
 #: of the next push. Internal pushes (expander output) are never refused —
@@ -526,14 +526,14 @@ class WaitGate(TensixFrontendUnit):
         and only the second is a counter:
 
         * the latch is **forgotten** the moment its condition is met, whether
-          or not anything was ever blocked by it. tt-sim previously cleared a
+          or not anything was ever blocked by it. Wolfpine previously cleared a
           latch only on the held path, so a wait that nothing happened to block
           stayed armed for the rest of the run and could still block a later
           instruction the hardware had long since forgotten the wait for;
         * every cycle the condition is *not* met counts on the wait-condition
           counter and **not** as a stall -- nothing is held, so the thread lost
           no cycle. That is the counting rule
-          :meth:`~tt_sim.misc.perf_counters.TensixPerfCounters.note_wait_condition`
+          :meth:`~framework.misc.perf_counters.TensixPerfCounters.note_wait_condition`
           exists for, and the reason a hardware reason counter can outrun
           ``THREAD_STALLS_n``.
 

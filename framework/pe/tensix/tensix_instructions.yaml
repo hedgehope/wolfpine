@@ -3051,7 +3051,7 @@ REPLAY:
 # CFGSHIFTMASK has modelled semantics (see backends/config.py) — the other four
 # are decoded and then rejected loudly by TensixBackend (the vendor reference
 # simulator does not implement them either, so there is nothing to port).
-# `reserved` fields exist only to bound the preceding field: tt-sim derives each
+# `reserved` fields exist only to bound the preceding field: Wolfpine derives each
 # argument's end bit from the next argument's start bit.
 
 CFGSHIFTMASK:

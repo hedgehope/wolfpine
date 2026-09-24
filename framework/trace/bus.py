@@ -2,12 +2,12 @@
 
 Single global instance accessed via :func:`get_bus`. Consumers subscribe
 per :class:`EventCategory`; the simulator publishes typed
-:class:`~tt_sim.trace.events.Event` instances. The hot-path guard is
+:class:`~framework.trace.events.Event` instances. The hot-path guard is
 :meth:`EventBus.is_enabled` — a single attribute lookup that callers
 should check before constructing event payloads.
 
 Thread-safety: the bus is shared across all per-tile worker threads
-created by :class:`tt_sim.device.clock.MultiTileClock`. ``publish()``
+created by :class:`framework.device.clock.MultiTileClock`. ``publish()``
 keeps the disabled-path as a single attribute read (the bool reads/writes
 are GIL-atomic) and only takes the lock to snapshot the subscriber list
 when the bus is enabled. Subscriber callbacks run unlocked — writers that
@@ -17,7 +17,7 @@ buffer shared state are responsible for their own internal locking.
 import threading
 from collections.abc import Callable
 
-from tt_sim.trace.events import Event, EventCategory
+from framework.trace.events import Event, EventCategory
 
 Subscriber = Callable[[Event], None]
 

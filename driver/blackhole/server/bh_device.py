@@ -1,11 +1,11 @@
 """Blackhole-specific construction of the shared bridge ``Device``.
 
 Injects the Blackhole device factory and the Blackhole ``TENSIX_COORD_MAP`` into
-the architecture-agnostic :class:`tt_sim.bridge.Device`.
+the architecture-agnostic :class:`framework.bridge.Device`.
 """
 
-from tt_sim.bridge import Device
-from tt_sim.device.blackhole import Blackhole
+from framework.bridge import Device
+from framework.device.blackhole import Blackhole
 
 from .coords import TENSIX_COORD_MAP
 

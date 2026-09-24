@@ -2,7 +2,7 @@
 
 Subscribes to ``InstrEvent`` filtered to the five baby cores and emits
 one line per retirement in the format `spike --log-commits` produces.
-Output is one file per RV unit so a single tt-sim run can be diffed
+Output is one file per RV unit so a single Wolfpine run can be diffed
 against a Spike run hart-by-hart.
 
 Line format (RV32, all cores reported as machine mode = privilege 3,
@@ -18,12 +18,12 @@ link, writes to x0).
 from pathlib import Path
 from typing import IO
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import EventCategory, InstrEvent
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import EventCategory, InstrEvent
 
 RV_UNITS = frozenset({"BRISC", "NCRISC", "TRISC0", "TRISC1", "TRISC2"})
 
-# Machine mode privilege level. tt-sim's baby cores don't model
+# Machine mode privilege level. Wolfpine's baby cores don't model
 # privilege transitions, so every retirement is reported at M-mode.
 PRIVILEGE_LEVEL = 3
 

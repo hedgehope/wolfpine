@@ -13,7 +13,7 @@ compute grid column-major, y fastest.
 
 import pytest
 
-from tt_sim.bridge.grid import compute_grid, fill_order, logical_to_physical
+from framework.bridge.grid import compute_grid, fill_order, logical_to_physical
 
 # The Wormhole worker grid from driver/wormhole/soc_descriptor.yaml: 8 columns
 # (physical x skips 0 and 5, the DRAM/router columns) by 10 rows (physical y
@@ -46,7 +46,7 @@ def test_metal_override_names_an_inclusive_maximum():
     ) == (2, 2)
 
 
-def test_tt_sim_compute_grid_wins_over_the_metal_override():
+def test_framework_compute_grid_wins_over_the_metal_override():
     env = {
         "TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE": "3,4",
         "TT_SIM_COMPUTE_GRID": "2x3",

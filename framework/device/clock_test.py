@@ -12,11 +12,11 @@ See ``docs/plans/event-driven-pump.md``. Two properties, one per phase:
   same cycles, and ``run(N)`` still advances simulated time by exactly ``N``.
 """
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.clock import Clockable, MultiTileClock, TileClock
-from tt_sim.device.tt_device import DeviceTileDiagnostics
-from tt_sim.network.tt_noc import NUI
-from tt_sim.pe.tensix.backends.backend_base import TensixBackendUnit
+from framework.device.blackhole import Blackhole
+from framework.device.clock import Clockable, MultiTileClock, TileClock
+from framework.device.tt_device import DeviceTileDiagnostics
+from framework.network.tt_noc import NUI
+from framework.pe.tensix.backends.backend_base import TensixBackendUnit
 
 TENSIX_COORD = (1, 2)
 SOFT_RESET_ADDR = 0xFFB121B0
@@ -103,9 +103,9 @@ def test_device_goes_fully_dormant_with_every_core_in_reset():
     device.run(200)
 
     for tile in device.tile_directory.values():
-        assert tile.clock.dormant_cycles > 0, (
-            f"tile {tile.get_coord_pair()} never slept"
-        )
+        assert (
+            tile.clock.dormant_cycles > 0
+        ), f"tile {tile.get_coord_pair()} never slept"
         assert not tile.clock.awake
 
 
@@ -320,7 +320,7 @@ def test_a_fully_dormant_device_costs_nothing_per_cycle(monkeypatch):
     cycles are strided over — except that the deadlock watchdog names a wake
     cycle of its own (``MultiTileClock.on_tick_wake``), so the pump also stops
     at the watchdog's cadence. Without those stops a wedged-but-dormant device
-    would never be sampled at all; see ``tt_sim/device/deadlock.py``.
+    would never be sampled at all; see ``framework/device/deadlock.py``.
 
     The cadence is the *finer* of the detector's two: the global signature's
     ``TT_SIM_DEADLOCK_THRESHOLD // 8`` and the per-unit check's own
@@ -431,7 +431,7 @@ def test_no_module_wakes_a_tile_clock_by_assigning_the_flag():
     # is the implementation, not a wake.
     pattern = re.compile(r"(?<!\bself)\.awake\s*=\s*(\S+)")
     offenders = []
-    sources = [p for d in ("tt_sim", "driver") for p in (root / d).rglob("*.py")]
+    sources = [p for d in ("framework", "driver") for p in (root / d).rglob("*.py")]
     for path in sorted(sources):
         if path.name == "clock.py" and path.parent.name == "device":
             continue  # the implementation itself

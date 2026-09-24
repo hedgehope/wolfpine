@@ -30,9 +30,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device
@@ -58,9 +58,9 @@ TILE_ELEMS = 1024
 def _load_expected():
     """ttsim-Wormhole's dump of the same program, as one contiguous hex string."""
     text = EXPECTED_DUMP.read_text().strip()
-    assert len(text) == TILE_ELEMS * 4, (
-        f"{EXPECTED_DUMP.name} holds {len(text) // 4} elements, expected {TILE_ELEMS}"
-    )
+    assert (
+        len(text) == TILE_ELEMS * 4
+    ), f"{EXPECTED_DUMP.name} holds {len(text) // 4} elements, expected {TILE_ELEMS}"
     return [int(text[i : i + 4], 16) for i in range(0, len(text), 4)]
 
 

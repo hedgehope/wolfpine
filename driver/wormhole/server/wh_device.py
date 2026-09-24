@@ -1,13 +1,13 @@
 """Wormhole-specific construction of the shared bridge ``Device``.
 
 Injects the Wormhole device factory and the Wormhole ``TENSIX_COORD_MAP`` into
-the architecture-agnostic :class:`tt_sim.bridge.Device`. ``driver/blackhole``
+the architecture-agnostic :class:`framework.bridge.Device`. ``driver/blackhole``
 has its own equivalent.
 """
 
-from tt_sim.bridge import Device
-from tt_sim.device.tt_device import DeviceTileDiagnostics
-from tt_sim.device.wormhole import Wormhole
+from framework.bridge import Device
+from framework.device.tt_device import DeviceTileDiagnostics
+from framework.device.wormhole import Wormhole
 
 from .coords import TENSIX_COORD_MAP
 

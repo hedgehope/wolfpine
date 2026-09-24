@@ -5,7 +5,7 @@
 # probe the roadmap names, labels every output with the probe and the part, and
 # prints a per-probe verdict so you can tell a real reading from a degenerate
 # one before you pack the results up. Do NOT use perfbench/run.sh here -- that
-# points TT_METAL_SIMULATOR at tt-sim.
+# points TT_METAL_SIMULATOR at Wolfpine.
 #
 #   export TT_METAL_HOME=/path/to/your/built/tt-metal
 #   perfbench/run_card_session.sh                 # everything that applies
@@ -18,13 +18,13 @@
 #   --out DIR                  results directory
 #                              (default: ~/tt_traces/card-session-<arch>)
 #   --plan FILE                a congestion plan built at home, so the card box
-#                              needs no tt_sim/. Defaults to
+#                              needs no framework/. Defaults to
 #                              nocbench/noc-plan-<arch>.csv if that exists.
 #                              Verified against this card's live grid dump.
 #   --list                     list probes, their parts and cost, then exit
 #   --resume                   skip any probe whose CSV is already in --out
 #   --dry-run                  print the commands without running them
-#   --sim                      VALIDATION ONLY -- run against tt-sim at smoke
+#   --sim                      VALIDATION ONLY -- run against Wolfpine at smoke
 #                              sizes. Every output is stamped NOT-A-MEASUREMENT.
 #   -h, --help                 this text
 #
@@ -159,7 +159,7 @@ fi
 export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
-# Slow dispatch: tt-sim only supports the direct launch path, and using the same
+# Slow dispatch: Wolfpine only supports the direct launch path, and using the same
 # mode on hardware keeps the two runs comparable.
 export TT_METAL_SLOW_DISPATCH_MODE="${TT_METAL_SLOW_DISPATCH_MODE:-1}"
 
@@ -169,7 +169,7 @@ if [ "$DO_SIM" = 1 ]; then
   [ -n "$ARCH" ] || ARCH=blackhole
   export TT_METAL_SIMULATOR="$REPO/driver/$ARCH"
   # TT_SIM_TENSIX_COORDS is deliberately NOT defaulted. Exporting it -- even to
-  # the one worker the server builds anyway -- is how tt-sim is told the pool is
+  # the one worker the server builds anyway -- is how Wolfpine is told the pool is
   # PINNED, and a pinned pool switches off on-demand materialisation. This block
   # used to export the arch's default coord, which is why the congestion probes
   # could not run against the simulator: the multi-core plan died on the first
@@ -177,29 +177,29 @@ if [ "$DO_SIM" = 1 ]; then
   # worker and materialises the rest as the program reaches them.
   VENV="${TT_SIM_VENV:-$REPO/../venv}"
   [ -x "$VENV/bin/python3" ] && export PATH="$VENV/bin:$PATH"
-  echo "!! --sim: running against tt-sim at smoke sizes. NOT A MEASUREMENT."
+  echo "!! --sim: running against Wolfpine at smoke sizes. NOT A MEASUREMENT."
 elif [ -n "${TT_METAL_SIMULATOR:-}" ]; then
   echo "TT_METAL_SIMULATOR is set ($TT_METAL_SIMULATOR)." >&2
   echo "This script is for a real card. Unset it, or pass --sim if you meant" >&2
-  echo "to validate the session block against tt-sim." >&2
+  echo "to validate the session block against Wolfpine." >&2
   exit 2
 fi
 
 # Is the analysis half available? The four C++ programs need nothing but a
 # built tt-metal, so `rsync perfbench/` is enough to COLLECT every reading. The
-# nocbench planner and the three report generators live in tt_sim/perf, which
+# nocbench planner and the three report generators live in framework/perf, which
 # is normally NOT on a card box. Rather than fail, the session collects what it
 # can and says which steps were deferred to the analysis box. Analysis of a CSV
 # is not time-critical; being at the card is.
 #
-# Probed HERE, after the block above, and not earlier: `--sim` puts tt_sim's
-# venv on PATH, and tt_sim/perf imports numpy and pyelftools. Probed before
+# Probed HERE, after the block above, and not earlier: `--sim` puts framework's
+# venv on PATH, and framework/perf imports numpy and pyelftools. Probed before
 # that, the answer was the SYSTEM python3's, which on this box cannot import it
 # -- so a --sim session collected both congestion CSVs and then reported them
-# DEFERRED "because tt_sim/ is not on this box", standing in the repo.
+# DEFERRED "because framework/ is not on this box", standing in the repo.
 HAVE_TT_SIM=0
-if [ -d "$REPO/tt_sim/perf" ] && \
-   PYTHONPATH="$REPO" python3 -c "import tt_sim.perf.noc_congestion_plan" 2>/dev/null; then
+if [ -d "$REPO/framework/perf" ] && \
+   PYTHONPATH="$REPO" python3 -c "import framework.perf.noc_congestion_plan" 2>/dev/null; then
   HAVE_TT_SIM=1
 fi
 
@@ -432,7 +432,7 @@ probe_tensix() {
   build_once "$TB" tensixbench || { verdict tensix FAILED "build failed"; return; }
   local csv="$OUT/tensix.$ARCH.csv" args
   # --probes 0xFFFFF pins this to the twenty slots every tracked dataset in
-  # tt_sim/perf/datasets/ was collected with. tensixbench gained slots 20 and 21
+  # framework/perf/datasets/ was collected with. tensixbench gained slots 20 and 21
   # (the RDCFG latency difference) on 2026-08-09 and they default ON, so without
   # this the second sample rung 3 needs would silently be a different experiment
   # from the first -- and phase A's validity gate is per-PHASE, so one nonlinear
@@ -475,7 +475,7 @@ probe_tensix_rdcfg() {
   # unit -- and a pipelined unit releases its issuer immediately, so LATENCY is
   # invisible to all twenty of them. RDCFG is the case that made that matter:
   # the ISA doc gives it ">= 2", slot 14 measures 1.000 on silicon, and charging
-  # the doc's 2 as an occupancy is what made tt-sim's matmulblock guard compute
+  # the doc's 2 as an occupancy is what made Wolfpine's matmulblock guard compute
   # the wrong answer.
   #
   # 0x3FF04601 = slots 0, 9, 10, 14, 20-29: the empty-loop control, the paired
@@ -611,7 +611,7 @@ probe_rv() {
 
 probe_rv_gset() {
   build_once "$RB" riscvbench || { verdict rv-gset FAILED "build failed"; return; }
-  [ "$DO_SIM" = 1 ] && { skip rv-gset "phase G is minutes per gset against tt-sim; covered on the card"; return; }
+  [ "$DO_SIM" = 1 ] && { skip rv-gset "phase G is minutes per gset against Wolfpine; covered on the card"; return; }
   # Four sets, not two. Sets 3 and 4 build the 4608 B and 5632 B bodies, the
   # two footprints INSIDE the (4096, 5120] bracket the ramp's onset sits in and
   # the two nothing has ever measured. With gset 0's 5120 B from the `rv` probe
@@ -660,7 +660,7 @@ probe_rv_pairs() {
 
 # Every (nx, ny) a plan addresses -- master and subordinate -- must exist in the
 # card's own --dump-grid. Prints the offenders; empty output means the plan fits
-# this part. Pure awk: the card box has no numpy and may have no tt_sim.
+# this part. Pure awk: the card box has no numpy and may have no framework.
 plan_tiles_missing_from_grid() {
   local plan="$1" grid="$2"
   awk -F, '
@@ -682,16 +682,16 @@ plan_tiles_missing_from_grid() {
 }
 
 probe_noc() {
-  # Against tt-sim this needs an EXPLICIT opt-in, and the reason is COST, not
+  # Against Wolfpine this needs an EXPLICIT opt-in, and the reason is COST, not
   # impossibility. It runs there and it reads CONGESTION MEASURED on both arches
-  # (2026-08-12): tt-sim has modelled link congestion since 2026-08-05, and the
+  # (2026-08-12): Wolfpine has modelled link congestion since 2026-08-05, and the
   # workers the plan addresses materialise on demand now that this script no
   # longer pins the pool. But it is minutes where the rest of the block is
   # seconds, so a plain `--sim` smoke run leaves it out. Set TT_SIM_COST_MODEL=1
   # when you name it -- with the model off the link term is never spent and the
   # sweep really is forced flat.
   if [ "$DO_SIM" = 1 ] && [ "$SIM_NOC_OPT_IN" != 1 ]; then
-    skip noc "against tt-sim this is minutes where the rest of the block is seconds, so it is opt-in. It DOES run there and reads CONGESTION MEASURED -- name it explicitly, with TT_SIM_COST_MODEL=1"
+    skip noc "against Wolfpine this is minutes where the rest of the block is seconds, so it is opt-in. It DOES run there and reads CONGESTION MEASURED -- name it explicitly, with TT_SIM_COST_MODEL=1"
     return
   fi
   build_once "$NB" nocbench || { verdict noc FAILED "build failed"; return; }
@@ -702,7 +702,7 @@ probe_noc() {
   local shared="64,512,2048,8192,16384"
   [ "$DO_SIM" = 1 ] && extra="--max-points 2 --num-tx 8"
   # A plan pre-built at home (shipped as nocbench/noc-plan-<arch>.csv, or given
-  # with --plan) removes the one card-side step that needs tt_sim. It is only
+  # with --plan) removes the one card-side step that needs framework. It is only
   # safe if it was built for THIS card: a plan naming a tile the part does not
   # have measures nothing, and on a harvested card that is easy to do by
   # accident. So verify every addressed tile against the live dump first.
@@ -713,7 +713,7 @@ probe_noc() {
   # The shipped plan lives beside the bench, not in its src/ tree. Look in both,
   # because "it is right there and the session did not see it" is exactly the
   # failure that wastes a card session.
-  # Not against tt-sim, though. The shipped plan was built for a HARVESTED
+  # Not against Wolfpine, though. The shipped plan was built for a HARVESTED
   # card, and the simulator has the whole grid: every tile it names exists, so
   # the check below passes, but the physical coordinates it was planned in are
   # a different part's. nocbench then reports "NIU reports physical coord X,
@@ -738,11 +738,11 @@ probe_noc() {
   fi
   if [ ! -s "$plan" ]; then
     if [ "$HAVE_TT_SIM" != 1 ]; then
-      skip noc "no plan for this part and the planner needs tt_sim/ (not on this box). $GRID has been kept: plan at home with \`python3 -m tt_sim.perf.noc_congestion_plan --grid <that dump> --out noc-plan-$ARCH.csv --shared-sizes $shared\`, drop it in perfbench/nocbench/, and re-run \`$0 noc noc-epoch\`"
+      skip noc "no plan for this part and the planner needs framework/ (not on this box). $GRID has been kept: plan at home with \`python3 -m framework.perf.noc_congestion_plan --grid <that dump> --out noc-plan-$ARCH.csv --shared-sizes $shared\`, drop it in perfbench/nocbench/, and re-run \`$0 noc noc-epoch\`"
       return
     fi
     # shellcheck disable=SC2086
-    PYTHONPATH="$REPO" python3 -m tt_sim.perf.noc_congestion_plan --grid "$GRID" --out "$plan" \
+    PYTHONPATH="$REPO" python3 -m framework.perf.noc_congestion_plan --grid "$GRID" --out "$plan" \
       --shared-sizes "$shared" $extra >>"$LOG" 2>&1 || {
         verdict noc FAILED "the planner refused; it does that rather than emit a confounded experiment. On a HARVESTED part it refuses a grid dump with no phys_x/phys_y column -- read session.log"; return; }
   fi
@@ -754,12 +754,12 @@ probe_noc() {
   # then greped for the absence of "INVALID" and passed. A `.report.txt` holding
   # a traceback reads as a result to everything downstream of it.
   if [ "$HAVE_TT_SIM" = 1 ]; then
-    PYTHONPATH="$REPO" python3 -m tt_sim.perf.noc_congestion_sweep --measured "$csv" \
+    PYTHONPATH="$REPO" python3 -m framework.perf.noc_congestion_sweep --measured "$csv" \
       > "$OUT/noc.report.txt" 2>&1
     cat "$OUT/noc.report.txt" >> "$LOG"
   else
     rm -f "$OUT/noc.report.txt"
-    say "   report deferred: tt_sim/ is not importable here, so no noc.report.txt is"
+    say "   report deferred: framework/ is not importable here, so no noc.report.txt is"
     say "   written. Generate it at the analysis box from noc.$ARCH.csv."
   fi
   graded noc noc_verdict "$OUT/noc.report.txt" "$HAVE_TT_SIM"
@@ -771,7 +771,7 @@ probe_noc_epoch() {
   # independent runs, so one run can never confirm the (11,2) epoch. This is
   # the second run, and it is why the bullet is a probe rather than a note.
   if [ "$DO_SIM" = 1 ] && [ "$SIM_NOC_OPT_IN" != 1 ]; then
-    skip noc-epoch "see the noc probe: opt-in against tt-sim on cost. It runs there and reads COLLECTED -- a simulator has one clock, so the detector correctly names no per-tile epoch"
+    skip noc-epoch "see the noc probe: opt-in against Wolfpine on cost. It runs there and reads COLLECTED -- a simulator has one clock, so the detector correctly names no per-tile epoch"
     return
   fi
   build_once "$NB" nocbench || { verdict noc-epoch FAILED "build failed"; return; }
@@ -781,12 +781,12 @@ probe_noc_epoch() {
   cat "$OUT/noc-epoch.out" >> "$LOG"
   [ -s "$csv" ] || { verdict noc-epoch FAILED "no CSV; send noc-epoch.out"; return; }
   if [ "$HAVE_TT_SIM" = 1 ]; then
-    PYTHONPATH="$REPO" python3 -m tt_sim.perf.noc_congestion_sweep \
+    PYTHONPATH="$REPO" python3 -m framework.perf.noc_congestion_sweep \
       --measured "$OUT/noc.$ARCH.csv" "$csv" > "$OUT/noc-epoch.report.txt" 2>&1
     cat "$OUT/noc-epoch.report.txt" >> "$LOG"
   else
     rm -f "$OUT/noc-epoch.report.txt"
-    say "   report deferred: tt_sim/ is not importable here, so no noc-epoch.report.txt"
+    say "   report deferred: framework/ is not importable here, so no noc-epoch.report.txt"
     say "   is written. Pool noc.$ARCH.csv and noc-epoch.$ARCH.csv at the analysis box."
   fi
   graded noc-epoch noc_epoch_verdict "$OUT/noc-epoch.report.txt" "$HAVE_TT_SIM"
@@ -796,7 +796,7 @@ probe_noc_epoch() {
 say "== card session: arch=$ARCH out=$OUT$SIM_NOTE"
 say "   started $(date -Is)"
 if [ "$HAVE_TT_SIM" != 1 ]; then
-  say "   tt_sim/ is not importable here: the five benches still run and every"
+  say "   framework/ is not importable here: the five benches still run and every"
   say "   CSV is still collected. The congestion probes use the pre-built plan"
   say "   nocbench/noc-plan-<arch>.csv (checked against this card's live grid"
   say "   before use), so they run too; only the report GENERATORS are deferred"
@@ -847,7 +847,7 @@ done
   echo "STATUSES: MEANINGFUL  the probe's own control moved; a real reading."
   echo "          COLLECTED   CSV written, but nothing in-session can grade it;"
   echo "                      the analysis box decides whether it says anything."
-  echo "          DEFERRED    CSV written; the ANALYSIS needs tt_sim/, which is"
+  echo "          DEFERRED    CSV written; the ANALYSIS needs framework/, which is"
   echo "                      not on this box. Not a verdict, and not a failure."
   echo "          DEGENERATE  the control did NOT move. On a card that is a"
   echo "                      broken run, not a result. Only --sim expects it."

@@ -1,22 +1,22 @@
 from enum import IntEnum
 
-from tt_sim.memory.memory import MemorySpace
-from tt_sim.pe.rv.cost import make_cost_state
-from tt_sim.pe.rv.isa.a_isa import RV_ZAAMO_ISA
-from tt_sim.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
-from tt_sim.pe.rv.isa.guard_isa import RV_F_GUARD_ISA, RV_V_GUARD_ISA
-from tt_sim.pe.rv.isa.zfh_isa import RV_ZFH_ISA
-from tt_sim.pe.rv.isa.zicsr_isa import RV_ZICSR_ISA, CSRFile
-from tt_sim.pe.rv.rv32 import RV32IM_TT
-from tt_sim.pe.rv.spin import (
+from framework.memory.memory import MemorySpace
+from framework.pe.rv.cost import make_cost_state
+from framework.pe.rv.isa.a_isa import RV_ZAAMO_ISA
+from framework.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
+from framework.pe.rv.isa.guard_isa import RV_F_GUARD_ISA, RV_V_GUARD_ISA
+from framework.pe.rv.isa.zfh_isa import RV_ZFH_ISA
+from framework.pe.rv.isa.zicsr_isa import RV_ZICSR_ISA, CSRFile
+from framework.pe.rv.rv32 import RV32IM_TT
+from framework.pe.rv.spin import (
     SPIN_IDLE,
     FirmwareSpin,
     firmware_idle_debug_from_env,
     firmware_idle_enabled_from_env,
 )
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.util.bits import get_nth_bit
-from tt_sim.util.conversion import conv_to_uint32
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.util.bits import get_nth_bit
+from framework.util.conversion import conv_to_uint32
 
 # Maps arch-profile ISA-extension names to the ISA classes that implement them.
 # Kept here (not in the arch profile) so the profile stays free of pe.rv imports.
@@ -64,7 +64,7 @@ _SCRATCH_SSTATUS_CORES = frozenset({BabyRISCVCoreType.BRISC, BabyRISCVCoreType.N
 
 class BabyRISCV(RV32IM_TT):
     #: True while the firmware-loop recogniser has this core parked in a
-    #: verified pure poll loop (see ``tt_sim/pe/rv/spin.py``). Read by the
+    #: verified pure poll loop (see ``framework/pe/rv/spin.py``). Read by the
     #: tile-level ``next_wake_cycle`` fast reject, so it is a plain class
     #: attribute that costs nothing until a core actually parks.
     spin_parked = False
@@ -142,9 +142,9 @@ class BabyRISCV(RV32IM_TT):
         # The cycle-cost model for the load/store path. ``None`` unless the
         # caller names an architecture *and* ``TT_SIM_COST_MODEL`` is set, so
         # cores built outside a device (driver/simple, the ISA unit tests) are
-        # never charged. See tt_sim/pe/rv/cost.py.
+        # never charged. See framework/pe/rv/cost.py.
         self.rv_cost = make_cost_state(arch)
-        # Firmware-loop recognition (``tt_sim/pe/rv/spin.py``): parks a core
+        # Firmware-loop recognition (``framework/pe/rv/spin.py``): parks a core
         # spinning in a verified pure poll loop so its tile can go dormant.
         # ``None`` when killed via TT_SIM_FIRMWARE_IDLE=0.
         self._spin = (
@@ -310,7 +310,7 @@ class BabyRISCV(RV32IM_TT):
         # A parked core is dormant exactly while every byte its loop can
         # observe still equals the parking snapshot; the check itself unparks
         # (and answers "next cycle") the moment anything differs, so a stride
-        # can neither begin nor survive a change. See tt_sim/pe/rv/spin.py.
+        # can neither begin nor survive a change. See framework/pe/rv/spin.py.
         if self.spin_parked:
             return self._spin.wake_check(self, cycle_num)
         return super().next_wake_cycle(cycle_num)

@@ -1,11 +1,11 @@
 """Read back a ``nocbench`` run and say what it measured.
 
-The planning half is :mod:`tt_sim.perf.noc_congestion_plan`; the executing half
+The planning half is :mod:`framework.perf.noc_congestion_plan`; the executing half
 is ``perfbench/nocbench``. This is the third: it re-checks the plan's invariants
 against what actually came back, decides whether the run is valid at all, and
 only then reports a coefficient.
 
-That order matters, and it mattered most while tt-sim's own answer was forced.
+That order matters, and it mattered most while Wolfpine's own answer was forced.
 Until 2026-08-05 the model charged an NIU for its own injection port and
 nothing whatever for a router-to-router link, so two flows sharing links could
 not interact and every congestion experiment here read flat against the
@@ -15,7 +15,7 @@ does (``NocLinkRegistry``, one watermark per link), and the same plan now reads
 made that difference legible rather than a coincidence, so they are still the
 gate on any verdict:
 
-* ``size`` must rise with transaction size (tt-sim models link serialisation);
+* ``size`` must rise with transaction size (Wolfpine models link serialisation);
 * ``readport`` must rise when a second master reads from the same subordinate;
 * every multi-flow point's timed regions must actually have overlapped.
 
@@ -28,7 +28,7 @@ Run it
 
 ::
 
-    python3 -m tt_sim.perf.noc_congestion_sweep --measured nocbench-blackhole.csv
+    python3 -m framework.perf.noc_congestion_sweep --measured nocbench-blackhole.csv
 """
 
 from __future__ import annotations
@@ -427,7 +427,7 @@ def _coordinate_check(rows):
 
     A device that answers 0 for that register reports every core as (0, 0),
     which is a missing register rather than every kernel running on one core.
-    tt-sim is such a device. That case is reported as unavailable, not as a
+    Wolfpine is such a device. That case is reported as unavailable, not as a
     mismatch; a MIXED result is a genuine mismatch and is reported as one.
     """
     measured = [r for r in rows if r.get("measured") and r.get("noc") == 0]
@@ -607,7 +607,7 @@ def report_selfport(rows, emit, noise=None):
     with two issuers on one NIU each RISC's ``==`` is satisfied by any N acks
     and both kernels stop at the halfway point. The ratio it prints is
     therefore about 1.0 whether the injection port serialises perfectly or does
-    not exist -- which was established by deleting the mechanism in tt-sim and
+    not exist -- which was established by deleting the mechanism in Wolfpine and
     watching the ratio move by 0.04, in the wrong direction, while the absolute
     cost moved 35 %. See docs/plans/cost-model.md.
     """
@@ -886,7 +886,7 @@ def sweep(rows, emit=print, min_overlap=0.5):
         emit(
             "  RESULT: NO CONGESTION EFFECT. The controls moved and the flows overlapped, so "
             "this is a measurement and not a null harness. It used to be the FORCED answer "
-            "on tt-sim; since 2026-08-05 the model charges link occupancy, so a flat reading "
+            "on Wolfpine; since 2026-08-05 the model charges link occupancy, so a flat reading "
             "there is now a reading like any other -- check the transaction size is above "
             "the issue loop before believing it."
         )

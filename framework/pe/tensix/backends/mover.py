@@ -1,8 +1,8 @@
 from enum import IntEnum
 
-from tt_sim.pe.tensix.backends.backend_base import TensixBackendUnit
-from tt_sim.perf.model import mover_cost_model, unit_cost_model
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.tensix.backends.backend_base import TensixBackendUnit
+from framework.perf.model import mover_cost_model, unit_cost_model
+from framework.util.conversion import conv_to_bytes
 
 
 class MoverUnit(TensixBackendUnit):
@@ -27,7 +27,7 @@ class MoverUnit(TensixBackendUnit):
     TENSIX_CFG_BASE = 0xFFEF0000
     MEM_NCRISC_IRAM_BASE = 0xFFC00000
 
-    #: Which ``mover.transfer`` rate (tt_sim/perf/unit_costs.yaml) prices each
+    #: Which ``mover.transfer`` rate (framework/perf/unit_costs.yaml) prices each
     #: XMOV mode. The two "L1_TO_" modes are the memcpy the table's
     #: ``l1_to_l1`` entry covers ("Covers XMOV_L1_TO_L1 and XMOV_L1_TO_L0");
     #: the "L0_TO_" modes are memsets, split by whether the destination is L1.

@@ -25,15 +25,15 @@ visible at all is that the banks are really apart:
   behind two worker-visible cells at opposite ends of its column; and
 * the number of banks is the number the shipped SoC descriptor declares, which
   is where a consumer reads it, and every view's range lies inside the channel
-  tt-sim actually models.
+  Wolfpine actually models.
 
 The banks here are derived from ``driver/<arch>/soc_descriptor.yaml`` exactly
 as tt-metal derives them — ``dram_views[b].channel`` picks the row of ``dram``,
 ``worker_endpoint[0]`` picks the NoC 0 subchannel within it, ``address_offset``
 is the base inside the channel — rather than from the profile the model is
-built from, because reading both sides from ``tt_sim/arch/`` would assert the
+built from, because reading both sides from ``framework/arch/`` would assert the
 model against itself. Bank *order* is deliberately not asserted: which page
-lands in which bank is tt-metal's arithmetic on both sides and never tt-sim's.
+lands in which bank is tt-metal's arithmetic on both sides and never Wolfpine's.
 
 Cheap by construction: two device builds, no kernel, no trace. The end-to-end
 complement — a real interleaved buffer scattered by a real host and gathered by
@@ -42,9 +42,9 @@ a real kernel — is ``examples/banks`` and
 and a tt-metal checkout and therefore cannot be what an external consumer's
 gate is pinned to.
 
-Published as ``dram-interleaved-bank-distinctness``; see ``tt_sim/behaviour.py``.
+Published as ``dram-interleaved-bank-distinctness``; see ``framework/behaviour.py``.
 
-Runs standalone (``python3 -m tt_sim.device.dram_banks_test``) or under pytest.
+Runs standalone (``python3 -m framework.device.dram_banks_test``) or under pytest.
 """
 
 import collections
@@ -53,12 +53,12 @@ import pathlib
 import pytest
 import yaml
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.arch.wormhole import WORMHOLE_PROFILE
-from tt_sim.behaviour import require
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.device.wormhole import Wormhole
-from tt_sim.network.tt_noc import resolved_nui
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.arch.wormhole import WORMHOLE_PROFILE
+from framework.behaviour import require
+from framework.device.blackhole import Blackhole
+from framework.device.wormhole import Wormhole
+from framework.network.tt_noc import resolved_nui
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -112,14 +112,14 @@ def _marker(index):
 
 @pytest.mark.parametrize("arch", sorted(_ARCHES), ids=sorted(_ARCHES))
 def test_the_bank_count_is_the_one_the_descriptor_declares(arch):
-    """...and every bank's range is inside a channel tt-sim models whole."""
+    """...and every bank's range is inside a channel Wolfpine models whole."""
     soc = _soc_descriptor(arch)
     profile = _ARCHES[arch][1]
     banks = _banks(soc)
 
     assert len(banks) == EXPECTED_BANK_COUNT[arch]
     assert len(soc["dram"]) == len(profile.dram_channel_unified_coords), (
-        "tt-sim builds one DRAM tile per descriptor channel; a mismatch means "
+        "Wolfpine builds one DRAM tile per descriptor channel; a mismatch means "
         "some channel is not modelled at all and reads back zeros"
     )
     assert soc["dram_bank_size"] == profile.dram_channel_size
@@ -133,7 +133,7 @@ def test_the_bank_count_is_the_one_the_descriptor_declares(arch):
     for channel, count in per_channel.items():
         assert count * view_size == profile.dram_channel_size, (
             f"channel {channel} is banked into {count} x {view_size} B, which "
-            f"is not the {profile.dram_channel_size} B tt-sim models for it"
+            f"is not the {profile.dram_channel_size} B Wolfpine models for it"
         )
     for channel, _, offset in banks:
         assert 0 <= offset
@@ -194,9 +194,9 @@ def test_every_bank_is_its_own_storage_at_its_own_coordinate(arch):
                 f"than corrupt"
             )
             top = tiles[coord].read(offset + view_size - 4, 4)
-            assert top == _marker(0xFF00 | index), (
-                f"{arch}: the last word of bank {index} reads back {top.hex()}"
-            )
+            assert top == _marker(
+                0xFF00 | index
+            ), f"{arch}: the last word of bank {index} reads back {top.hex()}"
     finally:
         device.shutdown()
 

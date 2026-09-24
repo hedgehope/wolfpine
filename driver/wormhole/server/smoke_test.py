@@ -14,8 +14,8 @@ import time
 
 import pynng
 
-from tt_sim.bridge import Fabric, Transport
-from tt_sim.bridge import protocol as proto
+from framework.bridge import Fabric, Transport
+from framework.bridge import protocol as proto
 
 
 def _run_server(addr, ready):
@@ -92,9 +92,9 @@ def main():
             # 6) Verify the WRITE message actually carried payload through parse
             # by inspecting the transport's count after the round trips above.
             assert ready, "server thread never registered Transport"
-            assert ready[0].msg_count >= 5, (
-                f"server should have seen >=5 messages, saw {ready[0].msg_count}"
-            )
+            assert (
+                ready[0].msg_count >= 5
+            ), f"server should have seen >=5 messages, saw {ready[0].msg_count}"
 
             # 7) EXIT — clean shutdown.
             sock.send(proto.build_msg(proto.CMD_EXIT))

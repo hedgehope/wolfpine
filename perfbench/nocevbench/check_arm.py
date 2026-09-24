@@ -3,7 +3,7 @@
 
 **This is the check the arm-B session turns on.** Arm B swaps the two NoCs and
 nothing else, so a run that silently kept arm A's pairing produces a perfectly
-well-formed trace, passes every gate in ``tt_sim.perf.noc_events``, and yields a
+well-formed trace, passes every gate in ``framework.perf.noc_events``, and yields a
 confident wrong conclusion: it would say the +95-cycle error "stayed on the
 write", which is precisely what the *rival* hypothesis predicts. Passing
 ``--arm B`` proves nothing on its own -- a stale binary, a build that did not
@@ -13,7 +13,7 @@ actually used (``noc`` in every record; ``profiler.cpp:840-887``).
 
 Deliberately standalone: it imports nothing but the standard library, so it runs
 on a card box that has only ``perfbench/nocevbench/`` rsynced onto it and no
-tt-sim at all. The arm table below is the second copy of the one in
+Wolfpine at all. The arm table below is the second copy of the one in
 ``src/nocevbench.cpp``; they are three rows, and the point of the duplication is
 that this file checks the program rather than agreeing with it by construction.
 
@@ -134,7 +134,7 @@ def source_core(records):
 def latencies(records):
     """``{(noc, type, bytes): [samples]}`` -- issue to the barrier END covering it.
 
-    The same quantity ``tt_sim.perf.noc_events`` reports, recomputed here in
+    The same quantity ``framework.perf.noc_events`` reports, recomputed here in
     thirty lines so the operator can see the arm's numbers **on the card**,
     before the session is sent home. It is what makes "arm A is the control and
     must reproduce 2026-08-17" an on-the-spot check rather than a promise.
@@ -200,7 +200,7 @@ def _peer_mismatch(peer, seen_dests, records, config, notes):
        with both numbers named rather than being refused for being right.
     2. **The NoC 1 grid mirror.** The destination is ``(GX-1-x, GY-1-y)`` of the
        peer, which means the kernel put an *unmirrored* worker coordinate on
-       NoC 1: tt-sim's untranslated convention, and not the one a card is in.
+       NoC 1: Wolfpine's untranslated convention, and not the one a card is in.
        Refused, naming the fix, because the two sides are then not comparable.
     3. Anything else -- the transfers went somewhere the arm did not name.
     """
@@ -216,7 +216,7 @@ def _peer_mismatch(peer, seen_dests, records, config, notes):
             return [
                 f"arm C addressed {mirror}, which is the NoC 1 grid mirror of the peer "
                 f"{peer} on a {grid[0]}x{grid[1]} grid. The kernel put an UNMIRRORED "
-                "worker coordinate on NoC 1, which is tt-sim's untranslated "
+                "worker coordinate on NoC 1, which is Wolfpine's untranslated "
                 "convention and not the one a card runs in, so the two sides are not "
                 "comparable. Re-run with TT_METAL_MOCK_CLUSTER_DESC_PATH pointing at "
                 "driver/<arch>/cluster_descriptor.yaml"

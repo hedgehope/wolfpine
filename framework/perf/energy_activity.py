@@ -1,4 +1,4 @@
-"""Reduce a tt-sim counter dataset to a per-launch **activity vector**.
+"""Reduce a Wolfpine counter dataset to a per-launch **activity vector**.
 
 This is the simulator half of the ranking-level energy estimator (ROADMAP v2.0
 item 5). It reads nothing but the Parquet counter dataset a run already emits
@@ -8,7 +8,7 @@ item 5). It reads nothing but the Parquet counter dataset a run already emits
 
 **It changes no computed value and no cycle count.** Nothing here is imported by
 the simulator; the dependency runs one way, from this module to
-:mod:`tt_sim.trace.report`, which is itself a reader.
+:mod:`framework.trace.report`, which is itself a reader.
 
 What an activity vector is for
 ------------------------------
@@ -21,7 +21,7 @@ The energy model is
 where ``a`` is the vector this module emits, ``rate`` is the measured launch
 rate from ``perfbench/energybench``, and ``P_static`` is the measured idle
 baseline. The coefficients ``c`` are **not set here and are not set anywhere in
-``tt_sim/``** -- see :mod:`tt_sim.perf.energy_rank` and the quarantine note in
+``framework/``** -- see :mod:`framework.perf.energy_rank` and the quarantine note in
 ``perfbench/energybench/README.md``. They will be FITTED to silicon, which makes
 them a different kind of number from everything in ``unit_costs.yaml``, and they
 are kept physically outside that file for exactly that reason.
@@ -47,7 +47,7 @@ aggregator emits a counter only when something incremented it, so an un-modelled
 run has no such rows at all rather than rows asserting zero. Reading a
 coefficient against an occupancy term from a cost-model-off dataset would be
 reading a coefficient against a column of zeros, so ``--cost-model`` is recorded
-in the CSV, :mod:`tt_sim.perf.energy_rank` drops a zero-spread column from the
+in the CSV, :mod:`framework.perf.energy_rank` drops a zero-spread column from the
 design entirely, and one named explicitly with ``--terms`` is refused by the
 identifiability gate rather than fitted.
 
@@ -72,8 +72,8 @@ answered by putting ``sfpu_busy_cycles`` on the non-negativity boundary at
 exactly 0 and predicting the SFPU workloads through the matrix term instead.
 
 So ``matrix_arith_cycles`` -- ``busy_cycles`` minus ``bookkeeping_cycles``, both
-published per unit by :mod:`tt_sim.trace.counters` -- is the term the ``mm`` arm
-is fitted against (:data:`tt_sim.perf.energy_rank.DESIGNED_ARM_TERMS`).
+published per unit by :mod:`framework.trace.counters` -- is the term the ``mm`` arm
+is fitted against (:data:`framework.perf.energy_rank.DESIGNED_ARM_TERMS`).
 ``matrix_busy_cycles`` is left alone, still the full occupancy, because a
 performance reader wants exactly that and because a column that quietly changed
 meaning is worse than a column that was added. A CSV written before this term
@@ -88,7 +88,7 @@ Usage
 
     TT_SIM_COST_MODEL=1 TT_SIM_TRACE_COUNTERS=/tmp/ab ./perfbench/run.sh energybench \\
         -- --arm mm --inner 8 --iters 1
-    python3 -m tt_sim.perf.energy_activity --counters /tmp/ab \\
+    python3 -m framework.perf.energy_activity --counters /tmp/ab \\
         --label mm-8 --arm mm --inner 8 --launches 1 --cost-model 1 \\
         --out activity.csv --append
 """
@@ -100,7 +100,7 @@ from pathlib import Path
 
 #: Every counter that lands in ``busy_cycles`` is keyed by the backend unit's
 #: name as it appears in ``unit_id[3]`` -- the canonical join key documented in
-#: ``tt_sim.trace.events.BACKEND_UNIT_ALIASES``. These are the ones with a
+#: ``framework.trace.events.BACKEND_UNIT_ALIASES``. These are the ones with a
 #: plausible independent energy signature.
 _BUSY_UNITS = ("MATRIX", "SFPU", "PACKER", "UNPACKER", "THCON", "MOVER")
 
@@ -173,7 +173,7 @@ def reduce_counters(
             out[f"{unit.lower()}_busy_cycles"] += value
         elif counter == "bookkeeping_cycles" and unit == "MATRIX":
             bookkeeping += value
-    # A subset by construction (``tt_sim.trace.counters`` charges both off the
+    # A subset by construction (``framework.trace.counters`` charges both off the
     # same ``ComputeEvent.duration``), so the difference cannot go negative --
     # but a dataset assembled by hand could, and a negative activity term would
     # be fitted rather than noticed.
@@ -197,7 +197,7 @@ def load_activity(path: Path | str) -> list[dict]:
     """Read an activity CSV back, with the numeric columns typed.
 
     ``#`` lines are skipped, matching every other dataset in
-    ``tt_sim/perf/datasets/``: a file that cannot carry a provenance header is a
+    ``framework/perf/datasets/``: a file that cannot carry a provenance header is a
     file whose provenance ends up in a commit message.
     """
     rows = []
@@ -241,7 +241,7 @@ def main(argv=None) -> int:
     ap.add_argument("--append", action="store_true")
     args = ap.parse_args(argv)
 
-    from tt_sim.trace.report import load_counters
+    from framework.trace.report import load_counters
 
     directory = Path(args.counters)
     if not directory.is_dir():

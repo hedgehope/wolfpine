@@ -6,7 +6,7 @@ order is tt-metal's, not ours. ``split_work_to_cores`` →
 ``num_cores_to_corerangeset`` (tt-metal ``tt_metal/common/work_split.cpp``)
 fills the **compute-with-storage grid column-major**: logical ``(0,0)``,
 ``(0,1)`` … ``(0, H-1)``, then ``(1,0)`` … — where ``H`` is the height of *that*
-grid, not of the SoC descriptor's worker grid and not of any block tt-sim
+grid, not of the SoC descriptor's worker grid and not of any block Wolfpine
 prefers. So the fill order moves with
 ``TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE``, and a count-based knob that
 ignores the variable is wrong by construction as soon as ``N`` exceeds one

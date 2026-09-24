@@ -1,16 +1,16 @@
 from enum import IntEnum
 from math import ceil
 
-from tt_sim.pe.tensix.backends.backend_base import (
+from framework.pe.tensix.backends.backend_base import (
     DATA_FORMAT_TO_BITS,
     DATA_FORMAT_TO_NAME,
     DataFormat,
     TensixBackendUnit,
 )
-from tt_sim.pe.tensix.util import DataFormatConversions
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.bits import extract_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.tensix.util import DataFormatConversions
+from framework.perf.model import unit_cost_model
+from framework.util.bits import extract_bits, get_nth_bit
+from framework.util.conversion import conv_to_bytes
 
 
 class PackerUnit(TensixBackendUnit):
@@ -126,7 +126,7 @@ class PackerUnit(TensixBackendUnit):
     )
 
     def _check_unmodelled_bh_fields(self, instruction_info):
-        """Refuse a Blackhole PACR that sets a field tt-sim does not decode.
+        """Refuse a Blackhole PACR that sets a field Wolfpine does not decode.
 
         Blackhole's PACR encodes four fields on top of Wormhole's, and the
         instruction table in ``tensix_instructions.yaml`` is the *Wormhole*
@@ -165,7 +165,7 @@ class PackerUnit(TensixBackendUnit):
             if value:
                 raise NotImplementedError(
                     f"Blackhole PACR sets {name}={value} (raw bits {span}), which is "
-                    "not modelled; tt-sim decodes PACR through the shared Wormhole "
+                    "not modelled; Wolfpine decodes PACR through the shared Wormhole "
                     "argument table, which has no entry for this field, so it would "
                     "otherwise be silently ignored (ttsim refuses it too, as "
                     "MissingSpecification in TENSIX_EXECUTE_PACR)"
@@ -216,7 +216,7 @@ class PackerUnit(TensixBackendUnit):
         "remap and swizzle cause stride to be 16 rows and not 8 here") and is
         corroborated by tt-metal's ``_llk_math_reconfig_remap_``, which sets
         both config bits together and documents them as "needed for enabling
-        stride of 16". Note the stride is 16 in *logical* Dst rows: tt-sim, like
+        stride of 16". Note the stride is 16 in *logical* Dst rows: Wolfpine, like
         hardware and unlike ttsim, applies ``Adj16``/``Adj32`` to every Dst
         access, so the hardware's physical stride of 8 through the remapped
         layout is the logical stride of 16 modelled here.
@@ -242,7 +242,7 @@ class PackerUnit(TensixBackendUnit):
             # The message names the cause as well as the condition, because the
             # only way a real kernel gets here is a *late*
             # ``pack_untilize_dest_init``, and the condition alone reads like a
-            # missing tt-sim feature when it is a missing config write. See
+            # missing Wolfpine feature when it is a missing config write. See
             # docs/cost-model-caveats-for-consumers.md, "pack_untilize_dest on
             # Blackhole", for the measured trace.
             raise NotImplementedError(
@@ -258,7 +258,7 @@ class PackerUnit(TensixBackendUnit):
                 "spins on the MATH_PACK semaphore until the pack it is racing has "
                 "finished, so a PACK thread already past tile_regs_wait() issues "
                 "this PACR before MATH ever writes the bits. "
-                "THIS IS A tt-sim LIMIT, NOT A VERDICT ON YOUR KERNEL: a real "
+                "THIS IS A Wolfpine LIMIT, NOT A VERDICT ON YOUR KERNEL: a real "
                 "Blackhole p150b runs this shape and returns correct results "
                 "(measured 2026-08-20, four configurations, errors=0), so the "
                 "encoding is unrunnable in simulation and unspecified on "

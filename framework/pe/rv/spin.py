@@ -4,7 +4,7 @@ The full-grid affordability fix (ROADMAP item 2, and the gap recorded in
 ``docs/upstream-examples-status.md``): tt-metal's grid-wide init releases BRISC
 on **every** worker in the declared grid, and each BRISC then spins in the
 firmware go-message poll until teardown. A spinning core never reports
-:meth:`~tt_sim.device.clock.Clockable.is_clock_idle`, so Phase 1 tile dormancy
+:meth:`~framework.device.clock.Clockable.is_clock_idle`, so Phase 1 tile dormancy
 buys nothing and simulator wall clock is linear in *materialised* tiles
 regardless of which tiles the program launches kernels on.
 
@@ -116,7 +116,7 @@ prints one line per park/unpark decision to stderr.
 import os
 import sys
 
-from tt_sim.memory.memory import (
+from framework.memory.memory import (
     AddressableMemory,
     MemorySpace,
     SparseAddressableMemory,

@@ -2,7 +2,7 @@
 # Guards for driver/sim_procs.sh -- both the library it has always been and the
 # command line added for manual runs.
 #
-# No simulator is started. A tt-sim server is, for the matcher's purposes, a
+# No simulator is started. A Wolfpine server is, for the matcher's purposes, a
 # python process whose argv contains `-m driver.<arch>.server `, so a `sleep`
 # launched under exactly that argv is indistinguishable from the real thing --
 # which is the point: the matcher must be tested against what it actually reads
@@ -128,7 +128,7 @@ check "  ...and pid 1 is obviously still alive" "$(alive 1)" "yes"
 
 self_out="$("$SCRIPT" kill $$ 2>&1)"
 check "kill refuses this test process" "$(alive $$)" "yes"
-case "$self_out" in *"not a tt-sim server"*) ok "  ...and says why" ;; *) bad "  ...without explaining: $self_out" ;; esac
+case "$self_out" in *"not a Wolfpine server"*) ok "  ...and says why" ;; *) bad "  ...without explaining: $self_out" ;; esac
 
 "$SCRIPT" kill "$untagged" >/dev/null 2>&1
 sleep 0.2

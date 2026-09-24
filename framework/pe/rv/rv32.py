@@ -1,12 +1,12 @@
-from tt_sim.memory.memory import VisibleMemory, resolve_plain_ram_span
-from tt_sim.pe.pe import ProcessingElement
-from tt_sim.pe.register.register import Register, RegisterAccessMode
-from tt_sim.pe.register.register_file import RegisterFile
-from tt_sim.pe.rv.isa.i_isa import RV_I_ISA
-from tt_sim.pe.rv.isa.m_isa import RV_M_ISA
-from tt_sim.pe.rv.isa.tt_isa import RV_TT_ISA
-from tt_sim.trace import EventCategory, InstrEvent, get_bus
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.memory.memory import VisibleMemory, resolve_plain_ram_span
+from framework.pe.pe import ProcessingElement
+from framework.pe.register.register import Register, RegisterAccessMode
+from framework.pe.register.register_file import RegisterFile
+from framework.pe.rv.isa.i_isa import RV_I_ISA
+from framework.pe.rv.isa.m_isa import RV_M_ISA
+from framework.pe.rv.isa.tt_isa import RV_TT_ISA
+from framework.trace import EventCategory, InstrEvent, get_bus
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 # The 32 integer registers occupy indices 0-31, with pc/nextpc at 32/33. When a
 # core is built with a floating-point unit, the 32 f-registers occupy 34-65 and
@@ -91,7 +91,7 @@ REGISTER_NAME_MAPPING = {
 
 
 class RV32I(ProcessingElement):
-    #: This core's :class:`~tt_sim.pe.rv.isa.zicsr_isa.CSRFile`, or ``None`` when
+    #: This core's :class:`~framework.pe.rv.isa.zicsr_isa.CSRFile`, or ``None`` when
     #: the core has no CSRs — which is every core but a Blackhole baby (the
     #: WormholeB0 ISA docs describe no CSRs at all). A class attribute so a core
     #: without one costs an attribute read and a predicted branch per retired
@@ -143,13 +143,13 @@ class RV32I(ProcessingElement):
                 registers.append(Register(4))
             registers.append(Register(4))  # fcsr
 
-        # A ``tt_sim.pe.rv.cost.RiscvCostState`` once a core opts into the
+        # A ``framework.pe.rv.cost.RiscvCostState`` once a core opts into the
         # cycle-cost tables *and* ``TT_SIM_COST_MODEL`` is set; ``None``
         # otherwise, which is the default. ``clock_tick`` reads it once per
         # instruction, so the switched-off cost is one attribute read and one
         # predicted branch on the hottest path in the simulator. Only the baby
         # cores set it (they are the ones with an architecture and a memory
-        # map to classify addresses against); see ``tt_sim/pe/rv/cost.py``.
+        # map to classify addresses against); see ``framework/pe/rv/cost.py``.
         self.rv_cost = None
         self.register_file = RegisterFile(registers, REGISTER_NAME_MAPPING)
         # PC and next-PC are touched several times per simulated cycle; resolve
@@ -173,7 +173,7 @@ class RV32I(ProcessingElement):
             self.visible_memory = VisibleMemory.merge(*memory_spaces)
         # What the ISA executors are handed as their memory. Normally the
         # visible memory itself; the firmware-loop recogniser (BabyRISCV,
-        # ``tt_sim/pe/rv/spin.py``) swaps in a recording proxy for the few
+        # ``framework/pe/rv/spin.py``) swaps in a recording proxy for the few
         # ticks of a detection attempt. One attribute read on the hot path.
         self._exec_memory = self.visible_memory
         # Instruction-fetch fast path: ``(low, last, leaf, base)`` for the
@@ -328,12 +328,12 @@ class RV32I(ProcessingElement):
         if not pe_stall:
             csrs = self.csrs
             if csrs is not None and actioned:
-                # minstret. "Retired" in tt-sim's single-step model means this
+                # minstret. "Retired" in Wolfpine's single-step model means this
                 # tick executed an instruction some ISA claimed: a tick the cost
                 # model stalled returned above without getting here, a PEStall
                 # leaves the instruction to be re-offered later (so counting it
                 # would count it twice), and an unclaimed instruction executed
-                # nothing at all — the hardware would trap on it, and tt-sim
+                # nothing at all — the hardware would trap on it, and Wolfpine
                 # treats it as the doc's UndefinedBehavior.
                 csrs.retired += 1
             pc.write(nextpc.read())

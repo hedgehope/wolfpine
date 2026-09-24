@@ -1,13 +1,13 @@
-"""Diff a tt-sim Spike-style commitlog against a Spike-produced one.
+"""Diff a Wolfpine Spike-style commitlog against a Spike-produced one.
 
 Usage:
 
-    python3 -m tt_sim.trace.diff_spike <ttsim.commitlog> <spike.commitlog>
+    python3 -m framework.trace.diff_spike <ttsim.commitlog> <spike.commitlog>
 
 Walks both files line-by-line and reports the first divergence with
 five lines of context on each side. The format is byte-exact compatible
 so a clean run is just ``files match``; any divergence is either a
-tt-sim correctness bug or a Spike-versus-spec discrepancy — both are
+Wolfpine correctness bug or a Spike-versus-spec discrepancy — both are
 valuable to surface.
 
 Caveats:
@@ -17,8 +17,8 @@ Caveats:
   Spike has no concept of, so the diff would diverge on the first such
   access.
 - The Spike side should be invoked with ``spike --log-commits <elf>``
-  on a single-hart configuration (default). tt-sim's per-unit
-  commitlog files all use ``core   0:`` so any tt-sim unit can be
+  on a single-hart configuration (default). Wolfpine's per-unit
+  commitlog files all use ``core   0:`` so any Wolfpine unit can be
   compared against a hart-0 Spike run.
 """
 
@@ -42,7 +42,7 @@ def diff(ttsim_path: Path, spike_path: Path) -> int:
 
     if len(ttsim_lines) != len(spike_lines):
         print(
-            f"length mismatch: tt-sim has {len(ttsim_lines)} lines, "
+            f"length mismatch: Wolfpine has {len(ttsim_lines)} lines, "
             f"spike has {len(spike_lines)} lines (matched first {n})",
             file=sys.stderr,
         )
@@ -59,9 +59,9 @@ def _print_divergence(ttsim_lines, spike_lines, idx):
     for j in range(start, idx):
         sys.stderr.write(f"  {j + 1:6d}  {ttsim_lines[j]}")
     print("--- divergence ---", file=sys.stderr)
-    sys.stderr.write(f"tt-sim {idx + 1:6d}: {ttsim_lines[idx]}")
+    sys.stderr.write(f"Wolfpine {idx + 1:6d}: {ttsim_lines[idx]}")
     sys.stderr.write(f"spike  {idx + 1:6d}: {spike_lines[idx]}")
-    print("--- following (tt-sim) ---", file=sys.stderr)
+    print("--- following (Wolfpine) ---", file=sys.stderr)
     end = min(len(ttsim_lines), idx + 1 + CONTEXT_LINES)
     for j in range(idx + 1, end):
         sys.stderr.write(f"  {j + 1:6d}  {ttsim_lines[j]}")
@@ -69,7 +69,7 @@ def _print_divergence(ttsim_lines, spike_lines, idx):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("ttsim", type=Path, help="tt-sim commitlog file")
+    parser.add_argument("ttsim", type=Path, help="Wolfpine commitlog file")
     parser.add_argument("spike", type=Path, help="spike --log-commits output")
     args = parser.parse_args(argv)
     return diff(args.ttsim, args.spike)

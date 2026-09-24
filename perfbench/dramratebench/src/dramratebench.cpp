@@ -3,8 +3,8 @@
 //
 // WHAT THIS IS FOR
 // ----------------
-// On 2026-08-09 tt-sim started queueing a second DRAM request behind the first
-// at the endpoint (`DramChannels` in tt_sim/device/tiles.py). Before that, a
+// On 2026-08-09 Wolfpine started queueing a second DRAM request behind the first
+// at the endpoint (`DramChannels` in framework/device/tiles.py). Before that, a
 // DRAM endpoint served every arrival independently, so three 4 KiB reads
 // landing on the same cycle were all answered on the same cycle and a Wormhole
 // channel sustained the *NoC link's* 32 B/cycle against the 24 B/cycle its own
@@ -266,7 +266,7 @@ bool wants(const std::string& arms, const char* name) {
 }
 
 // The CSV's arm field. The read direction's three names are UNCHANGED, so
-// every parser that already grades this file -- `tt_sim.perf.dram_rate_sweep`,
+// every parser that already grades this file -- `framework.perf.dram_rate_sweep`,
 // which matches `arm == "onechan"` exactly, and `card_session_verdicts.sh`,
 // which matches the same string in awk -- keeps reading a read arm exactly as
 // it did, and simply does not see the write rows. That is the intended
@@ -663,11 +663,11 @@ int main(int argc, char** argv) {
     fprintf(out, "# agg_bytes_per_cycle = num_readers * bytes_per_reader / max(t1-t0); each\n");
     fprintf(out, "# reader differences its OWN clock, so a per-core clock epoch cancels\n");
     if (clock_mhz <= 0) {
-        // tt-sim reports 0 MHz, which is honest -- it has no wall-clock rate.
+        // Wolfpine reports 0 MHz, which is honest -- it has no wall-clock rate.
         // Say so rather than emitting a GB/s column of zeros that reads as a
         // measured collapse. B/cycle is the column that means anything here,
         // and it is the one the verdict grades.
-        fprintf(out, "# clock_mhz is 0: this device reports no frequency (tt-sim does not),\n");
+        fprintf(out, "# clock_mhz is 0: this device reports no frequency (Wolfpine does not),\n");
         fprintf(out, "# so agg_gb_per_s is 0 THROUGHOUT and is not a reading. Use B/cycle.\n");
         printf("dramratebench: the device reports 0 MHz, so the agg_gb_per_s column is 0 in\n"
                "  every row and is NOT a measured collapse. Read agg_bytes_per_cycle.\n");
@@ -1059,7 +1059,7 @@ int main(int argc, char** argv) {
     } else if (fan_lo == nullptr || fan_hi == nullptr || n_hi == n_lo) {
         printf("  VERDICT: DEGENERATE -- the fan-out control has no low and high point to\n"
                "  compare, so nothing separates the endpoint from the fabric or the issue rate.\n"
-               "  EXPECTED against tt-sim, which instantiates only the tiles named in\n"
+               "  EXPECTED against Wolfpine, which instantiates only the tiles named in\n"
                "  TT_SIM_TENSIX_COORDS and so cannot sweep the reader count.\n");
     } else {
         const double fan_scale = fan_lo->agg_bytes_per_cycle > 0
@@ -1080,7 +1080,7 @@ int main(int argc, char** argv) {
                    "  %u readers). Something upstream of the endpoint -- the readers' own issue\n"
                    "  rate, the fabric, or a barrier that did not hold -- caps both arms, so a\n"
                    "  flat one-channel curve says nothing about the endpoint. EXPECTED against\n"
-                   "  tt-sim, which models no NoC buffer back-pressure or virtual channels and,\n"
+                   "  Wolfpine, which models no NoC buffer back-pressure or virtual channels and,\n"
                    "  on Blackhole, publishes no per-channel DRAM rate for the endpoint queue to\n"
                    "  be built from. (It DOES model link congestion, so that is not the gap.)\n",
                    fan_scale, n_lo, n_hi);
@@ -1106,14 +1106,14 @@ int main(int argc, char** argv) {
                    "  same readers on ONE channel managed only x%.2f, which is %.0f%% of it.\n"
                    "  Same reader count, same issue loop, same transaction size: only the\n"
                    "  endpoint differed, so the endpoint is what cost the difference. This is\n"
-                   "  the shape tt-sim's DramChannels term asserts. It is CORROBORATION and\n"
+                   "  the shape Wolfpine's DramChannels term asserts. It is CORROBORATION and\n"
                    "  never provenance: it cannot make dram.bandwidth chargeable, least of all\n"
                    "  on a part with no published DRAM page.\n",
                    fan_scale, one_scale, 100.0 * efficiency);
         } else {
             printf("  VERDICT: NO ENDPOINT BOUND -- one channel kept up: x%.2f against the\n"
                    "  control's x%.2f, %.0f%% of it. N readers on one channel are not serialised\n"
-                   "  by it, which is what tt-sim's endpoint-occupancy term asserts they are.\n"
+                   "  by it, which is what Wolfpine's endpoint-occupancy term asserts they are.\n"
                    "  BEFORE READING THAT AS A REFUTATION, check the demand: a channel cannot\n"
                    "  flatten a load it is not saturated by, so a sweep whose widest point is\n"
                    "  %u reader(s) at %.2f B/cycle aggregate may simply be under-powered rather\n"
@@ -1188,7 +1188,7 @@ int main(int argc, char** argv) {
                    w_fan_hi == nullptr || n_hi == n_lo) {
             printf("\n  VERDICT (write): DEGENERATE -- the write direction has no low/high pair\n"
                    "  in both arms, so nothing separates the endpoint from anything upstream.\n"
-                   "  EXPECTED against tt-sim, which cannot sweep the writer count far.\n");
+                   "  EXPECTED against Wolfpine, which cannot sweep the writer count far.\n");
         } else {
             const double wf = w_fan_lo->agg_bytes_per_cycle > 0
                                   ? w_fan_hi->agg_bytes_per_cycle / w_fan_lo->agg_bytes_per_cycle

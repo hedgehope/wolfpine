@@ -53,7 +53,7 @@
 //   ./build/energybench --arm idle --iters 1 --csv out.csv --label sim
 //
 // Exactly one of --seconds / --iters is honoured; --iters wins if both are
-// given. The default (--iters 1) is the smoke shape used against tt-sim.
+// given. The default (--iters 1) is the smoke shape used against Wolfpine.
 
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/device.hpp>

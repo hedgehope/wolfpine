@@ -14,9 +14,9 @@ could plausibly produce -- a concatenated log, a Wormhole-numbered core compared
 against a Blackhole-numbered one, an unarmed bank, a partition that does not
 close.
 
-Two of the gate's refusals are now reachable from tt-sim's own machinery rather
+Two of the gate's refusals are now reachable from Wolfpine's own machinery rather
 than only from a hand-written CSV: :func:`_drive_perf_counters` runs a window on
-a real :class:`~tt_sim.misc.perf_counters.TensixPerfCounters` and reads it back
+a real :class:`~framework.misc.perf_counters.TensixPerfCounters` and reads it back
 through the MMIO path a profiler would use, in both directions.
 
 Two kinds of card data appear here. ``CARD_WH_ELW`` and ``CARD_WH_ELW_BLOCK``
@@ -36,12 +36,12 @@ from pathlib import Path
 
 import pytest
 
-from tt_sim.perf import stall_attribution as sa
+from framework.perf import stall_attribution as sa
 
 REPO = Path(__file__).resolve().parents[2]
 TESTDATA = REPO / "perfbench" / "mechbench" / "testdata"
 
-#: The counters tt-sim actually produced for ``mechbench elw 8`` on Blackhole,
+#: The counters Wolfpine actually produced for ``mechbench elw 8`` on Blackhole,
 #: 2026-08-13. Used as the shape every synthetic case is built from, so that a
 #: test which passes is a test against a realistic decomposition rather than
 #: against a hand-chosen one.
@@ -152,7 +152,7 @@ def test_rejects_a_file_that_is_not_a_profiler_log(tmp_path):
 
 
 def test_reads_the_real_simulator_log():
-    """The checked-in tt-sim log parses and closes -- no synthetic shortcut."""
+    """The checked-in Wolfpine log parses and closes -- no synthetic shortcut."""
     samples = sa.load_counter_samples(TESTDATA / "sim-elw-blackhole.csv")
     grouped = sa.group_by_core(samples)
     assert list(grouped) == [(1, 2)]
@@ -516,9 +516,9 @@ def test_no_real_simulator_log_has_ever_failed_this_gate(tmp_path):
     """Why Blackhole's pass is not evidence about Blackhole.
 
     ``TensixPerfCounters.note_stall`` increments ``thread_stalls[t]`` and at
-    most one reason bucket in the same call, and it is tt-sim's *only* stall
+    most one reason bucket in the same call, and it is Wolfpine's *only* stall
     hook that the Tensix front end calls, so ``sem_empty_t + sem_full_t <=
-    thread_stalls_t`` holds on every log tt-sim has ever produced, on either
+    thread_stalls_t`` holds on every log Wolfpine has ever produced, on either
     architecture. Both checked-in simulator logs are pinned here to make that
     concrete: the gate closing on them says nothing about silicon.
 
@@ -538,7 +538,7 @@ def test_no_real_simulator_log_has_ever_failed_this_gate(tmp_path):
 
 def test_note_stall_makes_the_partition_close_by_construction():
     """The invariant above, straight from the counter model rather than a log."""
-    from tt_sim.misc.perf_counters import TensixPerfCounters
+    from framework.misc.perf_counters import TensixPerfCounters
 
     counters_ = TensixPerfCounters(blackhole=True)
     for reason, bank in (
@@ -630,7 +630,7 @@ def test_metric36_as_a_correction_is_withheld_when_a_thread_never_stalled(tmp_pa
 
 
 # ---------------------------------------------------------------------------
-# The gate must be reachable from tt-sim's own machinery, not only from a CSV
+# The gate must be reachable from Wolfpine's own machinery, not only from a CSV
 #
 # ``partition_closes`` refused on silicon and has never refused on a simulator
 # log, because the front end's one stall hook couples the reason buckets to the
@@ -650,7 +650,7 @@ def _drive_perf_counters(overlapping):
     comes back has been through the same decode path as a real readback rather
     than lifted off the attributes.
     """
-    from tt_sim.misc import perf_counters as pc
+    from framework.misc import perf_counters as pc
 
     counters_ = pc.TensixPerfCounters(blackhole=False)
     base, out_l, out_h = pc.BANK_REGISTERS["INSTRN_THREAD"]
@@ -664,7 +664,7 @@ def _drive_perf_counters(overlapping):
     for _ in range(30):
         counters_.note_stall(2, "semaphore_empty")
     if overlapping:
-        # The cycles hardware counts and tt-sim's front end never visits: the
+        # The cycles hardware counts and Wolfpine's front end never visits: the
         # latched condition is unsatisfied but nothing is held at the gate.
         for _ in range(250):
             counters_.note_wait_condition(2, "semaphore_empty")
@@ -691,7 +691,7 @@ def test_the_counter_model_can_represent_the_hardware_overlap():
     invariant silicon breaks. It also refuses the four Src conditions, which are
     per-instruction ownership tests and cannot run with nothing at the gate.
     """
-    from tt_sim.misc.perf_counters import TensixPerfCounters
+    from framework.misc.perf_counters import TensixPerfCounters
 
     counters_ = TensixPerfCounters(blackhole=False)
     counters_.note_stall(2, "semaphore_empty")
@@ -706,7 +706,7 @@ def test_the_counter_model_can_represent_the_hardware_overlap():
 
 
 def test_the_gate_refuses_a_window_the_counter_model_itself_produced(tmp_path):
-    """The refusal path, reached from tt-sim's machinery rather than a CSV.
+    """The refusal path, reached from Wolfpine's machinery rather than a CSV.
 
     A gate that cannot fail is not a gate. Before ``note_wait_condition`` no
     sequence of calls on ``TensixPerfCounters`` could produce a set this gate
@@ -734,7 +734,7 @@ def test_the_gate_refuses_a_window_the_counter_model_itself_produced(tmp_path):
 def test_the_gate_passes_a_window_the_counter_model_itself_produced(tmp_path):
     """The other direction, from the same machinery: disjoint counters close.
 
-    Without the un-held cycles this is exactly what tt-sim produces today, and
+    Without the un-held cycles this is exactly what Wolfpine produces today, and
     it must keep passing -- otherwise the test above would be demonstrating a
     broken gate rather than a reachable refusal.
     """
@@ -803,7 +803,7 @@ def test_parse_core_map():
 
 def _cli(*args):
     return subprocess.run(
-        [sys.executable, "-m", "tt_sim.perf.stall_attribution", *args],
+        [sys.executable, "-m", "framework.perf.stall_attribution", *args],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -919,14 +919,14 @@ def test_no_counter_value_can_become_a_cost():
     is that the module's *code* cannot name a cost table or the loader that
     ranks one; the prose is free to explain why.
     """
-    tree = ast.parse((REPO / "tt_sim" / "perf" / "stall_attribution.py").read_text())
+    tree = ast.parse((REPO / "framework" / "perf" / "stall_attribution.py").read_text())
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
-    assert "tt_sim.perf.costs" not in imported
+    assert "framework.perf.costs" not in imported
     assert not any(name.endswith(".costs") for name in imported), imported
     for text in _executable_strings(tree):
         for forbidden in ("unit_costs", "tensix_instruction_costs"):
@@ -937,11 +937,11 @@ def test_the_cost_table_guard_would_notice():
     """...and the guard is not vacuous: it fires on a module that does offend."""
     tree = ast.parse(
         "'''prose may mention unit_costs.yaml'''\n"
-        "from tt_sim.perf.costs import load\n"
-        "PATH = 'tt_sim/perf/unit_costs.yaml'\n"
+        "from framework.perf.costs import load\n"
+        "PATH = 'framework/perf/unit_costs.yaml'\n"
     )
     imported = {
         node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     }
-    assert "tt_sim.perf.costs" in imported
+    assert "framework.perf.costs" in imported
     assert any("unit_costs" in text for text in _executable_strings(tree))

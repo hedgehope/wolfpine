@@ -3,9 +3,9 @@
 // A normal tt-metal program with no compute kernel and no NoC traffic: one
 // core, one data-movement kernel on BRISC, two small L1 buffers, and a
 // self-check on the result buffer the kernel wrote. It exists to be run twice --
-// once on a Blackhole card and once against tt-sim -- so that the two
+// once on a Blackhole card and once against Wolfpine -- so that the two
 // decompositions of one RISC-V core's span can be compared by
-// `tt_sim.perf.retire_attribution`.
+// `framework.perf.retire_attribution`.
 //
 // Both sides emit the IDENTICAL artefact, a `retirebench-*.json` written by
 // this host program, so one parser reads both and there is no translation step
@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
     // device is open. Nothing of THIS benchmark has been built or run.)
     // A Wormhole baby core has no CSRs at all in its ISA documentation, so
     // `csrr %0, minstret` is not an instruction it can be asked to execute:
-    // against tt-sim it raises NoCSRsError, and on silicon it would at best
+    // against Wolfpine it raises NoCSRsError, and on silicon it would at best
     // return something this program has no licence to interpret. Running anyway
     // and reporting elapsed cycles alone would produce a well-formed artefact
     // that supports an envelope claim -- which is the claim rung 4 exists to
@@ -274,7 +274,7 @@ int main(int argc, char** argv) {
 
     // The one self-check that matters, and it is the instrument checking itself:
     // if the counters never moved, every delta is zero and the artefact is a
-    // perfectly plausible partition of a zero-cycle span. On tt-sim a core with
+    // perfectly plausible partition of a zero-cycle span. On Wolfpine a core with
     // no clock bound refuses `mcycle` outright, so this catches the remaining
     // case -- a core that ran but whose counters did not.
     const uint32_t window_cycles = delta(r[RETIREBENCH_HDR_WINDOW_C0], r[RETIREBENCH_HDR_WINDOW_C1]);

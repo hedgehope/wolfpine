@@ -1,6 +1,6 @@
 """Tests for Blackhole's ZEROACC field re-layout and 16-row math bank offset.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.zeroacc_blackhole_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.zeroacc_blackhole_test``) or under
 pytest. The shared ``tensix_instructions.yaml`` encodes the Wormhole bit
 positions, and ZEROACC is the instruction Blackhole moves most: ``addr_mode``
 widens down into bit 14, ``use_32_bit_mode`` becomes its own field at bit 18
@@ -15,9 +15,9 @@ so the gating is checked in both directions.
 
 from contextlib import contextmanager
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import (
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import (
     TensixConfigurationConstants,
     TensixInstructionDecoder,
 )

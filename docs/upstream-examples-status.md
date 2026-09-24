@@ -1,6 +1,6 @@
-# Upstream `programming_examples/` on tt-sim — status
+# Upstream `programming_examples/` on Wolfpine — status
 
-A breadth sweep of tt-metal's **upstream** `programming_examples/` against tt-sim
+A breadth sweep of tt-metal's **upstream** `programming_examples/` against Wolfpine
 on both architectures. These are programs nobody in this repo wrote, so they are
 the evidence behind the claim *"runs real tt-metal programs unmodified"* in a way
 the in-tree `examples/` ladder cannot be.
@@ -25,7 +25,7 @@ differential method used to triage a failure is `optests/diff.sh` (see
 
 | | |
 | --- | --- |
-| tt-sim | `d094097` (2026-08-13) plus this change, which adds the gate and these docs and touches no simulator file |
+| Wolfpine | `d094097` (2026-08-13) plus this change, which adds the gate and these docs and touches no simulator file |
 | tt-metal | `0.74` at `$TT_METAL_HOME`, prebuilt `build/programming_examples/` |
 | oracle | a ttsim checkout (`$TTSIM_ROOT` below) — `oracle-wh/libttsim_wh.so`, `oracle-bh/libttsim_bh.so`. **No row needed triage** (nothing failed); it was used once, to settle `matmul_single_core`'s PCC. It is the **functional** oracle only, never a cycle oracle. |
 | flow | `TT_METAL_SLOW_DISPATCH_MODE=1` (every upstream example calls `EnqueueProgram`); `TT_METAL_SIMULATOR` selects `driver/wormhole` or `driver/blackhole` |
@@ -38,7 +38,7 @@ this project a wrong conclusion once.
 
 ## What changed since the previous sweep
 
-The previous sweep (tt-sim `fe0d279` plus an uncommitted tree, 2026-08-03) is
+The previous sweep (Wolfpine `fe0d279` plus an uncommitted tree, 2026-08-03) is
 superseded in two ways.
 
 **Its baseline predates a day of deep change.** Since `fe0d279`: workers
@@ -55,7 +55,7 @@ example, and most of its grid-sized rows additionally pinned
 `TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE=3,4` to shrink the compute grid to a
 4×5 = 20-worker sub-block. As of 2026-08-12 **setting `TT_SIM_TENSIX_COORDS` at
 all pins the worker pool and switches off on-demand materialisation** — the exact
-bug that kept the congestion probes from reaching tt-sim for months. So this
+bug that kept the congestion probes from reaching Wolfpine for months. So this
 sweep sets **no grid variable at all**, which both tests the path a user with an
 empty environment actually gets and deletes the per-example coordinate table the
 old document carried. There is nothing left in it to keep.
@@ -84,7 +84,7 @@ launder a completion into a correctness claim:
 
 ### Fast tier — 17 programs × 2 arches, 34/34 PASS
 
-| program | check | tt-sim WH | tt-sim BH |
+| program | check | Wolfpine WH | Wolfpine BH |
 | --- | --- | --- | --- |
 | `add_2_integers_in_riscv` | self | **PASS** (9 s) | **PASS** (8 s) |
 | `add_2_integers_in_compute` | self | **PASS** (8 s) | **PASS** (8 s) |
@@ -109,7 +109,7 @@ launder a completion into a correctness claim:
 Each fills the whole default compute grid except `matmul_single_core`, which is
 deliberately one worker.
 
-| program | workers used | tt-sim WH | tt-sim BH |
+| program | workers used | Wolfpine WH | Wolfpine BH |
 | --- | --- | --- | --- |
 | `vecadd_multi_core` (640 tiles) | 72 / 130 | **PASS** (100 s) | **PASS** (173 s) |
 | `matmul_single_core` (640³) | 1 | **PASS** (459 s, PCC 0.9810914) | **PASS** (493 s, PCC 0.9802104) |
@@ -125,9 +125,9 @@ behind. Two things in that column are worth reading:
   to eight digits, identical to the figure the old sweep measured at a 4×5 grid,
   and identical to the oracle's. Different grid, different blocking, same answer.
 - **`matmul_single_core` sits at 0.98**, an order of magnitude further from 1
-  than the other two. **That is the program, not tt-sim.** Checked directly
+  than the other two. **That is the program, not Wolfpine.** Checked directly
   against the functional oracle on the same binary: ttsim-WH returns **0.9797904**
-  and ttsim-BH **0.98187274**, so tt-sim's Wormhole figure is if anything the
+  and ttsim-BH **0.98187274**, so Wolfpine's Wormhole figure is if anything the
   closer to 1 of the pair. Upstream's own threshold for this program is 0.97 for
   the same reason — 640-deep bfloat16 accumulation on one core.
 
@@ -153,7 +153,7 @@ available in the system mesh MeshShape([1, 1]).   (assert.hpp:104)
 ```
 
 These are 8-device (T3000) programs, and the abort is in the **host**, before it
-asks the simulator for anything. Nothing to do with tt-sim; the old sweep
+asks the simulator for anything. Nothing to do with Wolfpine; the old sweep
 recorded the same failure against both oracles.
 
 ## Movement against the previous sweep
@@ -196,7 +196,7 @@ Improvements, in rough order of how much they buy:
 6. **`sfpu_eltwise_chain` reports PCC 0.99986–0.99987 on both arches**
    (0.9998585 and 0.9998722 over two Wormhole runs, 0.99986756 on Blackhole) —
    inside the 0.99985–0.99988 band the old sweep measured for the *oracle* over
-   8 runs. That is the figure bug 3 moved: tt-sim's pre-fix band was
+   8 runs. That is the figure bug 3 moved: Wolfpine's pre-fix band was
    0.99860–0.99874, an order of magnitude further from 1 and not overlapping the
    oracle's. The example seeds from `std::random_device`, so this is a band, not
    a number.
@@ -223,7 +223,7 @@ materialised and 255 s with 80.
 That finding produced a prediction — *"making the full grid affordable needs
 firmware-loop recognition: a BRISC spinning on a go-message poll is
 architecturally idle even though it retires instructions"* — and **the prediction
-was right and the fix has landed** (`tt_sim/pe/rv/spin.py`). Together with
+was right and the fix has landed** (`framework/pe/rv/spin.py`). Together with
 on-demand materialisation, the premise the section rests on no longer applies: a
 program is charged for the workers it uses, not for the grid it was declared on,
 and wall clock is now roughly *flat* in worker count for a fixed problem
@@ -297,7 +297,7 @@ in the offline replay guards
 
 ## Excluded, and why
 
-Every exclusion is reasoned. **A tt-sim bug belongs in `EXPECTED` as a recorded
+Every exclusion is reasoned. **A Wolfpine bug belongs in `EXPECTED` as a recorded
 failure, not here** — nothing is excluded to hide a failure.
 
 - **`distributed/*` (4 programs)** — need an 8-device mesh (`MeshShape([2, 4])`).
@@ -306,7 +306,7 @@ failure, not here** — nothing is excluded to hide a failure.
 - **`matmul_multicore_reuse_mcast`** — 2048×1024×512 = 32768 tile-matmuls, four
   times `matmul_multi_core`. Killed at 46 minutes on Blackhole in the previous
   sweep with no `[DEADLOCK]` and still progressing: **throughput, not
-  correctness**. It passes on both oracles. Excluded until tt-sim is fast enough
+  correctness**. It passes on both oracles. Excluded until Wolfpine is fast enough
   to finish it; the moment it is, it belongs in the full tier.
 - **Odd-width compute grids** (`TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE=2,2`,
   `=2,4`) — the **host** segfaults in ~1 s, before it talks to the simulator, and
@@ -322,16 +322,16 @@ is arithmetic (8000 tile-matmuls on one worker), not a hang.
 
 ## Open, and not acted on here
 
-This pass found no new tt-sim bug — every run passed — so nothing was fixed and
+This pass found no new Wolfpine bug — every run passed — so nothing was fixed and
 nothing needed to be. What it leaves behind:
 
 1. **`matmul_multicore_reuse_mcast` is still out of reach.** 32768 tile-matmuls
    against a ~10-minute-per-640³-matmul budget. It is the only upstream program
    the gate cannot run, and the only thing standing between it and full coverage
-   is tt-sim's own wall clock. It passes on both oracles.
+   is Wolfpine's own wall clock. It passes on both oracles.
 2. **The NoC-1 directory is still ambiguous on both architectures** (bug 4's
    latent half). It is inert because the response direction no longer consults it,
-   and `tt_sim/network/noc_routing_test.py` pins that; a new coordinate-keyed
+   and `framework/network/noc_routing_test.py` pins that; a new coordinate-keyed
    lookup on NoC 1 would revive it. Not a defect to fix today, but the kind of
    thing worth knowing before touching NoC routing.
 3. **Five rows check no value.** The three `hello_world_*` programs and
@@ -340,7 +340,7 @@ nothing needed to be. What it leaves behind:
    could be, by diffing their DPRINT output against the oracle's. Cheap, and
    nobody has done it.
 
-## Genuine tt-sim bugs found by this sweep
+## Genuine Wolfpine bugs found by this sweep
 
 All four were found by the earlier passes of this sweep, all four are fixed, and
 all four are frozen as guards. They are kept here because the reasoning is the
@@ -356,7 +356,7 @@ column `x=4` killed the simulator server:
 
 ```
 KeyError: 0
-  tt_sim/network/tt_noc.py:1090  NUI.clock_tick
+  framework/network/tt_noc.py:1090  NUI.clock_tick
 ```
 
 Hit by `vecadd_multi_core` (at 4×2, 4×5 **and** the full grid) and by
@@ -376,7 +376,7 @@ instead of being looked up by coordinate. That removes the only coordinate looku
 the response direction ever had, so the collision is impossible rather than
 merely absent. `NoCDataRequest.source` was renamed `source_coord` so the field
 that is *not* a routing key no longer reads like one.
-`tt_sim/network/noc_routing_test.py` freezes both halves with no tt-metal, no
+`framework/network/noc_routing_test.py` freezes both halves with no tt-metal, no
 socket and no oracle.
 
 **The latent half is still true.** NoC 1's directory really is ambiguous on
@@ -445,10 +445,10 @@ golden on all 5120 elements.
 
 ### Bug 3 — RV32I `sh` wrote one byte, not two (both arches) — FIXED
 
-**Symptom.** `sfpu_eltwise_chain` aborted on tt-sim WH with `PCC not high enough.
+**Symptom.** `sfpu_eltwise_chain` aborted on Wolfpine WH with `PCC not high enough.
 Result PCC: 0.9986145, Expected PCC: 0.999`. The example seeds from
 `std::random_device`, so a single PCC proves nothing; repeating settled it —
-**ttsim over 8 runs = 0.99985–0.99988** (spread 3e-5), **tt-sim over 6 runs =
+**ttsim over 8 runs = 0.99985–0.99988** (spread 3e-5), **Wolfpine over 6 runs =
 0.99860–0.99874** (spread 1.4e-4). Two non-overlapping bands, an order of
 magnitude apart.
 
@@ -465,7 +465,7 @@ is only just strong enough to catch it.**
 
 The bug was in shared RV32I code, so Blackhole had it too; it was merely hidden
 behind bug 2, which killed every bfloat16-Dst SFPU kernel before the result was
-checked. Fixed in `tt_sim/pe/rv/isa/i_isa.py`; unit-guarded by
+checked. Fixed in `framework/pe/rv/isa/i_isa.py`; unit-guarded by
 `test_stores_write_their_full_width` in `i_isa_test.py` and end-to-end by
 `driver/{wormhole,blackhole}/server/softplus_replay_test.py`.
 
@@ -539,7 +539,7 @@ cd "$TT_METAL_RUNTIME_ROOT/build/programming_examples"
 ./metal_example_eltwise_sfpu
 
 # Blackhole:
-TT_METAL_SIMULATOR=$HOME/tt-sim/driver/blackhole ./metal_example_eltwise_sfpu
+TT_METAL_SIMULATOR=$HOME/wolfpine/driver/blackhole ./metal_example_eltwise_sfpu
 
 # differential against the oracle, per Tensix op:
 TT_SIM_ARCH=wormhole ./optests/diff.sh softplus

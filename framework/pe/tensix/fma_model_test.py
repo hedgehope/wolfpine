@@ -21,11 +21,11 @@ models over the same inputs; that harness also fuzz-matched both ports on 200k
 random triples (19934 of which exercised the Wormhole/Blackhole difference),
 with zero mismatches.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.fma_model_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.fma_model_test``) or under
 pytest.
 """
 
-from tt_sim.pe.tensix.backends.vector import fma_model_bh, fma_model_wh
+from framework.pe.tensix.backends.vector import fma_model_bh, fma_model_wh
 
 # (x, y, z, expected Wormhole, expected Blackhole).
 FMA_VECTORS = [

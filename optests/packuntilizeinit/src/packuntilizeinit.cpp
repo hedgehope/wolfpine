@@ -16,7 +16,7 @@
 // of the kernel (see `tt_metal/hw/inc/api/compute/pack_untilize.h`: on Wormhole
 // the body is three `PACK((...))` calls), so the move changes only the PACK
 // thread's own instruction order relative to its own `tile_regs_wait`. Both
-// orders are correct on an n300 card and both are correct on ttsim; only tt-sim
+// orders are correct on an n300 card and both are correct on ttsim; only Wolfpine
 // separates them.
 //
 // Modes, same binary:
@@ -49,7 +49,7 @@
 //
 // Status when this was written, 2026-08-20, tt-metal 0.74:
 //
-//   arch       form     tt-sim            ttsim (oracle)
+//   arch       form     Wolfpine            ttsim (oracle)
 //   Wormhole   early    errors=0          errors=0
 //   Wormhole   late     errors=232        errors=0        <-- the defect
 //   Wormhole   late K=1 errors=0          errors=0
@@ -58,7 +58,7 @@
 // Blackhole, re-measured 2026-08-20 (and no longer a timeout -- the Wait Gate
 // fix got it as far as the instruction):
 //
-//   form          tt-sim                         ttsim (oracle)
+//   form          Wolfpine                         ttsim (oracle)
 //   early         errors=0, hex 3e003e01...      errors=0, same hex
 //   remapearly    errors=0, same hex             errors=0, same hex
 //   late          NotImplementedError            UnimplementedFunctionality
@@ -92,7 +92,7 @@
 // simulators with the same hex as `early`.
 //
 // The Wormhole defect below and this are therefore *not* the same bug: that
-// one was tt-sim's, and was fixed; this one is a kernel out of contract on an
+// one was Wolfpine's, and was fixed; this one is a kernel out of contract on an
 // arch-specific arm.
 //
 // **Fixed the same day**: the Wait Gate let the `STALLWAIT` that opens
@@ -100,13 +100,13 @@
 // `SEMWAIT` that `tile_regs_wait()` had latched, and *overwrite* it -- so the
 // packer stopped waiting for MATH_PACK and packed a DEST one MVMUL short of
 // its final value (first untilize PACR at cycle 6049, SEMPOST at 6108). `STALLWAIT.md`'s block-mask table ticks `STALLWAIT` in all
-// nine columns; tt-sim caught it by its execution unit (Sync, bit B1) alone.
+// nine columns; Wolfpine caught it by its execution unit (Sync, bit B1) alone.
 // Both forms now match ttsim at every K. This op test stays as the end-to-end
-// regression; `tt_sim/pe/tensix/waitgate_stallwait_blocked_test.py` pins the
+// regression; `framework/pe/tensix/waitgate_stallwait_blocked_test.py` pins the
 // mechanism without tt-metal or the oracle.
 //
 // ttsim passing both forms, on the same compiled kernels, is what made this a
-// tt-sim defect rather than a kernel that is out of contract. (Blackhole is a
+// Wolfpine defect rather than a kernel that is out of contract. (Blackhole is a
 // separate matter, untangled 2026-08-20 -- see the status table above. The
 // default `diff.sh packuntilizeinit` run stays a Wormhole one, because the
 // late form it exercises is out of contract on Blackhole; `early` and

@@ -2,8 +2,8 @@
 
 The wire bridge receives messages addressed to **physical NoC coordinates**
 (the workers / dram / eth grid positions enumerated in the SoC descriptor).
-tt-sim packs the same hardware into a **unified coordinate** band (16-25)
-defined by ``Wormhole`` in ``tt_sim/device/tt_device.py``. This module pairs
+Wolfpine packs the same hardware into a **unified coordinate** band (16-25)
+defined by ``Wormhole`` in ``framework/device/tt_device.py``. This module pairs
 the two by reading the descriptor — no hand-rolled tables.
 
 How the pairing works:
@@ -22,7 +22,7 @@ How the pairing works:
   physical ``(1, 1)`` lands on unified ``(18, 18)`` — preserving the
   default single-tile coord the existing examples and ``Wormhole.__init__``
   hardcode. The full 80-entry map is materialised eagerly so callers can
-  resolve any worker coord; tt-sim ``TensixTile`` instances are only built
+  resolve any worker coord; Wolfpine ``TensixTile`` instances are only built
   on demand (see ``server/device.py:Device.ensure_tensix_tile``).
 
 - **Ethernet.** Each ``eth[i]`` entry maps to a unified coord in the eth
@@ -41,8 +41,8 @@ import pathlib
 
 import yaml
 
-from tt_sim.bridge.grid import fill_order
-from tt_sim.device.wormhole import Wormhole
+from framework.bridge.grid import fill_order
+from framework.device.wormhole import Wormhole
 
 _SOC_DESCRIPTOR_PATH = (
     pathlib.Path(__file__).resolve().parents[1] / "soc_descriptor.yaml"
@@ -188,7 +188,7 @@ DEFAULT_COMPUTE_GRID = (8, 9)
 def default_tensix_coords(n, env=None):
     """Return the first ``n`` physical worker coords for ``TT_SIM_TENSIX_CORES=N``.
 
-    The order is tt-metal's, not ours — see :mod:`tt_sim.bridge.grid`: the
+    The order is tt-metal's, not ours — see :mod:`framework.bridge.grid`: the
     compute-with-storage grid filled column-major, where that grid is
     ``DEFAULT_COMPUTE_GRID`` unless ``TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE``
     (or ``TT_SIM_COMPUTE_GRID``) says otherwise. So ``N=6`` means ``1-1 … 1-5``

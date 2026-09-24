@@ -15,8 +15,8 @@ Wormhole baby cores have no A extension at all, so this ISA is attached to
 Blackhole baby cores only (see ``BabyRISCV``).
 """
 
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 _MASK32 = 0xFFFFFFFF
 

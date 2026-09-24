@@ -13,7 +13,7 @@
 // The magic is a wire check between a host binary and the kernel it just built
 // (`riscvbench.cpp` compares it against the stamp, fatally); it is written into
 // every CSV's `#` header as metadata and NOTHING reads it back.
-// `tt_sim/perf/riscv_bench_sweep.read_csv` parses that line into a `meta` dict
+// `framework/perf/riscv_bench_sweep.read_csv` parses that line into a `meta` dict
 // and no code path consults `meta["magic"]` -- verified by grep, and by
 // re-reading every tracked dataset with a bumped header, which yields
 // byte-identical rows. The in-tree precedent is stronger than either: this

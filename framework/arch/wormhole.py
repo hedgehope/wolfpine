@@ -1,12 +1,12 @@
 """The Wormhole B0 architecture profile.
 
 Values here are the single source of truth for the Wormhole constants the
-device/tile classes used to hardcode. See ``tt_sim/device/tt_device.py`` for how
+device/tile classes used to hardcode. See ``framework/device/tt_device.py`` for how
 they are consumed and ``docs/plans/blackhole-support.md`` for the porting plan.
 """
 
-from tt_sim.arch.profile import ArchProfile
-from tt_sim.network.noc_coords import WormholeNocCoords
+from framework.arch.profile import ArchProfile
+from framework.network.noc_coords import WormholeNocCoords
 
 WORMHOLE_PROFILE = ArchProfile(
     name="wormhole",

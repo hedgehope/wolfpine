@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# mechbench, simulator side: run each arm against tt-sim with the Tensix
+# mechbench, simulator side: run each arm against Wolfpine with the Tensix
 # performance counters armed, and collect the device-profiler log the card
 # protocol produces on the other side.
 #
 # The two sides are deliberately the SAME artefact -- a tt-metal
 # profile_log_device.csv full of PerfCounter markers -- so
-# tt_sim.perf.stall_attribution parses both with one reader and there is no
+# framework.perf.stall_attribution parses both with one reader and there is no
 # translation step in which a units mistake could hide.
 #
 #   TT_METAL_HOME=/path/to/tt-metal ./perfbench/mechbench/run_sim.sh \
@@ -69,7 +69,7 @@ case "$ARCH" in
   *) echo "unknown arch: $ARCH" >&2; exit 2 ;;
 esac
 
-# Bit 5 is the INSTRN_THREAD bank -- the only one tt-sim sources, and the only
+# Bit 5 is the INSTRN_THREAD bank -- the only one Wolfpine sources, and the only
 # one the partition needs. No L1 bank bits, so no mux pass structure here.
 export TT_METAL_PROFILE_PERF_COUNTERS=32
 
@@ -77,7 +77,7 @@ export TT_METAL_PROFILE_PERF_COUNTERS=32
 # no Tensix backend arms an occupancy, so the Matrix unit releases a Src bank
 # the cycle it takes it and the SrcA/SrcB CLEAR mechanism is structurally
 # ABSENT -- a column of zeros that reads exactly like "this never happens".
-# Comparing that against a card is comparing against a measurement tt-sim did
+# Comparing that against a card is comparing against a measurement Wolfpine did
 # not make.
 if [ "$COST_MODEL" -eq 1 ]; then
   export TT_SIM_COST_MODEL=1
@@ -135,7 +135,7 @@ for arm in $ARMS; do
     echo "   The bridge waits for the profiler's publish since 2026-08-13, so"
     echo "   this is not the old readback race. Check the server's shutdown"
     echo "   line for a 'profiler flush ... TIMED OUT' warning, and see"
-    echo "   tt_sim/bridge/profiler_readback_test.py."
+    echo "   framework/bridge/profiler_readback_test.py."
     status=1
     continue
   fi
@@ -147,7 +147,7 @@ echo "----"
 if [ $status -eq 0 ]; then
   echo "Simulator side complete. Decomposition:"
   for arm in $ARMS; do
-    echo "  python3 -m tt_sim.perf.stall_attribution --decompose-only \\"
+    echo "  python3 -m framework.perf.stall_attribution --decompose-only \\"
     echo "      --sim $OUT/$arm/.logs/profile_log_device.csv"
   done
 fi

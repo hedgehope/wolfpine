@@ -1,4 +1,4 @@
-"""Guards for :mod:`tt_sim.perf.noc_events`.
+"""Guards for :mod:`framework.perf.noc_events`.
 
 A guard that cannot fail is as damaging as one that cannot pass, so every gate
 has a passing case *and* a refusing case built from an input a real session
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from tt_sim.perf.noc_events import (
+from framework.perf.noc_events import (
     ARM_NOC_PAIRING,
     MECHANISMS,
     PROFILER_PUSH_ZONE,
@@ -502,9 +502,9 @@ def test_parse_core_map():
 # perfbench/nocevbench/check_arm.py -- the card-box copy of the arm check.
 #
 # It is standalone by design (a card box has only perfbench/nocevbench/ on it
-# and no tt-sim), so it is loaded by path rather than imported. Guarded here
+# and no Wolfpine), so it is loaded by path rather than imported. Guarded here
 # because its arm-C peer check is the one that a Wormhole session breaks, in two
-# opposite ways, and both were found against tt-sim rather than at a card:
+# opposite ways, and both were found against Wolfpine rather than at a card:
 # under NoC coordinate translation the config's peer coord and the trace's are
 # in different spaces and a naive equality REFUSES a good run; untranslated, the
 # NoC 1 destination is the peer's grid mirror and a naive equality refuses it
@@ -707,7 +707,7 @@ def test_the_partition_stays_the_compared_seven_buckets():
     firmware in the same artefact on **both** sides, so E_int compares like with
     like. It is here rather than inside ``issue`` because a push is triggered
     from the issue path, and folding it in would charge the model for the
-    difference between how a card and tt-sim execute the *instrument's* own DRAM
+    difference between how a card and Wolfpine execute the *instrument's* own DRAM
     write."""
     assert MECHANISMS == (
         "prologue",

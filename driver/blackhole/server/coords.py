@@ -1,6 +1,6 @@
 """Translation tables for the Blackhole wire bridge.
 
-Unlike Wormhole (which packs tiles into a 16-25 "unified" band), the tt-sim
+Unlike Wormhole (which packs tiles into a 16-25 "unified" band), the Wolfpine
 Blackhole device keys its tiles by their **physical NoC 0 coordinate** — the
 same coordinates the SoC descriptor enumerates and the wire carries — so the
 maps here are essentially identity. See ``docs/plans/blackhole-support.md``.
@@ -16,8 +16,8 @@ import pathlib
 
 import yaml
 
-from tt_sim.arch import BLACKHOLE_PROFILE
-from tt_sim.bridge.grid import fill_order
+from framework.arch import BLACKHOLE_PROFILE
+from framework.bridge.grid import fill_order
 
 _SOC_DESCRIPTOR_PATH = (
     pathlib.Path(__file__).resolve().parents[1] / "soc_descriptor.yaml"
@@ -131,7 +131,7 @@ def default_tensix_coords(n, env=None):
     """Return the first ``n`` functional-worker coords for ``TT_SIM_TENSIX_CORES=N``.
 
     tt-metal's own fill order over its compute grid — see
-    :mod:`tt_sim.bridge.grid`. Logical→physical is an index into the sorted
+    :mod:`framework.bridge.grid`. Logical→physical is an index into the sorted
     worker axes, not ``+1``: Blackhole's worker columns skip physical 8 and 9,
     so logical column 7 is physical ``10``, not ``11``.
     """

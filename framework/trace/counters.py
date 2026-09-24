@@ -14,16 +14,16 @@ cost model supplies the state, cycle-attributing ones:
 
 - ``stall_cycles`` and ``stall_<reason>`` per baby RISC-V core, from
   ``InstrEvent.stall_cycles`` — the per-instruction half of
-  ``tt_sim.pe.rv.cost.RiscvCostState.stall_by_reason``, so a run can
+  ``framework.pe.rv.cost.RiscvCostState.stall_by_reason``, so a run can
   say *where* its RV time went.
 - ``busy_cycles`` per Tensix backend unit, from
   ``ComputeEvent.duration`` — the occupancy the cost tables charged,
   which against the run length is the unit's utilisation.
 - ``bookkeeping_cycles``, a **subset** of the same ``busy_cycles``:
   the part spent on Matrix Unit opcodes that move no operand data
-  (``tt_sim.trace.events.MATRIX_BOOKKEEPING_OPS`` — the RWC counters,
+  (``framework.trace.events.MATRIX_BOOKKEEPING_OPS`` — the RWC counters,
   the dvalid flags, the SrcB operand cache). It is *not* extra time,
-  and ``tt_sim.trace.report`` treats it as redundant for exactly that
+  and ``framework.trace.report`` treats it as redundant for exactly that
   reason; it exists because occupancy and work are different questions
   and an energy model needs the second. ``busy_cycles -
   bookkeeping_cycles`` is the Matrix Unit's datapath occupancy.
@@ -35,12 +35,12 @@ cost model supplies the state, cycle-attributing ones:
   router-link contention) and ``noc_arrival_to_service_cycles``
   (endpoint time). The three **telescope** to ``noc_flight_cycles``, so
   they are redundant with it and must never be summed alongside it;
-  ``tt_sim.trace.report.is_redundant`` says so. The last of them is
+  ``framework.trace.report.is_redundant`` says so. The last of them is
   **zero everywhere except a DRAM tile's channel time**, and that zero
-  is published rather than omitted because it is the finding: tt-sim
+  is published rather than omitted because it is the finding: Wolfpine
   models no arrival buffering, no outstanding-transaction credit limit
   and no response reordering, so a hardware residual there is entirely
-  unattributed. See ``tt_sim.trace.events.noc_flight_split``.
+  unattributed. See ``framework.trace.events.noc_flight_split``.
 - ``tensix_stall_cycles`` per Tensix thread, split by
   ``tensix_stall_<reason>`` and ``tensix_stall_on_<unit>``, from
   ``StallEvent`` — where a thread's *lost* time went, against
@@ -58,8 +58,8 @@ off.)
 
 from collections import defaultdict
 
-from tt_sim.trace.bus import get_bus
-from tt_sim.trace.events import (
+from framework.trace.bus import get_bus
+from framework.trace.events import (
     MATRIX_BOOKKEEPING_OPS,
     ComputeEvent,
     CounterSnapshot,

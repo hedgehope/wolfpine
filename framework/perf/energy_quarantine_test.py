@@ -4,7 +4,7 @@ out of the provenance ladder.
 Why a test rather than a comment
 --------------------------------
 
-``tt_sim/perf/unit_costs.yaml`` and ``tt_sim/pe/tensix/tensix_instruction_costs.yaml``
+``framework/perf/unit_costs.yaml`` and ``framework/pe/tensix/tensix_instruction_costs.yaml``
 exist to make un-sourced numbers impossible to charge: every entry carries a
 provenance, they are ranked, and ``costs_test.py`` records that there are
 currently **zero** ``estimated`` entries in either file. Tenstorrent publishes no
@@ -19,7 +19,7 @@ is asserted here in **both** directions:
 
 1. the ``fitted`` provenance token is **not in** :data:`PROVENANCE_RANK`, so the
    cost loader raises on any table carrying it;
-2. :func:`check_destination` refuses to write the file under ``tt_sim/`` at all;
+2. :func:`check_destination` refuses to write the file under ``framework/`` at all;
 3. neither cost table contains any energy vocabulary today.
 """
 
@@ -27,13 +27,13 @@ from pathlib import Path
 
 import pytest
 
-from tt_sim.perf.costs import PROVENANCE_RANK, load_costs
-from tt_sim.perf.energy_rank import FITTED_PROVENANCE, check_destination
+from framework.perf.costs import PROVENANCE_RANK, load_costs
+from framework.perf.energy_rank import FITTED_PROVENANCE, check_destination
 
 REPO = Path(__file__).resolve().parents[2]
 COST_YAMLS = (
-    REPO / "tt_sim" / "perf" / "unit_costs.yaml",
-    REPO / "tt_sim" / "pe" / "tensix" / "tensix_instruction_costs.yaml",
+    REPO / "framework" / "perf" / "unit_costs.yaml",
+    REPO / "framework" / "pe" / "tensix" / "tensix_instruction_costs.yaml",
 )
 
 
@@ -52,9 +52,11 @@ def test_fitted_is_not_a_rankable_provenance():
 
 def test_the_writer_refuses_the_cost_model_tree_and_allows_perfbench(tmp_path):
     with pytest.raises(ValueError, match="refusing to write"):
-        check_destination(REPO / "tt_sim" / "perf" / "fitted_energy_coefficients.yaml")
+        check_destination(
+            REPO / "framework" / "perf" / "fitted_energy_coefficients.yaml"
+        )
     with pytest.raises(ValueError, match="refusing to write"):
-        check_destination(REPO / "tt_sim" / "pe" / "tensix" / "energy.yaml")
+        check_destination(REPO / "framework" / "pe" / "tensix" / "energy.yaml")
     # The intended home is accepted, or the refusal would be indiscriminate
     # rather than aimed.
     home = REPO / "perfbench" / "energybench" / "fitted_energy_coefficients.yaml"
@@ -70,9 +72,9 @@ def test_no_cost_table_carries_energy_vocabulary():
     for path in COST_YAMLS:
         text = path.read_text().lower()
         found = [word for word in forbidden if word in text]
-        assert not found, (
-            f"{path.name} mentions {found}: energy has no home in the cost tables"
-        )
+        assert (
+            not found
+        ), f"{path.name} mentions {found}: energy has no home in the cost tables"
 
 
 def test_the_cost_tables_still_load_and_still_rank_everything():

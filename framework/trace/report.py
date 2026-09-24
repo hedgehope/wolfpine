@@ -2,13 +2,13 @@
 cycles went, and how much of the run the model could not name.
 
 This is the consumer end of ``TT_SIM_PROFILE`` (see
-:mod:`tt_sim.trace.auto`). It reads two artefacts a profiled run leaves
+:mod:`framework.trace.auto`). It reads two artefacts a profiled run leaves
 behind — the Parquet counter dataset and the per-PC hotspot table — and
 writes ``report.md`` plus a machine-readable ``report.json`` (versioned
 by :data:`SCHEMA_VERSION`, see ``docs/trace-schema.md`` §9).
 Regenerate at any time without re-running the simulator::
 
-    python3 -m tt_sim.trace.report <profile-dir>
+    python3 -m framework.trace.report <profile-dir>
 
 **Counters are classified by pattern, not by a list.** ``stall_<reason>``
 is an RV stall, ``tensix_stall_<reason>`` a Tensix thread stall, and
@@ -51,7 +51,7 @@ from pathlib import Path
 #: event shape, so reusing it would bump this contract whenever an event
 #: changed and leave it still when a report field changed — precisely the
 #: wrong signal in both directions. Same style as
-#: :data:`tt_sim.trace.state_dump.SCHEMA_VERSION`, which versions its own
+#: :data:`framework.trace.state_dump.SCHEMA_VERSION`, which versions its own
 #: artefact the same way.
 #:
 #: Bump on **any** change to a documented field: additively for a new
@@ -65,7 +65,7 @@ _EXTRA_CYCLE_COUNTERS = {"instr_retired"}
 #: The per-transaction NoC latency split: ``{leg: counter}``, in the order
 #: a packet travels. The three **partition** ``noc_flight_cycles`` — the
 #: aggregator charges them off the same two cycles, via
-#: :func:`tt_sim.trace.events.noc_flight_split`, so they telescope to it by
+#: :func:`framework.trace.events.noc_flight_split`, so they telescope to it by
 #: construction — which makes each of them redundant with the total in the
 #: sense :func:`is_redundant` means. They are ranked nowhere; they are
 #: reported as their own block (:meth:`Report.noc_latency_split`) because
@@ -331,7 +331,7 @@ def noc_latency_split(totals: dict[tuple[str, str], int]) -> dict[str, int]:
     denominator for a per-transaction mean.
 
     **``arrival_to_service`` is zero except at a DRAM tile, and that zero is
-    the point.** tt-sim charges endpoint time only for a DRAM channel; arrival
+    the point.** Wolfpine charges endpoint time only for a DRAM channel; arrival
     buffering, outstanding-transaction credit limits and response reordering
     are not modelled anywhere, so a hardware residual in this leg is entirely
     unattributed. The bucket is reported rather than omitted so that fact is
@@ -453,7 +453,7 @@ def _render_noc_latency_split(report: Report) -> list[str]:
     lines.append("")
     lines.append(
         "**A `0.0` in `arrival → service` is a finding, not a measurement.** "
-        "tt-sim charges endpoint time only for a DRAM channel; arrival "
+        "Wolfpine charges endpoint time only for a DRAM channel; arrival "
         "buffering, outstanding-transaction credit limits and response "
         "reordering are not modelled anywhere. So the simulator claims zero "
         "endpoint queueing, and any residual hardware shows in this leg is "
@@ -476,9 +476,9 @@ def render(report: Report, top: int = 25) -> str:
     span = report.span
     lines: list[str] = []
     title = (
-        f"tt-sim bottleneck report — {report.label}"
+        f"Wolfpine bottleneck report — {report.label}"
         if report.label
-        else "tt-sim bottleneck report"
+        else "Wolfpine bottleneck report"
     )
     lines.append(f"# {title}")
     lines.append("")
@@ -773,7 +773,7 @@ def render(report: Report, top: int = 25) -> str:
 
 
 def hotspots_to_dict(table, top: int = 200) -> dict:
-    """Serialise a :class:`~tt_sim.trace.hotspots.HotspotTable`."""
+    """Serialise a :class:`~framework.trace.hotspots.HotspotTable`."""
     return {
         # Same contract as report.json: this dict is written to
         # ``hotspots.json`` *and* embedded in ``report.json``, so it carries
@@ -832,7 +832,7 @@ def main(argv=None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="python3 -m tt_sim.trace.report",
+        prog="python3 -m framework.trace.report",
         description="Render a ranked bottleneck report from a TT_SIM_PROFILE run.",
     )
     parser.add_argument("directory", help="the TT_SIM_PROFILE output directory")

@@ -18,7 +18,7 @@ simply the cheapest option. ``UnPackerUnit.formatConversion``, which chains
 several of them per (input format, output format) pair and holds two branches
 of its own, is then checked the same way end to end.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.conversion_batch_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.conversion_batch_test``) or under
 pytest.
 """
 
@@ -27,9 +27,9 @@ from itertools import product
 import numpy as np
 import pytest
 
-from tt_sim.pe.tensix.backends.backend_base import DataFormat
-from tt_sim.pe.tensix.backends.unpacker import UnPackerUnit
-from tt_sim.pe.tensix.util import DataFormatConversions as DFC
+from framework.pe.tensix.backends.backend_base import DataFormat
+from framework.pe.tensix.backends.unpacker import UnPackerUnit
+from framework.pe.tensix.util import DataFormatConversions as DFC
 
 # A Src datum is 19 bits wide (Sign,Man(10b),Exp(8b), variously rearranged).
 SRC_SPACE = 1 << 19
@@ -196,7 +196,7 @@ def test_block_tables_are_shared_and_frozen():
     A caller that mutated a returned block would otherwise corrupt every later
     conversion, since a gather's result is a fresh array but the table is not.
     """
-    from tt_sim.pe.tensix.util import _BLOCK_LUTS, _block_lut
+    from framework.pe.tensix.util import _BLOCK_LUTS, _block_lut
 
     first = _block_lut("BF16InDstToBF16", 16, DFC.BF16InDstToBF16)
     assert _block_lut("BF16InDstToBF16", 16, DFC.BF16InDstToBF16) is first

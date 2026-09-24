@@ -4,7 +4,7 @@ Two halves, and the split is the point.
 
 1. **Everything that does not need tt-metal.** The exclusion ladder, the
    dataset schema constants, and -- the substantive one -- that
-   :func:`~tt_sim.perf.noc_dataset_sweep.predict_cycles`, which drives a *real*
+   :func:`~framework.perf.noc_dataset_sweep.predict_cycles`, which drives a *real*
    device rather than evaluating a formula, agrees with the closed-form
    composition of the published terms. That is the guard that keeps the sweep
    honest: a harness that silently stopped exercising the DRAM endpoint, or
@@ -15,7 +15,7 @@ Two halves, and the split is the point.
    dependency. Set ``TT_SIM_NOC_LATENCIES`` or ``TT_METAL_RUNTIME_ROOT`` to run
    it.
 
-Run:  python3 -m tt_sim.perf.noc_dataset_sweep_test   (or under pytest)
+Run:  python3 -m framework.perf.noc_dataset_sweep_test   (or under pytest)
 """
 
 import math
@@ -24,10 +24,10 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.network.tt_noc import noc_hop_count
-from tt_sim.perf import noc_dataset_sweep as sweep
-from tt_sim.perf.model import dram_cost_model, noc_cost_model
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.network.tt_noc import noc_hop_count
+from framework.perf import noc_dataset_sweep as sweep
+from framework.perf.model import dram_cost_model, noc_cost_model
 
 
 @contextmanager
@@ -60,7 +60,7 @@ _needs_dataset = pytest.mark.skipif(
 
 # ---------------------------------------------------------------------------
 # 1. The exclusion ladder. Declared before any residual existed, and the
-#    property that matters is that each rule names a term tt-sim does not
+#    property that matters is that each rule names a term Wolfpine does not
 #    model -- not that the retained set is large.
 # ---------------------------------------------------------------------------
 

@@ -21,9 +21,9 @@ on BF16 rather than FP16; only FP16 is modelled here.
 
 import struct
 
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.pe.rv.rv32 import FP_REGISTER_BASE
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.pe.rv.rv32 import FP_REGISTER_BASE
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 _MASK32 = 0xFFFFFFFF
 _CANONICAL_QNAN_H = 0x7E00  # canonical half quiet NaN

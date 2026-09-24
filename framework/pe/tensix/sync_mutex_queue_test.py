@@ -23,12 +23,12 @@ fidelity), which hung indefinitely on the second launch at 95 % CPU. The
 end-to-end guard is ``driver/blackhole/server/twolaunch_replay_test.py``; these
 tests pin the behaviour at the unit where it lives.
 
-Run standalone (``python3 -m tt_sim.pe.tensix.sync_mutex_queue_test``) or under
+Run standalone (``python3 -m framework.pe.tensix.sync_mutex_queue_test``) or under
 pytest.
 """
 
-from tt_sim.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
+from framework.arch import BLACKHOLE_PROFILE, WORMHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
 
 #: Opcode words, from ``tensix_instructions.yaml``: the opcode is bits 24-31 and
 #: ``mutex_index`` starts at bit 0. Mutex index 1 is not a valid mutex.
@@ -99,9 +99,9 @@ def test_a_release_after_a_contended_grant_really_frees_the_mutex():
 
         cycle = _run(sync, ATRELM | MUTEX, 1, cycle)
         cycle = _idle(sync, cycle)
-        assert sync.mutexes[MUTEX].held_by is None, (
-            "a stale queue entry re-acquired the mutex after its owner released it"
-        )
+        assert (
+            sync.mutexes[MUTEX].held_by is None
+        ), "a stale queue entry re-acquired the mutex after its owner released it"
 
         cycle = _run(sync, ATGETM | MUTEX, 0, cycle)
         cycle = _idle(sync, cycle)

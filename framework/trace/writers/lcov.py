@@ -2,12 +2,12 @@
 retirement counts.
 
 Subscribes to :class:`InstrEvent` and increments a per-(file, line)
-hit counter via :class:`~tt_sim.trace.dwarf.DwarfIndex` resolution.
+hit counter via :class:`~framework.trace.dwarf.DwarfIndex` resolution.
 PCs without DWARF coverage are silently skipped. Output is the LCOV
 trace format readable by ``genhtml``, GitHub Codecov, the VS Code
 Coverage Gutters extension, and most CI coverage reporters:
 
-    TN:tt-sim
+    TN:wolfpine
     SF:/abs/path/source.c
     DA:42,150
     DA:43,150
@@ -32,9 +32,9 @@ different machine.
 from collections import defaultdict
 from pathlib import Path
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.dwarf import DwarfIndex
-from tt_sim.trace.events import EventCategory, InstrEvent
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.dwarf import DwarfIndex
+from framework.trace.events import EventCategory, InstrEvent
 
 
 class LCOVWriter:
@@ -42,7 +42,7 @@ class LCOVWriter:
         self,
         path: Path | str,
         dwarf_index: DwarfIndex,
-        test_name: str = "tt-sim",
+        test_name: str = "wolfpine",
         bus: EventBus | None = None,
     ):
         self._path = Path(path)
@@ -58,7 +58,7 @@ class LCOVWriter:
             return
         # ``nearest`` rather than ``lookup``: a DWARF line program records a
         # row only where the source position changes, so an exact-PC lookup
-        # drops most of the run. See tt_sim/trace/dwarf.py.
+        # drops most of the run. See framework/trace/dwarf.py.
         loc = self._dwarf.nearest(event.pc, unit=event.unit_id[-1])
         if loc is None:
             return

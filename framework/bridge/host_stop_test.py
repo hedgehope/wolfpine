@@ -5,7 +5,7 @@ host** binds a TCP listener, exports its address as ``NNG_SOCKET_ADDR``, spawns
 a **fake simulator** child, and then blocks waiting for that child exactly as
 UMD blocks in ``recv_from_device`` — with no timeout, because UMD sets none.
 The child runs the *real* :func:`install_worker_guards` over a real
-:class:`Fabric` and pushes real wire traffic through it. No tt-sim device is
+:class:`Fabric` and pushes real wire traffic through it. No Wolfpine device is
 built, so the whole thing is sub-second; nothing about the trigger or the
 consequence is stubbed.
 
@@ -77,12 +77,12 @@ def _run_host(mode):
 def test_a_launch_on_an_uninstantiated_tile_stops_the_host_instead_of_hanging():
     proc, elapsed = _run_host("ghost")
 
-    assert "HOST-STILL-WAITING" not in proc.stdout, (
-        "the host waited out its full patience — this is the hang itself"
-    )
-    assert proc.returncode == -signal.SIGTERM, (
-        f"host exited {proc.returncode}, stdout={proc.stdout!r} stderr={proc.stderr[-2000:]!r}"
-    )
+    assert (
+        "HOST-STILL-WAITING" not in proc.stdout
+    ), "the host waited out its full patience — this is the hang itself"
+    assert (
+        proc.returncode == -signal.SIGTERM
+    ), f"host exited {proc.returncode}, stdout={proc.stdout!r} stderr={proc.stderr[-2000:]!r}"
     # The diagnostic names the tile, the env var, and what is being stopped.
     assert "ERROR" in proc.stderr
     assert "go=GO" in proc.stderr
@@ -109,9 +109,9 @@ def test_a_simulator_crash_stops_the_host_instead_of_hanging():
     proc, elapsed = _run_host("crash")
 
     assert "HOST-STILL-WAITING" not in proc.stdout
-    assert proc.returncode == -signal.SIGTERM, (
-        f"host exited {proc.returncode}, stderr={proc.stderr[-2000:]!r}"
-    )
+    assert (
+        proc.returncode == -signal.SIGTERM
+    ), f"host exited {proc.returncode}, stderr={proc.stderr[-2000:]!r}"
     assert "stopping the tt-metal host" in proc.stderr
     assert "BoomError" in proc.stderr
     assert elapsed < HOST_WAIT_S
@@ -154,14 +154,14 @@ def _host_main(mode):
 
 
 def _sim_main(mode, port):
-    from tt_sim.bridge.fabric import Fabric, install_worker_guards
-    from tt_sim.bridge.hostlink import host_not_stranded
+    from framework.bridge.fabric import Fabric, install_worker_guards
+    from framework.bridge.hostlink import host_not_stranded
 
     fabric = Fabric()
     install_worker_guards(fabric, POOL, COORD_MAP)
 
     if mode == "ghost":
-        # The mistyped coordinate: the host launches on a worker tt-sim has no
+        # The mistyped coordinate: the host launches on a worker Wolfpine has no
         # tile for. If the guard fails to stop the host it must NOT exit here,
         # because exiting is what stranded the host in the first place.
         fabric.write((2, 1), GO_MSG_ADDR, GO_GO)

@@ -1,6 +1,6 @@
 """Per-PC cycle attribution — the raw material for the ranked report.
 
-Subscribes to :class:`~tt_sim.trace.events.InstrEvent` and accumulates,
+Subscribes to :class:`~framework.trace.events.InstrEvent` and accumulates,
 per ``(unit, pc)``, how many instructions retired there and how many
 cycles were spent stalled before them, split by reason. DWARF resolution
 happens **once, at close**, over the few thousand distinct PCs a run
@@ -14,7 +14,7 @@ instruction, plus a second only when the instruction stalled.
 
 **Stall reasons are read, never enumerated.** The reason string comes
 straight off the event, so a reason added to
-``tt_sim.pe.rv.cost.STALL_REASON_NAMES`` — or a new one surfaced by any
+``framework.pe.rv.cost.STALL_REASON_NAMES`` — or a new one surfaced by any
 other work in flight — appears in the output with no change here and no
 change in the report. The same is true of ``instr_stalled``, the Tensix
 front-end back-pressure flag, which is counted separately because it is
@@ -27,8 +27,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import EventCategory, InstrEvent
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import EventCategory, InstrEvent
 
 #: Label used when the cost model is off, so every retired instruction is
 #: one cycle and no reason string exists.
@@ -131,7 +131,7 @@ class HotspotAggregator:
 
     def resolve(self, index=None) -> HotspotTable:
         """Fold the raw counts into a table, attributing each PC through
-        ``index`` (a :class:`~tt_sim.trace.dwarf.DwarfIndex`) if given."""
+        ``index`` (a :class:`~framework.trace.dwarf.DwarfIndex`) if given."""
         reasons: dict[tuple[str, int], dict[str, int]] = defaultdict(dict)
         for (unit, pc, reason), value in self._stalls.items():
             reasons[(unit, pc)][reason] = value

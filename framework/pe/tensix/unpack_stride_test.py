@@ -31,7 +31,7 @@ Every case drives a real backend through ``read_unpack_state`` /
 ``perform_unpack_state``, so the config decode, the checks and (for the accepted
 cases) the datum walk itself are all exercised.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.unpack_stride_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.unpack_stride_test``) or under
 pytest.
 """
 
@@ -41,9 +41,9 @@ from itertools import product
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
 
 BF16 = 5  # DataFormat.BF16, as it appears in a tile descriptor / REG2
 

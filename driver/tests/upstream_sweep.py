@@ -1,9 +1,9 @@
-"""The upstream-example gate — tt-metal's own ``programming_examples/`` on tt-sim.
+"""The upstream-example gate — tt-metal's own ``programming_examples/`` on Wolfpine.
 
 Why this exists
 ---------------
 
-The claim a tt-sim release makes is *"runs real tt-metal programs unmodified on
+The claim a Wolfpine release makes is *"runs real tt-metal programs unmodified on
 both architectures"*. The in-tree ``examples/`` ladder does not establish that:
 those programs were written here. **This gate runs programs nobody in this repo
 wrote** — the ones that ship with tt-metal — against both simulated
@@ -63,7 +63,7 @@ Needs a built tt-metal checkout whose ``build/programming_examples/`` binaries
 exist (``TT_METAL_RUNTIME_ROOT`` / ``TT_METAL_HOME``), and
 ``TT_METAL_SLOW_DISPATCH_MODE=1`` — every upstream example calls
 ``EnqueueProgram``, which falls back to ``detail::LaunchProgram`` under slow
-dispatch (the only launch path tt-sim models). ``TT_METAL_SIMULATOR`` is set by
+dispatch (the only launch path Wolfpine models). ``TT_METAL_SIMULATOR`` is set by
 the gate itself, per arch, from this repo — it does **not** use whatever the
 caller's environment points at. It skips cleanly when tt-metal is absent.
 """
@@ -325,7 +325,7 @@ PROGRAMS = [
 ]
 
 # Programs deliberately not run, and why. Each is a *reasoned* exclusion, not a
-# known failure being hidden — a tt-sim bug belongs in EXPECTED as a FAIL, not
+# known failure being hidden — a Wolfpine bug belongs in EXPECTED as a FAIL, not
 # here.
 EXCLUDED = {
     "distributed/distributed_buffer_rw": "needs an 8-device mesh (MeshShape([2,4]))",
@@ -335,7 +335,7 @@ EXCLUDED = {
     "matmul_multicore_reuse_mcast": (
         "2048x1024x512 = 32768 tile-matmuls, 4x matmul_multi_core. Throughput, "
         "not correctness: no [DEADLOCK] fires and the run is still progressing "
-        "when killed. Excluded until tt-sim is fast enough to finish it."
+        "when killed. Excluded until Wolfpine is fast enough to finish it."
     ),
 }
 
@@ -389,7 +389,7 @@ def _env(arch, home, translated=False):
     if translated:
         # The server inherits this through UMD's uv_spawn and derives its own
         # mode from it, so one variable configures both ends. See
-        # ``tt_sim/network/noc_translation.py``.
+        # ``framework/network/noc_translation.py``.
         env["TT_METAL_MOCK_CLUSTER_DESC_PATH"] = str(
             REPO / "driver" / arch / "cluster_descriptor.yaml"
         )
@@ -477,7 +477,7 @@ def print_table():
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="upstream_sweep",
-        description="Run tt-metal's upstream programming_examples on tt-sim.",
+        description="Run tt-metal's upstream programming_examples on Wolfpine.",
     )
     ap.add_argument("filters", nargs="*", help="only programs whose name contains this")
     ap.add_argument("--arch", default="both", choices=(*ARCHES, "both"))
@@ -555,7 +555,7 @@ def main(argv=None):
             "  A BAD row means the verdict differs from the one recorded at "
             f"{BASELINE_TREE}.\n"
             "  A newly-FAILING program is a regression: triage it against ttsim (the\n"
-            "  FUNCTIONAL oracle, never a cycle oracle) before calling it a tt-sim bug —\n"
+            "  FUNCTIONAL oracle, never a cycle oracle) before calling it a Wolfpine bug —\n"
             "  see docs/upstream-examples-status.md. A newly-PASSING one means the\n"
             "  EXPECTED record is stale; re-record it with --record."
         )

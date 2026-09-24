@@ -1,6 +1,6 @@
 """The unpacker driven with the cycle costs: the one non-constant charge.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.unpacker_cost_model_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.unpacker_cost_model_test``) or
 under pytest. Companion to ``backend_cost_model_test.py`` (the five
 constant-cost units), ``matrix_cost_model_test.py`` (the fidelity-scaled FPU)
 and ``mover_cost_model_test.py``.
@@ -12,7 +12,7 @@ both halves of it:
 1. **The address phase** — ``UNPACR_Regular.md``: "An ``UNPACR`` instruction
    spends at least two cycles calculating the initial input address:
    uncompressed data requires exactly two cycles". Charged at the low end of
-   its ``at_least``, i.e. 2, which is *exact* for the only kind of data tt-sim
+   its ``at_least``, i.e. 2, which is *exact* for the only kind of data Wolfpine
    unpacks.
 2. **The data phase** — the same section: "execution proceeds in a pipelined
    fashion, with the primary bottleneck being the fetching of bytes from L1",
@@ -47,17 +47,17 @@ from contextlib import contextmanager
 import pytest
 import yaml
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.registers import SrcRegister
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import TensixConfigurationConstants
-from tt_sim.perf.model import unit_cost_model
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.registers import SrcRegister
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import TensixConfigurationConstants
+from framework.perf.model import unit_cost_model
 
 #: The table itself, for the two assertions that are about what the *file*
 #: says rather than about what the model charges (the ``at_least`` bound on the
 #: address phase, and the joint ceiling being recorded as unconsumed). Read as
 #: YAML rather than through ``load_costs``, because a consumer of the cost
-#: tables must reach them through ``tt_sim/perf/model.py`` and nothing else —
+#: tables must reach them through ``framework/perf/model.py`` and nothing else —
 #: ``test_the_consumers_only_reach_the_tables_through_the_model`` enforces it.
 _COSTS_YAML = pathlib.Path(__file__).resolve().parent / "tensix_instruction_costs.yaml"
 
@@ -295,7 +295,7 @@ def test_the_address_phase_is_the_documented_two_cycles_at_its_low_end():
 
     The bound is charged at its low end per ``BOUND_POLICY``, and here the low
     end is not merely a floor: 2 is the *exact* figure for uncompressed data,
-    which is the only kind tt-sim unpacks (``get_isUncompressed`` returns True
+    which is the only kind Wolfpine unpacks (``get_isUncompressed`` returns True
     unconditionally, and the compressed walk raises).
     """
     model = _model()
@@ -422,7 +422,7 @@ def test_a_wider_datum_moves_more_bytes_and_costs_more():
 
 def test_tileize_forces_x4_whatever_the_config_says():
     """ "tileize always runs at x4, regardless of Throttle_mode" — the one
-    forced mode tt-sim can reach, since the others (compressed data,
+    forced mode Wolfpine can reach, since the others (compressed data,
     UpsampleZeroes, BFP2) force modes of unpacks it rejects at decode."""
     model = _model()
     assert model.unpack_data_phase_cycles(256, THROTTLE_X1, 2) == 16  # 256/16
@@ -637,7 +637,7 @@ def test_the_src_handover_lands_at_the_end_of_the_transfer():
     So the bank becomes the matrix unit's ``address phase + data phase`` cycles
     after the ``UNPACR`` was accepted -- the same deadline the unit charges
     itself -- and not in the tick the instruction retired, which is where
-    tt-sim used to flip it. Moving the datums early is unobservable (nothing
+    Wolfpine used to flip it. Moving the datums early is unobservable (nothing
     may read the bank until it changes hands); handing the bank over early is
     not, because it lets the matrix unit start a whole data phase too soon.
     """

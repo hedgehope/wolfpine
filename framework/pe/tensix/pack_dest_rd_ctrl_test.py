@@ -8,7 +8,7 @@ it, but ``ComputeConfig{.fp32_dest_acc_en = true}`` over **Float16_b** circular
 buffers -- the ordinary bf16-storage/fp32-accumulate GEMM -- sets it with a
 16-bit pack source format. Inferring the width from the format instead read the
 high half of every other Dst row and left most of the tile unwritten: a
-consumer's ``gemm_bf16_check`` came back ``errors=4096 of 4096`` on tt-sim while
+consumer's ``gemm_bf16_check`` came back ``errors=4096 of 4096`` on Wolfpine while
 both cards passed it.
 
 The reads below all come from Dst row 8, deliberately: ``Adj32`` folds a 32-bit
@@ -17,7 +17,7 @@ read happens to land on the fp32 datum's high half -- which is bit-identical to
 the bf16 encoding -- and the bug is invisible. Row 8 is the first row where the
 two disagree.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.pack_dest_rd_ctrl_test``) or
+Runs standalone (``python3 -m framework.pe.tensix.pack_dest_rd_ctrl_test``) or
 under pytest.
 """
 
@@ -25,9 +25,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
 
 BF16 = 5  # DataFormat.BF16
 FP32 = 0  # DataFormat.FP32

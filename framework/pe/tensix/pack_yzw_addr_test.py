@@ -28,7 +28,7 @@ zero, and the Wormhole LLK never writes them at all, so every PACR the replays
 issue computes ``YZW_Addr == 0`` and lands in the same place either way. These
 tests are the only thing that exercises the line, on either architecture.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.pack_yzw_addr_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.pack_yzw_addr_test``) or under
 pytest.
 """
 
@@ -36,9 +36,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
 
 BF16 = 5  # DataFormat.BF16
 #: ``THCON_SEC0_REG1_L1_Dest_addr``, in 16-byte units, and the byte address it

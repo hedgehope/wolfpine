@@ -3,7 +3,7 @@
 Most of what is here is constructed, and that is the point: a gate is only worth
 anything if it has been shown to fire in **both** directions, and synthetic data
 is the only way to build the failing case on demand. Every gate in
-:mod:`tt_sim.perf.energy_rank` gets a passing session and a failing one, and the
+:mod:`framework.perf.energy_rank` gets a passing session and a failing one, and the
 failing one differs from the passing one in exactly the thing the gate is about.
 Exclusions get the same treatment: a row that should be cut, one that should not,
 and a case where cutting it costs the session.
@@ -25,8 +25,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tt_sim.perf.energy_activity import ACTIVITY_TERMS, load_activity
-from tt_sim.perf.energy_rank import (
+from framework.perf.energy_activity import ACTIVITY_TERMS, load_activity
+from framework.perf.energy_rank import (
     BASELINE_LABEL,
     CONTROL_SUFFIX,
     DESIGNED_ARM_TERMS,
@@ -73,7 +73,7 @@ BASELINE_W = 40.0
 #: The four terms the five arms were **constructed** to separate -- one per
 #: non-idle arm, straight off the arms table in
 #: ``perfbench/energybench/README.md``. Written out here rather than imported from
-#: :data:`tt_sim.perf.energy_rank.DESIGNED_ARM_TERMS`, so that editing that table
+#: :data:`framework.perf.energy_rank.DESIGNED_ARM_TERMS`, so that editing that table
 #: cannot silently move what these tests assert. :data:`TRUE` is a truth over
 #: exactly these and nothing else, which is what makes it recoverable.
 DESIGN_TERMS = [
@@ -91,7 +91,7 @@ DESIGN_TERMS = [
 #: nine workloads is what makes a four-term truth recoverable at all. Five would
 #: not be, and a test built on five would be testing a design that cannot work.
 #:
-#: The per-arm shapes are the ones the real arms produced against tt-sim on
+#: The per-arm shapes are the ones the real arms produced against Wolfpine on
 #: 2026-08-13, extended linearly in ``inner``; only the ratios matter here.
 #: The two matrix columns are deliberately different shapes, because that
 #: difference is the whole reason ``matrix_arith_cycles`` exists: per iteration
@@ -1950,8 +1950,8 @@ def test_plausible_pre_idle_readings_produce_no_note():
 
 
 def test_coefficients_may_not_be_written_into_the_cost_model_tree(tmp_path):
-    with pytest.raises(ValueError, match="tt_sim/"):
-        check_destination("tt_sim/perf/energy.yaml")
+    with pytest.raises(ValueError, match="framework/"):
+        check_destination("framework/perf/energy.yaml")
     with pytest.raises(ValueError, match="unit_costs"):
         check_destination(tmp_path / "unit_costs.yaml")
     # ...and a path outside it is fine.
@@ -1962,7 +1962,7 @@ def _write_session(tmp_path, **kwargs):
     """Spill the synthetic session to the two CSVs the CLI reads."""
     import csv as _csv
 
-    from tt_sim.perf.energy_activity import CSV_COLUMNS, write_row
+    from framework.perf.energy_activity import CSV_COLUMNS, write_row
 
     activity = tmp_path / "activity.csv"
     for row in activity_rows():
@@ -2019,7 +2019,7 @@ def _write_session(tmp_path, **kwargs):
 
 
 def test_the_command_line_writes_a_report_and_quarantined_coefficients(tmp_path):
-    from tt_sim.perf.energy_rank import main
+    from framework.perf.energy_rank import main
 
     activity, measured = _write_session(tmp_path, noise=0.05)
     out = tmp_path / "coefficients.yaml"
@@ -2052,7 +2052,7 @@ def test_the_command_line_refuses_and_writes_no_coefficients_when_a_gate_fires(
     """The other direction of the same path: a drifted session exits non-zero
     and leaves no coefficient file behind. A refusal that still writes the
     numbers is not a refusal."""
-    from tt_sim.perf.energy_rank import main
+    from framework.perf.energy_rank import main
 
     activity, measured = _write_session(tmp_path, noise=0.05, control_offset=6.0)
     out = tmp_path / "coefficients.yaml"

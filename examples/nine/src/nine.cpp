@@ -18,7 +18,7 @@ using namespace tt::tt_metal;
 // expansion end-to-end: per-tile L1 / coprocessor / mailbox independence,
 // cross-tile NoC routing, semaphore signalling between cores.
 int main(int argc, char** argv) {
-    // tt-sim simulator hint: pre-construct both Tensix tiles we use. UMD's
+    // Wolfpine simulator hint: pre-construct both Tensix tiles we use. UMD's
     // tt_SimulationDevice spawns run.sh, which inherits the parent env,
     // which reaches the bridge's __main__.py. No-op on real Wormhole.
     //
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
         core_a,
         {DATA_SIZE, CHUNK_SIZE});
 
-    // Tile A: sender (NCRISC, NOC 1 default). tt-sim now keys NoC directories
+    // Tile A: sender (NCRISC, NOC 1 default). Wolfpine now keys NoC directories
     // by the canonical SoC-physical NoC 0 coord on both NoCs (ROADMAP §C
     // "Coord-system abstraction"), so kernels can use the same coord on
     // either NoC — matching real Wormhole behaviour under

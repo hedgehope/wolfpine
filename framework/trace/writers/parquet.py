@@ -11,19 +11,19 @@ own flush also forces a parquet write at lifecycle boundaries via
 :meth:`close`.
 
 Canned DuckDB queries against the resulting dataset live in
-``tt_sim/trace/queries/README.md``.
+``framework/trace/queries/README.md``.
 """
 
 from pathlib import Path
 
-from tt_sim.trace.bus import EventBus, get_bus
-from tt_sim.trace.events import CounterSnapshot, EventCategory
+from framework.trace.bus import EventBus, get_bus
+from framework.trace.events import CounterSnapshot, EventCategory
 
 
 def _pyarrow():
     """Import pyarrow on demand, with an error that says what to do.
 
-    Deliberately **not** a module-level import: ``tt_sim.trace.auto`` imports
+    Deliberately **not** a module-level import: ``framework.trace.auto`` imports
     every writer unconditionally, and ``TT_Device.__init__`` imports that, so a
     module-level ``import pyarrow`` makes an optional output format a hard
     dependency of constructing a device at all. When that import failed the
@@ -39,7 +39,7 @@ def _pyarrow():
             "Parquet output needs pyarrow, which is not installed in the "
             "interpreter running the simulator. Install it (`pip install "
             "pyarrow`), or unset the trace variable that asked for Parquet. "
-            "Every other tt-sim output works without it."
+            "Every other Wolfpine output works without it."
         ) from exc
     return pa, pq
 

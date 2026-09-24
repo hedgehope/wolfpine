@@ -1,5 +1,5 @@
 class RegisterFile:
-    #: The owning core's :class:`~tt_sim.pe.rv.isa.zicsr_isa.CSRFile`, or ``None``
+    #: The owning core's :class:`~framework.pe.rv.isa.zicsr_isa.CSRFile`, or ``None``
     #: when it has no CSRs. Held here as well as on the core because the ISA
     #: executors are handed the register file and nothing else, and ``fcsr``
     #: already lives in this file — the CSR file aliases that entry rather than

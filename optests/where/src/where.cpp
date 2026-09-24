@@ -2,7 +2,7 @@
 // condition and two value tiles — through the ternary select in
 // kernels/compute/compute_kernel.cpp, one output tile per op. The output tiles
 // are read back and dumped as `OPDIFF_RESULT:<hex>`; optests/diff.sh runs this
-// same binary on tt-sim and on ttsim and compares the dumps. ttsim is the
+// same binary on Wolfpine and on ttsim and compares the dumps. ttsim is the
 // oracle — there is no local golden.
 //
 // On Blackhole the where kernel (tt-llk ckernel_sfpu_where.h) issues its

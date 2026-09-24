@@ -8,15 +8,15 @@
 # it *costs*.
 #
 # CONSUMED, behind ``TT_SIM_COST_MODEL``, by eight of the nine backend units
-# (every unit but TDMA -- ``UNWIRED_UNITS`` in tt_sim/perf/costs_test.py names
-# it and why), through the loader (``tt_sim/perf/costs.py``) and the policy
-# layer (``tt_sim/perf/model.py``). See ROADMAP.md section I "Per-unit
+# (every unit but TDMA -- ``UNWIRED_UNITS`` in framework/perf/costs_test.py names
+# it and why), through the loader (``framework/perf/costs.py``) and the policy
+# layer (``framework/perf/model.py``). See ROADMAP.md section I "Per-unit
 # cycle-cost tables" and docs/plans/cost-model.md.
 #
 # ---------------------------------------------------------------------------
 # PROVENANCE IS THE POINT
 # ---------------------------------------------------------------------------
-# tt-sim is a cycle-*approximate* estimator, not cycle-accurate (ROADMAP.md
+# Wolfpine is a cycle-*approximate* estimator, not cycle-accurate (ROADMAP.md
 # "Positioning"). A table of plausible-looking constants with no attribution is
 # worse than no table, because it cannot be improved: nobody can tell which
 # numbers came from a document and which were made up. So every entry carries a
@@ -170,7 +170,7 @@ documents:
 # relative to a tt-metal checkout (0.74 was the one read). These are second-tier
 # authority: they are vendor code and vendor tech reports rather than the ISA
 # contract, and several of them disagree with each other (see the Blackhole
-# clock note in tt_sim/perf/unit_costs.yaml), so an entry sourced from here is
+# clock note in framework/perf/unit_costs.yaml), so an entry sourced from here is
 # marked ``vendor_source``, never ``isa_doc``.
 vendor_documents:
   repo: https://github.com/tenstorrent/tt-metal
@@ -188,7 +188,7 @@ units:
   # -------------------------------------------------------------------------
   MATH:
     isa_doc_name: Matrix Unit (FPU)
-    backend: tt_sim/pe/tensix/backends/matrix.py
+    backend: framework/pe/tensix/backends/matrix.py
     source: wh_matrix_unit#instruction-latency-and-throughput
     note: >
       The Wormhole table is the only per-op latency/throughput table published
@@ -197,7 +197,7 @@ units:
       ratios between instructions broadly apply to Blackhole, but absolute
       throughput and product-specific tile counts differ" -- so these cycle
       counts are used unchanged for both arches, and the arch difference is
-      carried by the clock rate (see tt_sim/perf/unit_costs.yaml) rather than
+      carried by the clock rate (see framework/perf/unit_costs.yaml) rather than
       by the per-op numbers.
     fidelity_phases:
       cycles_per_tile: { LoFi: 16, HiFi2: 32, HiFi3: 48, HiFi4: 64 }
@@ -205,7 +205,7 @@ units:
       mul_adds_per_cycle_lofi: 4096
       # Needed to turn the per-tile figure above into the per-instruction one
       # the simulator charges. Kept here rather than in code because it is a
-      # sourced number like the others -- see tt_sim/perf/model.py's
+      # sourced number like the others -- see framework/perf/model.py's
       # UnitCostModel.fidelity_occupancy, the first consumer of this block.
       mvmuls_per_tile:
         count: 16
@@ -219,7 +219,7 @@ units:
           fidelity phase. Cross-checks against the vendor numbers above --
           8*16*16 = 2048 multiply-accumulates is 4096 muladds, exactly the
           quoted per-cycle rate, so 16 MVMULs is 16 cycles, which is
-          cycles_per_tile at LoFi -- and against tt-sim's own six replay
+          cycles_per_tile at LoFi -- and against Wolfpine's own six replay
           (a 128^3 bf16 matmul), which issues 1024 MVMULs per fidelity phase
           for 64 tile matmuls.
         corroboration: >
@@ -250,7 +250,7 @@ units:
           86.12 cycles per call).
 
           ONE RUN, ON ONE CARD:
-          tt_sim/perf/datasets/tensixbench-blackhole.csv (firmware bundle
+          framework/perf/datasets/tensixbench-blackhole.csv (firmware bundle
           19.6.0, KMD 2.9.0, --blocks 32 --iters 64), phase B rows. It
           corroborates the isa_doc_derived derivation above and does not
           replace or re-rank it. See docs/plans/tensix-cost-benchmark.md.
@@ -310,7 +310,7 @@ units:
           experimental LLK path that issues these opcodes records them into a
           replay buffer and replays them from a MOP -- llk_math_matmul.h and
           llk_math_reduce.h for MVMUL, llk_math_eltwise_binary.h via
-          ckernel_template for ELWADD/ELWMUL -- so a kernel tt-sim runs never
+          ckernel_template for ELWADD/ELWMUL -- so a kernel Wolfpine runs never
           issues one individually. Charging 6 would mis-cost every real matmul
           by ~6x. The exception is
           tt_llk_blackhole/llk_lib/experimental/llk_math_matmul_custom_no_mop.h,
@@ -350,16 +350,16 @@ units:
           (2) one run per format, on one part.
 
           FOUR RUNS, ON ONE PART, one per format, in
-          tt_sim/perf/datasets/, named tensixbench-blackhole-unpacr-nop-bf16,
+          framework/perf/datasets/, named tensixbench-blackhole-unpacr-nop-bf16,
           -fp32, -tf32 and -fp16 (firmware bundle 19.6.0, KMD 2.9.0, --blocks
           32 --phase a --dvalid-unpacr-nop --src-format <fmt> --variants t1).
           They
           replace SETDVALID with UNPACR_NOP + set_dvalid, which is what makes
           the source format defined at all on Blackhole. Reproduce with
-          `python3 -m tt_sim.perf.tensix_bench_sweep --formats`.
+          `python3 -m framework.perf.tensix_bench_sweep --formats`.
 
           ONE RUN, ON ONE CARD:
-          tt_sim/perf/datasets/tensixbench-blackhole.csv (firmware bundle
+          framework/perf/datasets/tensixbench-blackhole.csv (firmware bundle
           19.6.0, KMD 2.9.0, --blocks 32 --iters 64 --dvalid-once), which holds
           both phases. Its predecessor's MATH rows were an artefact of an
           illegal per-thread SETDVALID setup and are retained only as the
@@ -553,7 +553,7 @@ units:
         arch: blackhole
         provenance: unknown
         note: >
-          Blackhole-only, and listed in tt_sim's UNMODELLED_BLACKHOLE_INSTRUCTIONS.
+          Blackhole-only, and listed in framework's UNMODELLED_BLACKHOLE_INSTRUCTIONS.
           No latency published.
     not_documented:
       instructions:
@@ -584,7 +584,7 @@ units:
   # -------------------------------------------------------------------------
   SFPU:
     isa_doc_name: Vector Unit (SFPU)
-    backend: tt_sim/pe/tensix/backends/vector.py
+    backend: framework/pe/tensix/backends/vector.py
     source: wh_vector_unit#instructions
     note: >
       Latencies are per the Wormhole table; the Blackhole table lists identical
@@ -738,7 +738,7 @@ units:
   # -------------------------------------------------------------------------
   THCON:
     isa_doc_name: Scalar Unit (ThCon)
-    backend: tt_sim/pe/tensix/backends/thcon.py
+    backend: framework/pe/tensix/backends/thcon.py
     source: wh_scalar_unit
     note: >
       This is the one unit whose ISA-doc table is *already* an occupancy table:
@@ -772,7 +772,7 @@ units:
         source: wh_scalar_unit
         note: >
           Costed here, in the unit the ISA docs put it in, even though
-          tensix_instructions.yaml marks it ``ex_resource: TDMA`` (and tt-sim
+          tensix_instructions.yaml marks it ``ex_resource: TDMA`` (and Wolfpine
           therefore dispatches it to the Miscellaneous Unit). See
           units.TDMA.instructions.DMANOP for the other half of the
           cross-reference. Both units give it 1 cycle, so the disagreement is
@@ -792,7 +792,7 @@ units:
         note: >
           The ">= 2" is doing a lot of work: FLUSHDMA waits on the unpackers /
           packers / mover it names, so its real occupancy is however long that
-          takes. tt-sim already models the stall functionally
+          takes. Wolfpine already models the stall functionally
           (``ScalarUnit.stalled``); this entry is the floor, not the cost.
       # The "3 or 4" family. CMPDMAREG holds the anchor rather than ADDDMAREG
       # only so that ADDDMAREG can merge from it and add a corroboration of its
@@ -845,7 +845,7 @@ units:
 
           The "or 4" is untested by all of this: nothing observed selects
           between 3 and 4, and every reading above is the low end. THREE RUNS,
-          ON ONE CARD, one operator, two days: tt_sim/perf/datasets/
+          ON ONE CARD, one operator, two days: framework/perf/datasets/
           tensixbench-blackhole.csv (KMD 2.9.0) and riscvbench-blackhole.csv
           plus riscvbench-blackhole-blocks8.csv (KMD 2.10.0). One part, so
           nothing here speaks to part-to-part variation, and Wormhole is
@@ -880,7 +880,7 @@ units:
   # -------------------------------------------------------------------------
   SYNC:
     isa_doc_name: Sync Unit
-    backend: tt_sim/pe/tensix/backends/sync.py
+    backend: framework/pe/tensix/backends/sync.py
     source: wh_sync_unit
     note: >
       The Blackhole SyncUnit.md table is identical to Wormhole's for every row,
@@ -953,14 +953,14 @@ units:
         arch: blackhole
         provenance: unknown
         note: >
-          Blackhole-only and in tt_sim's UNMODELLED_BLACKHOLE_INSTRUCTIONS. It
+          Blackhole-only and in framework's UNMODELLED_BLACKHOLE_INSTRUCTIONS. It
           stalls until a NoC stream reaches a phase / message count, so its
           cost is a wait, not a fixed occupancy; no number is published.
 
   # -------------------------------------------------------------------------
   CFG:
     isa_doc_name: Configuration Unit
-    backend: tt_sim/pe/tensix/backends/config.py
+    backend: framework/pe/tensix/backends/config.py
     source: wh_config_unit
     note: >
       Wormhole and Blackhole publish separate tables for this unit and they do
@@ -1050,7 +1050,7 @@ units:
           does not.
 
           TWO RUNS, ON ONE CARD. The primary dataset is
-          tt_sim/perf/datasets/tensixbench-blackhole.csv (firmware bundle
+          framework/perf/datasets/tensixbench-blackhole.csv (firmware bundle
           19.6.0, KMD 2.9.0, --blocks 32 --iters 64 --dvalid-once) and its
           header carries the rest. The figures above survived a change of
           benchmark configuration that invalidated the MATH probes entirely:
@@ -1116,14 +1116,14 @@ units:
         source: bh_config_unit
         derivation: occupancy = 1 / throughput_ipc
         note: >
-          Blackhole-only, and in tt_sim's UNMODELLED_BLACKHOLE_INSTRUCTIONS.
+          Blackhole-only, and in framework's UNMODELLED_BLACKHOLE_INSTRUCTIONS.
           The ">= 5" is the pipeline depth: it enters at stage -4 and the
           config write lands at stage 0.
 
   # -------------------------------------------------------------------------
   TDMA:
     isa_doc_name: Miscellaneous Unit
-    backend: tt_sim/pe/tensix/backends/misc.py
+    backend: framework/pe/tensix/backends/misc.py
     source: wh_misc_unit
     note: >
       Named TDMA by ``ex_resource`` in tensix_instructions.yaml but it is the
@@ -1157,7 +1157,7 @@ units:
   # -------------------------------------------------------------------------
   PACK:
     isa_doc_name: Packers
-    backend: tt_sim/pe/tensix/backends/packer.py
+    backend: framework/pe/tensix/backends/packer.py
     source: wh_packers
     note: >
       There is no per-op latency table for the packers -- the ISA docs describe
@@ -1215,7 +1215,7 @@ units:
   # -------------------------------------------------------------------------
   UNPACK:
     isa_doc_name: Unpackers
-    backend: tt_sim/pe/tensix/backends/unpacker.py
+    backend: framework/pe/tensix/backends/unpacker.py
     source: wh_unpacr#performance
     note: >
       The unpacker is the clearest case in the whole table of a cost that is
@@ -1229,7 +1229,7 @@ units:
         x2: { bytes_per_cycle: 32, throttle_mode_value: 1 }
         x4: { bytes_per_cycle: 64, throttle_mode_value: 2 }
       # "tileize always runs at x4, regardless of Throttle_mode" -- the one
-      # forced mode tt-sim can reach (the others force modes tt-sim rejects:
+      # forced mode Wolfpine can reach (the others force modes Wolfpine rejects:
       # compressed data, UpsampleZeroes, BFP2). Named by mode key so the number
       # is stated exactly once, in the table above.
       tileize_forced_mode: x4
@@ -1243,11 +1243,11 @@ units:
         are active they interfere -- the ISA doc has a 3x3 table of what each
         actually gets, which is contention, not a per-op cost, and so is not
         reproduced here. CONSUMED since 2026-08-06 by
-        UnitCostModel.unpack_data_phase_cycles (tt_sim/perf/model.py): an
+        UnitCostModel.unpack_data_phase_cycles (framework/perf/model.py): an
         UNPACR's data phase is charged ceil(transfer_bytes / rate) as unit
         occupancy, with the rate chosen exactly as this note describes. The
         interference table stays unconsumed: it gives sustained rates for two
-        *simultaneously streaming* unpackers, and tt-sim charges each transfer
+        *simultaneously streaming* unpackers, and Wolfpine charges each transfer
         at issue with no arbitration between the two units -- charging each
         unpacker its own uncontended rate is the floor.
     joint_bandwidth:
@@ -1306,7 +1306,7 @@ units:
 
           Wiring it first turned three Wormhole value guards red (softplus /
           tilize / untilize, all SrcDvalidError), and the fault was on the
-          other side of the Src handshake rather than in this charge: tt-sim
+          other side of the Src handshake rather than in this charge: Wolfpine
           flipped a Src bank's AllowedClient in the tick the UNPACR retired,
           where both this page's functional model (the assignment is after the
           main unpack loop) and the SetDatValid field description ("once data
@@ -1328,14 +1328,14 @@ units:
   # -------------------------------------------------------------------------
   XMOV:
     isa_doc_name: Mover
-    backend: tt_sim/pe/tensix/backends/mover.py
+    backend: framework/pe/tensix/backends/mover.py
     source: wh_xmov
     note: >
       A single instruction with a documented issue cost and a documented
       background transfer rate -- and, unusually, the transfer rates are
       *measured* rather than theoretical, which the ISA doc says explicitly.
       The full mover cost model (bytes / rate, plus contention) lives in
-      tt_sim/perf/unit_costs.yaml under ``mover``.
+      framework/perf/unit_costs.yaml under ``mover``.
     instructions:
       XMOV:
         occupancy: 1
@@ -1349,8 +1349,8 @@ units:
           transfer duration is separate and is bandwidth-derived, and STALLWAIT
           condition C12 is what waits for it. Since 2026-08-06 the transfer
           duration IS charged, as mover-unit occupancy, from the ``mover``
-          section of tt_sim/perf/unit_costs.yaml (MoverCostModel in
-          tt_sim/perf/model.py) -- "stalled until the mover is able to start
+          section of framework/perf/unit_costs.yaml (MoverCostModel in
+          framework/perf/model.py) -- "stalled until the mover is able to start
           work" is exactly what a unit occupancy models. This entry's 1 stays
           the floor for any transfer the rates cannot price.
 
@@ -1387,7 +1387,7 @@ units:
         arch: blackhole
         provenance: unknown
         note: >
-          Blackhole-only and in tt_sim's UNMODELLED_BLACKHOLE_INSTRUCTIONS. It
+          Blackhole-only and in framework's UNMODELLED_BLACKHOLE_INSTRUCTIONS. It
           declares resources for the Tensix-TRISC sync mechanism rather than
           doing work; no timing published.
 
@@ -1420,7 +1420,7 @@ arch_overrides:
           ``ThreadConfig``, and STREAMWRCFG / WRCFG / CFGSHIFTMASK / RMWCIB /
           RDCFG are all ``Config``. The two names are the doc's, not this
           file's. That column is the whole reason the mechanism can charge
-          occupancy per group -- ``tt_sim/perf/model.py`` reads it and
+          occupancy per group -- ``framework/perf/model.py`` reads it and
           ``TensixBackendUnit`` holds one deadline per group -- and it is the
           only such column published for any Tensix unit.
         source: bh_config_unit

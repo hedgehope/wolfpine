@@ -1,8 +1,8 @@
 """Entry point: ``python -m driver.blackhole.server``.
 
 UMD spawns ``run.sh`` with ``NNG_SOCKET_ADDR`` set; the server binds there and
-drives a tt-sim Blackhole over the wire, sharing all the protocol/transport
-machinery in :mod:`tt_sim.bridge`. Only the device factory and coordinate maps
+drives a Wolfpine Blackhole over the wire, sharing all the protocol/transport
+machinery in :mod:`framework.bridge`. Only the device factory and coordinate maps
 are Blackhole-specific (see ``bh_device`` / ``coords``).
 
 This is the minimal single-tile bring-up; see ``docs/plans/blackhole-support.md``
@@ -14,7 +14,7 @@ import contextlib
 import os
 import sys
 
-from tt_sim.bridge import (
+from framework.bridge import (
     DramCore,
     Fabric,
     LazyTensixPool,
@@ -31,7 +31,7 @@ from tt_sim.bridge import (
     link_contention_summary,
     profiler_flush_summary,
 )
-from tt_sim.network.noc_translation import translation_source
+from framework.network.noc_translation import translation_source
 
 from .bh_device import make_device
 from .coords import (
@@ -139,7 +139,7 @@ def main(argv=None):
                 )
         else:
             # Nothing pinned: build the default worker and let the program ask
-            # for the rest — see ``tt_sim.bridge.materialise``.
+            # for the rest — see ``framework.bridge.materialise``.
             lazy_pool = LazyTensixPool(
                 fabric,
                 device,
@@ -161,7 +161,7 @@ def main(argv=None):
         grid = compute_grid(DEFAULT_COMPUTE_GRID)
         how = "pinned" if pinned else "on demand"
         print(
-            f"[server] tt-sim Blackhole ready (tensix={tensix_pool} ({how}), "
+            f"[server] Wolfpine Blackhole ready (tensix={tensix_pool} ({how}), "
             f"dram={list(DRAM_COORD_MAP)}, "
             f"compute_grid={grid[0]}x{grid[1]}, "
             f"noc_translation={'on' if translated else 'off'} ({why}), "

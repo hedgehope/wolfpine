@@ -28,7 +28,7 @@ cycles. That is not a ceiling — it is one point on a line. The consumer's cost
 per chunk is a runtime argument, and the blocked run tracks it linearly
 (~5 cycles per delay iteration), so ``PIPESTALL_DELAY=2000`` — a consumer doing
 ~10,000 cycles of perfectly ordinary downstream work per tile — pushes the same
-*correct* kernel past the 10,000-cycle threshold. See ``tt_sim/device/deadlock.py``
+*correct* kernel past the 10,000-cycle threshold. See ``framework/device/deadlock.py``
 for what that measurement means for the detector.
 
 ``OUT_DEPTH`` is a knob, though, and the *multi-page* case is where this example
@@ -47,10 +47,10 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
-from tt_sim.device.deadlock import DEFAULT_UNIT_STALL_THRESHOLD
+from framework.bridge import DramCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
+from framework.device.deadlock import DEFAULT_UNIT_STALL_THRESHOLD
 
 from .bh_device import make_device
 from .coords import DRAM_COORD_MAP, TENSIX_COORD_MAP

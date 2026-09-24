@@ -1,4 +1,4 @@
-# The tt-sim trace schema
+# The Wolfpine trace schema
 
 **Status: stable.** The event stream and the datasets derived from it
 are at `SCHEMA_VERSION` 4; the profile artefacts of §9 (`report.json`,
@@ -11,18 +11,18 @@ Its companion is
 [`cost-model-caveats-for-consumers.md`](cost-model-caveats-for-consumers.md):
 this document says what the fields *mean*, that one says where the cycle
 numbers are *known to be wrong*, and by how much. Read both before weighing a
-decision against a tt-sim cycle count.
+decision against a Wolfpine cycle count.
 
-This is the contract between tt-sim and the tools you build on top of
-it. It is written for someone who will never read tt-sim's source: it
+This is the contract between Wolfpine and the tools you build on top of
+it. It is written for someone who will never read Wolfpine's source: it
 says what each field means, what unit it is in, and whether you can rely
-on it. If you find yourself opening `tt_sim/trace/` to answer a question
+on it. If you find yourself opening `framework/trace/` to answer a question
 about an output format, that is a bug in this document — please report
 it.
 
 - **Producing the data**: [`driver/wormhole/docs/profiling.md`](../driver/wormhole/docs/profiling.md)
   is the walkthrough — which environment variable turns on which output.
-- **Extending the simulator**: [`tt_sim/trace/README.md`](../tt_sim/trace/README.md)
+- **Extending the simulator**: [`framework/trace/README.md`](../framework/trace/README.md)
   is the implementer's guide (the event bus, adding a writer). You do not
   need it to consume any of the formats below.
 - **What a charged cycle means**: `docs/plans/cost-model.md`.
@@ -47,7 +47,7 @@ Three things follow, and tooling that ignores them will mislead its
 users:
 
 1. **Do not present an absolute cycle count as a prediction of
-   hardware.** Do not diff a tt-sim total against a silicon measurement
+   hardware.** Do not diff a Wolfpine total against a silicon measurement
    and report the difference as model error; the model has never claimed
    that difference was zero.
 2. **Do not build a pie chart out of cycle counters** without reading
@@ -103,7 +103,7 @@ attribution; it is the recommended entry point and produces
 - **The `EventCategory` values** (`instr`, `mem`, `noc`, `compute`,
   `sync`, `dispatch`, `lifecycle`, `counter`, `stall`).
 - **The `STALL_REASONS` vocabulary** (§6.2). Exported as
-  `tt_sim.trace.STALL_REASONS` — switch on it exhaustively.
+  `framework.trace.STALL_REASONS` — switch on it exhaustively.
 - **Counter-name *patterns*** (§4.2). Not the enumeration — see below.
 
 Renaming or removing any of these bumps the version that covers it —
@@ -150,7 +150,7 @@ event and covers the event stream and the datasets derived from it. The
 profile artefacts of §9 — `report.json`, `hotspots.json` and
 `profile.json` — are written once at process exit rather than emitted per
 event, and carry their own integer,
-`tt_sim.trace.report.SCHEMA_VERSION`, written into each file as
+`framework.trace.report.SCHEMA_VERSION`, written into each file as
 `schema_version` and currently **2**. The additive/breaking rule above
 applies to it unchanged. The two move independently on purpose: a new
 event field says nothing about the report's shape, and a renamed report
@@ -235,7 +235,7 @@ is the ISA's `ex_resource`, which the instruction tables are keyed by.
 instruction the wait gate accounts for but dispatches to no backend.
 
 **Join on `unit_id`.** The table is exported as
-`tt_sim.trace.BACKEND_UNIT_ALIASES` — `{unit: (unit_name, ex_resource)}`
+`framework.trace.BACKEND_UNIT_ALIASES` — `{unit: (unit_name, ex_resource)}`
 — so you do not have to hand-copy it, and a test fails if the code
 drifts from it.
 
@@ -317,7 +317,7 @@ SELECT * FROM read_parquet('counters/**/*.parquet', hive_partitioning=true);
 |---|---|---|---|---|
 | `cycle` | `int64` | simulated cycles | The **flush boundary** this sample was written at — not the time of any individual event. See §7.5. | Frozen name; values move with the model. |
 | `chip` | `int32` | — | `chip_id`. Hive partition key. | Frozen. |
-| `kernel_id` | `int32` | — | **Always `0` today — known gap.** Designed to increment at each `kernel_start`, but nothing in tt-sim publishes a `LifecycleEvent`, so the counter never advances and the partition has one member. For per-launch attribution use NoC kernel zones instead (§4.3a). Still a Hive partition key. | Frozen as a column; its *value* is not yet delivered. |
+| `kernel_id` | `int32` | — | **Always `0` today — known gap.** Designed to increment at each `kernel_start`, but nothing in Wolfpine publishes a `LifecycleEvent`, so the counter never advances and the partition has one member. For per-launch attribution use NoC kernel zones instead (§4.3a). Still a Hive partition key. | Frozen as a column; its *value* is not yet delivered. |
 | `core_y`, `core_x` | `int32` | — | Tile coordinate; arch-specific (§3.2). | Frozen. |
 | `unit` | `string` | — | `Unit` enum value (§3.1). | Frozen. |
 | `counter_name` | `string` | — | See §4.2. **Open set.** | Patterns frozen; the set is not. |
@@ -342,7 +342,7 @@ one you wanted.
 | `stall_<reason>` | cycles | baby RV core | Cycles the RV cost model held an instruction, by reason. **Cost-model only.** |
 | `stall_cycles` | cycles | baby RV core | **Redundant** — the sum of `stall_<reason>`. See §4.4. |
 | `busy_cycles` | cycles | Tensix backend unit | Modelled occupancy charged by the cost tables. **Cost-model only.** |
-| `bookkeeping_cycles` | cycles | Tensix backend unit | **Redundant subset** of `busy_cycles`: the part spent on Matrix Unit opcodes that move no operand data (`SETRWC`, `INCRWC`, `CLEARDVALID`, `GATESRCRST` — see `tt_sim.trace.events.MATRIX_BOOKKEEPING_OPS`). Occupancy minus this is datapath work. **Cost-model only.** |
+| `bookkeeping_cycles` | cycles | Tensix backend unit | **Redundant subset** of `busy_cycles`: the part spent on Matrix Unit opcodes that move no operand data (`SETRWC`, `INCRWC`, `CLEARDVALID`, `GATESRCRST` — see `framework.trace.events.MATRIX_BOOKKEEPING_OPS`). Occupancy minus this is datapath work. **Cost-model only.** |
 | `compute_ops` | count | Tensix backend unit | Instructions completed by that unit. |
 | `dispatch_total` | count | Tensix thread | Instructions issued to any backend. |
 | `dispatch_to_<ex_resource>` | count | Tensix thread | …split by target (§3.3 right column, plus `NONE`). |
@@ -366,8 +366,8 @@ the **same** `unit_id` as the baby RISC-V core that feeds it, so an
 unprefixed `stall_cycles` would sum two unrelated mechanisms into one
 unreadable number.
 
-Two rules for classifying a name you have never seen, and the tt-sim
-report applies exactly these (`tt_sim.trace.report.is_cycle_bearing`,
+Two rules for classifying a name you have never seen, and the Wolfpine
+report applies exactly these (`framework.trace.report.is_cycle_bearing`,
 `is_redundant` — importable, so you need not re-derive them):
 
 - Cycle-bearing if it ends in `_cycles`, starts with `stall_` or
@@ -428,7 +428,7 @@ Two correct readings:
   Bounded by 1. Answers "what share of the available link-cycles were
   busy". This is what `report.md`'s `occupancy` column shows.
 - **Span fraction** — not available from this dataset at all. Use the
-  NoC event decomposition (`tt_sim.perf.noc_events`), which partitions
+  NoC event decomposition (`framework.perf.noc_events`), which partitions
   a single core's elapsed span into `issue` / `read_wait` /
   `write_wait` / `other_wait` / `local` and is validated against
   silicon. It answers "how much of this kernel's time went to the NoC";
@@ -480,7 +480,7 @@ journey, in the order a packet travels them:
 | arrival → service | `noc_arrival_to_service_cycles` | Time at the destination once the packet is there. | **A DRAM channel's service time, and otherwise zero.** |
 
 They **telescope exactly**. All three are charged off the same two
-stamps (`tt_sim.trace.events.noc_flight_split`), so per NIU:
+stamps (`framework.trace.events.noc_flight_split`), so per NIU:
 
 ```
 noc_issue_to_injection_cycles
@@ -495,7 +495,7 @@ then read the legs. For the same reason each leg is **redundant** with
 the total (§4.4) — sum the legs or sum `noc_flight_cycles`, never both.
 
 **`arrival → service` reads zero at every endpoint but DRAM, and that
-zero is the finding.** tt-sim charges endpoint time in exactly one
+zero is the finding.** Wolfpine charges endpoint time in exactly one
 place: a DRAM tile's channel, where it is the published service time
 plus whatever that channel is still streaming for someone else. Nothing
 models arrival buffering, outstanding-transaction credit limits or
@@ -526,7 +526,7 @@ in `report.json` as `noc_latency_split` (§9).
 > 2026-08-24; the leg itself is correct, only its tile label is misleading.
 
 Canned queries that get all of this right live in
-[`tt_sim/trace/queries/counters.sql`](../tt_sim/trace/queries/counters.sql).
+[`framework/trace/queries/counters.sql`](../framework/trace/queries/counters.sql).
 They are the closest thing to a worked reference consumer.
 
 ---
@@ -593,7 +593,7 @@ it travelled has no injection, wire or endpoint in it to apportion, so
 the whole of it is reported as transit rather than given an invented
 shape.
 
-**No virtual-channel column exists.** tt-sim models no VCs, so there is
+**No virtual-channel column exists.** Wolfpine models no VCs, so there is
 no `vc` column rather than a column of zeroes. Same for VC occupancy.
 
 ---
@@ -696,7 +696,7 @@ The last two are the interior stamps the flight split of §4.4a is
 derived from: when the packet's head left the sending NIU's injection
 port, and when it reached the destination NIU *before* that endpoint
 charged anything for servicing it. `-1` on both means the flight was
-never decomposed — an un-modelled run. `tt_sim.trace.noc_flight_split`
+never decomposed — an un-modelled run. `framework.trace.noc_flight_split`
 turns an event into the three legs and is exported for exactly this;
 do not re-derive the clamping.
 
@@ -739,7 +739,7 @@ the same reason. Reported by the nekbone team, 2026-08-21.
 
 ### 6.2 The stall-reason vocabulary
 
-Frozen and exported as `tt_sim.trace.STALL_REASONS`, so you can switch
+Frozen and exported as `framework.trace.STALL_REASONS`, so you can switch
 on it exhaustively. There is deliberately **no generic `"stalled"`** —
 every name is a mechanism the model actually knows, because a code
 generator acts on the reason, and a reason that does not name a
@@ -772,7 +772,7 @@ generator is trying to overlap, and **which way round it is stuck** is
 the actionable part.
 
 **`unit_busy` is not purely cost-model state**, despite what an earlier
-version of the tt-sim docs claimed. An occupancy is what the cost model
+version of the Wolfpine docs claimed. An occupancy is what the cost model
 arms, so almost nothing reports it with `TT_SIM_COST_MODEL` unset — but
 the config unit's own single-issue throughput rule (a `SETC16`/`WRCFG`
 in the previous cycle blocks this cycle's other-opcode issue) is a
@@ -933,7 +933,7 @@ as `bind_id` + `flow_out`/`flow_in` on the slices themselves.
 `mem` events are omitted entirely (volume).
 
 Canned SQL for Perfetto's **Query (SQL)** tab:
-[`tt_sim/trace/queries/README.md`](../tt_sim/trace/queries/README.md).
+[`framework/trace/queries/README.md`](../framework/trace/queries/README.md).
 
 ---
 
@@ -952,7 +952,7 @@ Canned SQL for Perfetto's **Query (SQL)** tab:
 Re-render at any time without re-running the simulator:
 
 ```bash
-python3 -m tt_sim.trace.report <profile-dir> --stdout
+python3 -m framework.trace.report <profile-dir> --stdout
 ```
 
 ### `report.json`
@@ -979,7 +979,7 @@ yesterday still gets ranked.
 ### Versioning the profile artefacts
 
 `report.json`, `hotspots.json` and `profile.json` each carry a
-`schema_version`: one integer, from `tt_sim.trace.report.SCHEMA_VERSION`,
+`schema_version`: one integer, from `framework.trace.report.SCHEMA_VERSION`,
 currently **3**, and the *same* number across all three — they are
 written by one run and read together, so versioning them apart would only
 ask a consumer to track three numbers that always move as one. It is not
@@ -1016,7 +1016,7 @@ hard-fail on a bump you have not read yet, because most will be additive.
 | 2 | **Additive.** `shared_resource_units{}`, the unit count that turns `shared_resource_cycles{}` into a bounded fraction (§4.3a). |
 | 3 | **Additive.** `noc_latency_split{}`, the per-transaction NoC flight split (§4.4a). |
 
-`tt_sim/trace/observability_test.py` enforces this: the field tables in
+`framework/trace/observability_test.py` enforces this: the field tables in
 this section are **parsed out of this document** and compared against
 artefacts generated from the code, so a field added in code without a row
 here — or a row here without the field — fails the suite.
@@ -1049,8 +1049,8 @@ not a failure.
 
 A field whose meaning or unit is not stated here, or is stated wrongly,
 is a defect — not something to work around. The tests in
-`tt_sim/trace/observability_test.py` and
-`tt_sim/trace/attribution_test.py` enforce the frozen half of this
+`framework/trace/observability_test.py` and
+`framework/trace/attribution_test.py` enforce the frozen half of this
 contract (field names, event classes, Parquet columns, the unit-alias
 table, the redundancy rules); if you find a promise here that no test
 protects, that is worth raising too.

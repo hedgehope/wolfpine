@@ -13,8 +13,8 @@ packing it into the MID address register the way Wormhole does.
 Run:  python3 -m driver.blackhole.bringup
 """
 
-from tt_sim.device.blackhole import Blackhole
-from tt_sim.util.conversion import conv_to_bytes
+from framework.device.blackhole import Blackhole
+from framework.util.conversion import conv_to_bytes
 
 # NUI command-register offsets within a tile's NoC 0 region (base 0xFFB20000).
 NUI_BASE = 0xFFB20000
@@ -77,9 +77,9 @@ def main():
         got = device.read(tensix, 0x200, len(payload))
     device.shutdown()
 
-    assert got == payload, (
-        f"NoC read mismatch:\n  want {payload.hex()}\n  got  {got.hex()}"
-    )
+    assert (
+        got == payload
+    ), f"NoC read mismatch:\n  want {payload.hex()}\n  got  {got.hex()}"
     print(
         f"Completed successfully: NoC-read {len(payload)} bytes "
         f"DRAM{dram} -> Tensix{tensix} L1 on Blackhole"

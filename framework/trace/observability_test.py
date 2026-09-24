@@ -16,11 +16,11 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import pytest
 
-from tt_sim.trace import hotspots as hotspotsmod
-from tt_sim.trace import report as reportmod
-from tt_sim.trace.bus import EventBus
-from tt_sim.trace.counters import CounterAggregator
-from tt_sim.trace.events import (
+from framework.trace import hotspots as hotspotsmod
+from framework.trace import report as reportmod
+from framework.trace.bus import EventBus
+from framework.trace.counters import CounterAggregator
+from framework.trace.events import (
     STALL_REASONS,
     ComputeEvent,
     CounterSnapshot,
@@ -30,8 +30,8 @@ from tt_sim.trace.events import (
     NoCEvent,
     StallEvent,
 )
-from tt_sim.trace.writers.noc_parquet import NoCParquetWriter
-from tt_sim.trace.writers.perfetto import PerfettoWriter
+from framework.trace.writers.noc_parquet import NoCParquetWriter
+from framework.trace.writers.perfetto import PerfettoWriter
 
 CORE = (0, 18, 18, "TRISC1")
 UNIT = (0, 18, 18, "THCON")
@@ -367,7 +367,7 @@ def test_an_untimed_flight_is_zero_not_one(tmp_path, monkeypatch):
 
 def _counters(events):
     """Totals the aggregator would flush for ``events``."""
-    from tt_sim.trace import bus as bus_module
+    from framework.trace import bus as bus_module
 
     previous = bus_module._BUS
     bus_module._BUS = EventBus()
@@ -443,7 +443,7 @@ def test_backend_unit_busy_cycles_come_only_from_modelled_ops():
 def test_matrix_bookkeeping_cycles_are_a_subset_of_busy_cycles():
     """``INCRWC`` occupies the Matrix Unit and moves no operand data; ``MVMUL``
     does both. The bookkeeping counter re-cuts the same cycles rather than
-    adding any, which is why ``tt_sim.trace.report`` ranks it as redundant."""
+    adding any, which is why ``framework.trace.report`` ranks it as redundant."""
     counters = _counters(
         [
             ComputeEvent(
@@ -487,7 +487,7 @@ def test_bookkeeping_cycles_are_absent_without_the_cost_model():
 def test_bookkeeping_cycles_are_redundant_against_busy_cycles():
     """The attribution report partitions cycles. Ranking a subset beside the set
     it came from double-counts every cycle in it."""
-    from tt_sim.trace import report
+    from framework.trace import report
 
     assert report.is_redundant("bookkeeping_cycles")
     assert not report.is_redundant("busy_cycles")
@@ -500,14 +500,14 @@ def test_every_matrix_unit_opcode_is_classified_as_bookkeeping_or_datapath():
     ``ComputeEvent`` — and every member of it has to have been called either
     work or bookkeeping by somebody, rather than defaulting to work because
     nobody looked."""
-    from tt_sim.pe.tensix.backends.matrix import MatrixUnit
-    from tt_sim.trace.events import MATRIX_BOOKKEEPING_OPS, MATRIX_DATAPATH_OPS
+    from framework.pe.tensix.backends.matrix import MatrixUnit
+    from framework.trace.events import MATRIX_BOOKKEEPING_OPS, MATRIX_DATAPATH_OPS
 
     handled = set(MatrixUnit.OPCODE_TO_HANDLER)
     assert not (MATRIX_BOOKKEEPING_OPS & MATRIX_DATAPATH_OPS)
     assert MATRIX_BOOKKEEPING_OPS | MATRIX_DATAPATH_OPS == handled, (
         "a Matrix Unit opcode is unclassified (or classified but unhandled). "
-        "Say whether it moves operand data, in tt_sim/trace/events.py."
+        "Say whether it moves operand data, in framework/trace/events.py."
     )
     # The two that must never swap sides, named so the guard reads as a claim
     # about the machine rather than about set arithmetic.
@@ -577,7 +577,7 @@ def test_a_zero_endpoint_leg_is_emitted_rather_than_left_out():
 
     Everywhere else in this tree absent means "not modelled" and a counter
     only appears once something increments it (§3.5). This one is the
-    exception on purpose: tt-sim models no endpoint queueing away from a DRAM
+    exception on purpose: Wolfpine models no endpoint queueing away from a DRAM
     channel, and a consumer needs to be able to read that as a measured zero
     rather than infer it from a missing row.
     """
@@ -662,9 +662,9 @@ def test_every_stall_reason_is_in_the_frozen_vocabulary():
     import ast
     import inspect
 
-    from tt_sim.pe.tensix import frontend as frontend_mod
-    from tt_sim.pe.tensix.backends import backend_base, config, misc, sync, thcon
-    from tt_sim.pe.tensix.backends import unpacker as unpacker_mod
+    from framework.pe.tensix import frontend as frontend_mod
+    from framework.pe.tensix.backends import backend_base, config, misc, sync, thcon
+    from framework.pe.tensix.backends import unpacker as unpacker_mod
 
     emitted = set()
     for module in (
@@ -895,7 +895,7 @@ def test_every_documented_event_field_is_still_there():
     breaks every consumer silently, because a missing key reads as a null."""
     import dataclasses
 
-    from tt_sim.trace import events as events_mod
+    from framework.trace import events as events_mod
 
     for name, expected in DOCUMENTED_FIELDS.items():
         cls = getattr(events_mod, name)
@@ -910,7 +910,7 @@ def test_every_documented_event_field_is_still_there():
 
 def test_every_event_class_is_documented():
     """A new event kind that nobody wrote down is the failure this catches."""
-    from tt_sim.trace import events as events_mod
+    from framework.trace import events as events_mod
 
     published = {
         cls.__name__
@@ -925,7 +925,7 @@ def test_the_parquet_counter_columns_are_frozen(tmp_path):
     downstream notebook is written against."""
     import glob
 
-    from tt_sim.trace.writers.parquet import ParquetCounterWriter
+    from framework.trace.writers.parquet import ParquetCounterWriter
 
     bus = EventBus()
     bus.enabled = True
@@ -960,7 +960,7 @@ def test_the_three_unit_vocabularies_stay_in_sync():
 
     import yaml
 
-    from tt_sim.pe.tensix.backends import (
+    from framework.pe.tensix.backends import (
         config,
         matrix,
         misc,
@@ -971,7 +971,7 @@ def test_the_three_unit_vocabularies_stay_in_sync():
         unpacker,
         vector,
     )
-    from tt_sim.trace.events import BACKEND_UNIT_ALIASES, Unit
+    from framework.trace.events import BACKEND_UNIT_ALIASES, Unit
 
     # Left column: every key is a real ``Unit`` enum value.
     for unit in BACKEND_UNIT_ALIASES:
@@ -1010,9 +1010,9 @@ def test_the_three_unit_vocabularies_stay_in_sync():
         if isinstance(entry, dict) and "ex_resource" in entry
     }
     for unit, (_, ex_resource) in BACKEND_UNIT_ALIASES.items():
-        assert ex_resource in resources, (
-            f"{unit} -> ex_resource {ex_resource!r} is not in tensix_instructions.yaml"
-        )
+        assert (
+            ex_resource in resources
+        ), f"{unit} -> ex_resource {ex_resource!r} is not in tensix_instructions.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -1020,7 +1020,7 @@ def test_the_three_unit_vocabularies_stay_in_sync():
 # ---------------------------------------------------------------------------
 #
 # ``report.json``, ``hotspots.json`` and ``profile.json`` are documented field
-# by field in §9 and carry their own version, ``tt_sim.trace.report.
+# by field in §9 and carry their own version, ``framework.trace.report.
 # SCHEMA_VERSION`` — deliberately not the event ``SCHEMA_VERSION`` above,
 # which is scoped to event shape and would move for reasons a report consumer
 # cannot act on.
@@ -1172,7 +1172,7 @@ def test_report_json_is_exactly_the_field_set_section_9_documents(tmp_path):
         f"report.json has {sorted(set(payload) - documented)} undocumented and "
         f"is missing {sorted(documented - set(payload))}. Adding a field is "
         "additive, renaming or removing one is breaking: either way bump "
-        "tt_sim.trace.report.SCHEMA_VERSION and update docs/trace-schema.md §9."
+        "framework.trace.report.SCHEMA_VERSION and update docs/trace-schema.md §9."
     )
 
 
@@ -1190,9 +1190,9 @@ def test_each_contribution_row_is_the_documented_shape():
         name.strip() for name in re.search(r"\{([^}]*)\}", line)[1].split(",")
     }
     actual = {f.name for f in dataclasses.fields(reportmod.Contribution)}
-    assert actual == documented, (
-        f"contributions[] rows are {sorted(actual)}, §9 documents {sorted(documented)}"
-    )
+    assert (
+        actual == documented
+    ), f"contributions[] rows are {sorted(actual)}, §9 documents {sorted(documented)}"
 
 
 def test_hotspots_json_is_exactly_the_field_set_section_9_documents():
@@ -1214,7 +1214,7 @@ def test_hotspots_json_is_exactly_the_field_set_section_9_documents():
 def test_profile_json_carries_the_same_version(tmp_path, monkeypatch):
     """One number across the three artefacts of §9: they are written by one
     run and read together."""
-    from tt_sim.trace import auto, elfdisc
+    from framework.trace import auto, elfdisc
 
     # ELF discovery walks the real tt-metal cache; the version is what is
     # under test, not what is on this machine's disk.

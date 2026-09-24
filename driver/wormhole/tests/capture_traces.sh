@@ -18,7 +18,7 @@
 # Cleanup only touches the sim servers this run started (they carry its
 # TT_SIM_RUN_TAG) plus orphans left by an earlier run of this script whose
 # owner is gone, so a concurrent run in another terminal is never disturbed.
-# Set TT_SIM_KILL_ALL_SERVERS=1 to instead kill every tt-sim server on the
+# Set TT_SIM_KILL_ALL_SERVERS=1 to instead kill every Wolfpine server on the
 # machine at startup — the way to clear up after manual runs, which carry no
 # tag.
 

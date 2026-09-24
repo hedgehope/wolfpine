@@ -2,7 +2,7 @@
 // through `transpose_tile` / `transpose_dest` / a dest-reuse binary (see
 // kernels/compute/compute_kernel.cpp), one output tile per op. The output tiles
 // are read back and dumped as `OPDIFF_RESULT:<hex>`; optests/diff.sh runs this
-// same binary on tt-sim and on ttsim and compares the dumps. ttsim is the
+// same binary on Wolfpine and on ttsim and compares the dumps. ttsim is the
 // oracle — there is no local golden.
 //
 // This is the program that reaches the matrix unit's Dst<->Src move ops:

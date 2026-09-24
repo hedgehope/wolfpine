@@ -14,8 +14,8 @@ previous §A–§L layout refer to the revision before this one — see
 
 Context, in one paragraph: with Tenstorrent's
 [ttsim](https://github.com/tenstorrent/ttsim) owning bit-exact
-functional correctness (and tt-sim matching it across `optests/` on
-both arches precisely *because* it is the oracle), tt-sim's lanes are
+functional correctness (and Wolfpine matching it across `optests/` on
+both arches precisely *because* it is the oracle), Wolfpine's lanes are
 the **cycle-approximate performance estimator**, hackability,
 observability tooling, differential testing, and education. The
 priority list below is shaped by the first lane: the Tensix front-end
@@ -29,14 +29,14 @@ wall clock does **not** degrade with grid size (1 to 80 workers is
 1.8x for a problem that uses them); the cost is materialising workers a
 program never launches on. See the v2.0 list, item 2.
 The first named external consumer is the **compiler team**: they will
-drive kernels through tt-sim to trace where cycles go — instruction
+drive kernels through Wolfpine to trace where cycles go — instruction
 mix, data movement, stalls — and generate more efficient code from it.
 Their contract is [`docs/trace-schema.md`](docs/trace-schema.md),
 frozen at `SCHEMA_VERSION` 4 — schema changes are breaking from here.
 As of 2026-08-19 they have used it in anger and reported back, which is
 where the work of the last week came from: see **"What the first
 external consumer found"** below, and note that four of the five
-reports were tt-sim answering confidently and wrongly rather than
+reports were Wolfpine answering confidently and wrongly rather than
 answering slowly or imprecisely.
 
 ---
@@ -233,7 +233,7 @@ not be re-attempted.
 - **Congestion beyond the wired link step** — declared unmodellable
   with current evidence (needs a per-link flow census, not a
   coefficient); VC arbitration measured at ~1/50th of the link effect.
-- **`SFPLOADMACRO`** — needs a deferred-issue notion tt-sim doesn't
+- **`SFPLOADMACRO`** — needs a deferred-issue notion Wolfpine doesn't
   have; ttsim declines it too. Workaround:
   `TT_METAL_DISABLE_SFPLOADMACRO=1`.
 - **Ethernet chip-to-chip** — no second chip to model against.
@@ -329,12 +329,12 @@ workers materialising on demand with no environment variable.
    aliases, which `virtual_noc0_coordinate`'s unconditional
    `|| arch == BLACKHOLE` early-out means were never addressed
    (census 102 -> 6). `93e68fb` fixes a second defect found chasing the
-   first: tt-sim decoded **Wormhole's `NOC_ID_LOGICAL` index on both
+   first: Wolfpine decoded **Wormhole's `NOC_ID_LOGICAL` index on both
    arches**, so every Blackhole core read 0 for its own coordinate and
    `my_x`/`my_y` were `(0,0)` — which had already cost `perfbench/
    nocbench` a documented workaround nobody had traced to a cause.
    `73ad018` fixes packet *timing*: a DRAM channel answers to several
-   NoC cells and tt-sim billed every packet to its tile's primary NUI —
+   NoC cells and Wolfpine billed every packet to its tile's primary NUI —
    wrong for **all 480** Wormhole worker/endpoint pairs on each NoC and
    for **every** Blackhole NoC 1 DRAM flight (65% of its destination
    resolutions), plus a grid guard so an out-of-grid coord raises
@@ -361,13 +361,13 @@ workers materialising on demand with no environment variable.
    physical coords, so one worker's mirror is another's translated
    key).
    **Silicon has now had its say, 2026-08-17.** The port was validated
-   only against tt-sim's own invariants and a reading of tt-metal's
+   only against Wolfpine's own invariants and a reading of tt-metal's
    source; a Wormhole card session closed that. Its arm-C destination
    is `(2, 2)`, matching the *translated* simulator, where the
    untranslated one says `(7, 9)` -- the grid mirror; and the card
    reports `self_noc=18,18` / `peer_noc=19,19` for itself, so
    tt-metal's plumbing on a real part agrees with the descriptor
-   tt-sim was handed. Wormhole is the arch where this matters, because
+   Wolfpine was handed. Wormhole is the arch where this matters, because
    untranslated it still shadows 56 of 80 workers and its translated
    coord is *not* its physical one, so every mapping is exercised
    rather than being the identity.
@@ -409,7 +409,7 @@ workers materialising on demand with no environment variable.
    The arbitration order is now cited (`tm_dram_saturation`,
    `tm_memory_for_kernels`, both `vendor_source`, both **confirming**
    the first-come mechanism already implemented), and the stale
-   "tt-sim models no link congestion" claim is retired from all eight
+   "Wolfpine models no link congestion" claim is retired from all eight
    places it survived — including one compiled into `dramratebench`'s
    operator-facing output.
    **What remains unmodelled is buffer back-pressure and virtual
@@ -426,7 +426,7 @@ workers materialising on demand with no environment variable.
    v2.0 list's last substantial item, and what is left in it is one
    measured model gap (the divide floor, below) rather than any
    missing instrument. `perfbench/mechbench` plus
-   `tt_sim.perf.stall_attribution` partition a core's span by stall
+   `framework.perf.stall_attribution` partition a core's span by stall
    mechanism on both sides and report `E_total`, `E_int` and the
    compensation ratio behind five refusing gates. The synthetic
    compensating case is the leg's argument in one file: **`E_total`
@@ -441,7 +441,7 @@ workers materialising on demand with no environment variable.
    `srcb_clear = 0`** (`elw` span 3275, `srca_valid` 2989; `mm` span
    3887, `srca_valid` 3572). The earlier explanation — "the regime
    that could show the reversal cannot be collected" — is spent. This
-   is a question about tt-sim's Src-ownership modelling and **must not
+   is a question about Wolfpine's Src-ownership modelling and **must not
    be tuned before card data exists**, or the comparison becomes
    circular. Written up in `perfbench/mechbench/README.md`.
    **Trap for the next person**: `perfbench/mechbench/testdata/sim-*.csv`
@@ -462,7 +462,7 @@ workers materialising on demand with no environment variable.
    reason bucket in the *same call*, so `sem_empty + sem_full <=
    thread_stalls` holds by construction, and every Blackhole result
    this leg has — the checked-in sim logs and the synthetic card files
-   derived from them — inherits that identity. **tt-sim cannot fail
+   derived from them — inherits that identity. **Wolfpine cannot fail
    this gate on either architecture**, so it has never tested hardware;
    Wormhole is simply the first silicon allowed to disagree. The
    refusal now *names* the counters and the excess instead of
@@ -510,7 +510,7 @@ workers materialising on demand with no environment variable.
    ticks**, measured on 9 replay guards run both ways: tiles do sleep
    there, never with a live latched wait.
    **What is still open is the MAGNITUDE, not the hook, and it is still
-   not to be closed by scaling.** tt-sim's threads reach their blocked
+   not to be closed by scaling.** Wolfpine's threads reach their blocked
    instruction almost immediately, so the un-held window barely exists
    and `mechbench` moves **+6 cycles** on both arms against the card's
    13x excess, with `THREAD_STALLS_2` and the total span unchanged and
@@ -542,10 +542,10 @@ workers materialising on demand with no environment variable.
    which is the evidence the reachable case was untested rather than
    tested-and-passing.
    **The NoC-bound leg is built, 2026-08-16** — `perfbench/nocevbench`
-   plus `tt_sim.perf.noc_events`, behind six refusing gates. Two of
+   plus `framework.perf.noc_events`, behind six refusing gates. Two of
    three legs now exist.
    **The RV-bound leg is built too, 2026-08-18 — all three now exist**
-   (`perfbench/retirebench` + `tt_sim.perf.retire_attribution`, eight
+   (`perfbench/retirebench` + `framework.perf.retire_attribution`, eight
    refusing gates). Its instrument is Zicsr and the Blackhole CSR file
    (§6), landed the same day: twelve zones on one baby RISC-V, each
    bracketed by an `mcycle` and a `minstret` read, both sides emitting
@@ -584,7 +584,7 @@ workers materialising on demand with no environment variable.
    not compensation.
    **The compensation ratio is 1.00x** — `E_int` equals `E_total` to the
    decimal, so *nothing is hiding behind anything*: every zone errs in
-   the same direction (tt-sim under-charges) and the triangle inequality
+   the same direction (Wolfpine under-charges) and the triangle inequality
    holds with equality. For a model built deliberately as a floor that
    is the shape wanted, and it is the answer to the question the rung
    exists to ask.
@@ -657,7 +657,7 @@ workers materialising on demand with no environment variable.
    untranslated simulator says `(7, 9)`, and the card reports
    `self_noc=18,18` / `peer_noc=19,19` for itself.
    **The pivotal question answered yes with no bridge work**:
-   `TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1` runs against tt-sim on
+   `TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1` runs against Wolfpine on
    *both* arches today and writes `.logs/noc_trace_dev0_ID0.json`. NoC
    events go into the *same* per-RISC L1 profiler vector as the zone
    markers, so `Device.settle_profiler_flush` (§5) already covers them
@@ -671,7 +671,7 @@ workers materialising on demand with no environment variable.
    flight time** and this item's own phrasing — "agreement with
    `noc_flight_cycles` plus queueing" — presupposed one. Two
    corrections follow: the comparison is card-JSON against **the same
-   artefact** emitted by tt-sim, one parser, no translation step; and
+   artefact** emitted by Wolfpine, one parser, no translation step; and
    `noc_flight_cycles` is reported *simulator-side only, as a
    diagnostic, never a gate*. "Plus queueing" would also
    **double-count** — `noc_flight_cycles` is `arrival - issue_cycle`
@@ -740,7 +740,7 @@ workers materialising on demand with no environment variable.
    `wh_dram#performance` to **-0.2 / -1.5 / -0.9 %** at 1 / 12 / 48
    readers, with its own control moving x5.86 across channels while the
    same readers on one channel moved x0.995 — the endpoint shape
-   tt-sim's `DramChannels` term asserts. *The store-coalescing and
+   Wolfpine's `DramChannels` term asserts. *The store-coalescing and
    multiply pairs*: coalesce/spread **1.0010** on Wormhole against
    Blackhole's **5.2x** — a real architectural difference, now measured
    on both parts rather than inferred from one; divide lands at 33.03
@@ -785,7 +785,7 @@ workers materialising on demand with no environment variable.
    is why comparing our absolutes against theirs could never have
    settled anything, which cost most of a day to learn.
    **A "missing constant" I reported here was my own error, and the
-   correction is the lesson.** I first read tt-sim as under-predicting
+   correction is the lesson.** I first read Wolfpine as under-predicting
    both arms by ~7 and ~6 cycles and called it a missing per-transaction
    term. It was not: the four checked-in `*-sim*.csv` references are
    **cost-model-off** runs, and a cost-model-off marginal is an
@@ -821,7 +821,7 @@ workers materialising on demand with no environment variable.
    hardware**: all launch through `detail::LaunchProgram`, which needs
    slow dispatch, while a card defaults to fast, so every one aborted
    `rc=134` before doing any work. Both are invisible in simulation by
-   construction — tt-sim supports no other dispatch flow and has no
+   construction — Wolfpine supports no other dispatch flow and has no
    residual device state — which is exactly why the de-risking pass
    went first.
 
@@ -986,15 +986,15 @@ code.**
 **The v2.0 list above is closed** — every item delivered or proven
 impossible, 2026-08-18 — and what has landed since came from none of
 the lists in this file. Nine things landed in the week after, and
-**six arrived as reports from the compiler team using tt-sim in
+**six arrived as reports from the compiler team using Wolfpine in
 anger** rather than from anything planned here: the multicast corner
 order, the packer's DEST read width and the packer's *dropped* Dst wait
 (all three below), the `prologue` misreading and the single-window gate
 (§4 point 4), and the request for a version marker that became
-`tt_sim/behaviour.py`. Each report is
+`framework/behaviour.py`. Each report is
 dated in the source it touched.
 
-**Five of them were tt-sim returning a confident, plausible, wrong
+**Five of them were Wolfpine returning a confident, plausible, wrong
 answer** — the failure mode that consumer ranks above cycle accuracy,
 in their own words as recorded in the v3 working note: *"the failures
 that cost us most were the ones where a simulator returned a confident,
@@ -1035,7 +1035,7 @@ this landed; what follows is what happened, not what was planned.
    `:696` in the 0.74 tree); the kernel-side `get_noc_multicast_addr`
    passes its arguments straight through, which is why the swap is so
    easy to omit.
-   tt-sim enumerated the corners literally — `range(start, end + 1)` —
+   Wolfpine enumerated the corners literally — `range(start, end + 1)` —
    so there were **three silent cases**. A rectangle mis-ordered for
    its NoC reached *everyone* and produced exactly the right answer
    (green here, hang on the card). A reversed one reached *nobody*, so
@@ -1052,7 +1052,7 @@ this landed; what follows is what happened, not what was planned.
    the guard does not undo the enumeration fix. The guard is
    deliberately **stricter than tt-metal's own watcher**, which skips
    the ordering check for Tensix-to-Tensix multicasts because the wrap
-   is *legal* there: legal is not intended, and tt-sim cannot deliver a
+   is *legal* there: legal is not intended, and Wolfpine cannot deliver a
    wrapped span at all, so such a multicast would be mismodelled
    silently today. If one is ever wanted, the answer is to model the
    wrap, not to lower this to a warning.
@@ -1061,7 +1061,7 @@ this landed; what follows is what happened, not what was planned.
    a program has a bug and not enough to know where. The message now
    carries the transfer's size and transaction id, the address spans,
    the issuing core and its PC, the kernel function and source line
-   (via `tt_sim.trace.elfdisc` + `DwarfIndex`), and the **circular
+   (via `framework.trace.elfdisc` + `DwarfIndex`), and the **circular
    buffer the L1 end lands in together with its page size** — the
    number that says whether a shard was split below tile granularity.
    **All of it is recovered at raise time, not recorded per transfer.**
@@ -1069,7 +1069,7 @@ this landed; what follows is what happened, not what was planned.
    issuer is a few frames up the Python stack when the check fires;
    alignment checking is on by default, so anything recorded per
    transfer would be paid for by every transfer in every run and read
-   only by the ones that fail. `tt_sim/network/attribution.py` is
+   only by the ones that fail. `framework/network/attribution.py` is
    imported *inside* the `except` clause, so a run that never faults
    never imports the describer, and the exception is enriched in place
    so type, identity and traceback are unchanged.
@@ -1084,15 +1084,15 @@ this landed; what follows is what happened, not what was planned.
    never described to the simulator, so the address range is reported
    instead.
 3. **Named behaviour markers an outside suite can assert on**
-   (`b38b8ee`, `tt_sim/behaviour.py`). The compiler team asked for a
+   (`b38b8ee`, `framework/behaviour.py`). The compiler team asked for a
    version marker to pin. A version number says which build you have,
    never whether that build has the fix, and a consumer who pins one
    has encoded our release history into their test suite instead of
    what they actually depend on. What is published instead is
    **behaviour** — `require("noc1-multicast-corner-order")` raises
    `UnsupportedBehaviour`, `supports()` is the non-raising form, and
-   `python3 -m tt_sim.behaviour` lists or checks from a shell. Against
-   a tt-sim older than the module the import fails, which is the same
+   `python3 -m framework.behaviour` lists or checks from a shell. Against
+   a Wolfpine older than the module the import fails, which is the same
    outcome at the same moment. Three guarantees are published today —
    `noc1-multicast-corner-order`, `noc-transfer-alignment` and
    `riscv-ebreak-halts` — each naming what a run against this build
@@ -1101,7 +1101,7 @@ this landed; what follows is what happened, not what was planned.
    keeping. Forward: every entry names the test that pins it and
    `behaviour_test.py` imports that module and looks the function up,
    so no guarantee outlives its check. Backward: the same test
-   **AST-parses every non-test module under `tt_sim/`** for exception
+   **AST-parses every non-test module under `framework/`** for exception
    classes and requires each one to be either registered or listed in
    `_NOT_A_GUARANTEE` *with a reason* — so adding a loudness guard
    turns the suite red until somebody has decided, in writing, whether
@@ -1116,7 +1116,7 @@ this landed; what follows is what happened, not what was planned.
    enough with the cost model **off** and not with it **on**: a charged
    NoC flight delivered **1 of 3** destinations by cycle 64 and all 3
    by 128. The cost-model gate is what caught it — it runs
-   `pytest tt_sim -q` under `TT_SIM_COST_MODEL=1`
+   `pytest framework -q` under `TT_SIM_COST_MODEL=1`
    (`driver/tests/cost_model_gate.py`) precisely so the model-on
    configuration cannot rot. The budget is now 1024, 8x the observed
    requirement and long enough that the negative tests' empty result
@@ -1128,12 +1128,12 @@ this landed; what follows is what happened, not what was planned.
 5. **The packer read DEST at half width whenever DEST was wider than
    the pack format — the most serious defect of the set, closed
    2026-08-19** (`5a4ffaf`). Reported as `gemm_bf16_check` returning
-   `errors=4096 of 4096` on tt-sim Wormhole while both real cards passed
+   `errors=4096 of 4096` on Wolfpine Wormhole while both real cards passed
    it. **The report was right and the diagnosis was wrong**: not a bf16
    `tilize_block` / `untilize_block` divergence. Their other
    conclusion — that it was not their own paging work — was right, but
    the reasoning behind it was not; see below.
-   **One register decides the width and tt-sim was not reading it.**
+   **One register decides the width and Wolfpine was not reading it.**
    tt-metal's `reconfig_packer_data_format` sets
    `PCK_DEST_RD_CTRL_Read_32b_data = is_32b_format || is_fp32_dest_acc_en`
    (`tt-llk/tt_llk_wormhole_b0/common/inc/cpack_common.h:620`, and `:457`
@@ -1142,7 +1142,7 @@ this landed; what follows is what happened, not what was planned.
    so `ComputeConfig{.fp32_dest_acc_en = true}` over **Float16_b**
    circular buffers — bf16 storage with fp32 accumulation, the ordinary
    GEMM configuration — leaves DEST holding
-   32-bit values while the pack *source* format is 16-bit. tt-sim chose
+   32-bit values while the pack *source* format is 16-bit. Wolfpine chose
    its DEST accessor from `DATA_FORMAT_TO_BITS[inDataFormat]` alone and
    so read DEST 16 bits at a time. **The field was declared in both
    `tensix_backend_cfg.yaml` (`:1553`) and
@@ -1153,7 +1153,7 @@ this landed; what follows is what happened, not what was planned.
    rows `r%4 ∈ {0,1}` × columns `c%32 < 16` — most of the buffer never
    written — with a clean device close, exit 1 and no `TT_FATAL`.
    **How it was localised is the transferable part.** Flipping the flag
-   on tt-sim's own `optests/untilize` failed all three ops **including
+   on Wolfpine's own `optests/untilize` failed all three ops **including
    op 0, the tiled `pack_tile` control that shares no untilize code at
    all**, which is what ruled out tilize: a fault that hits the control
    is not in the code the control avoids. And `examples/banks` — 24
@@ -1168,10 +1168,10 @@ this landed; what follows is what happened, not what was planned.
    truncating `FP32ToBF16` used on the Src/Dst write path); and refuse
    rather than guess for a 32-bit read under fp16, the one pair tt-metal
    answers with `Round_10b_mant` (`cpack_common.h:468`, `:630`) — a bit
-   tt-sim does not model. Validated **bit-for-bit against ttsim**
+   Wolfpine does not model. Validated **bit-for-bit against ttsim**
    on the fp32 arm, 3072 bf16 elements, both architectures — the
    rounding choice was not one to trust on our own reading. Pinned by
-   `tt_sim/pe/tensix/pack_dest_rd_ctrl_test.py` and by a new `fp32` arm
+   `framework/pe/tensix/pack_dest_rd_ctrl_test.py` and by a new `fp32` arm
    on `optests/untilize`; written up for the consumer in
    `docs/plans/v3-bf16-handoff.md`.
    **Why it survived**: every in-tree program that sets
@@ -1214,7 +1214,7 @@ this landed; what follows is what happened, not what was planned.
    each bit" gives `STALLWAIT` a tick in **all nine** block-mask
    columns, on Wormhole and Blackhole alike, and it is the only
    instruction whose row is: every other row names the units its bit is
-   about, which is what tt-sim's Wait Gate modelled — by the
+   about, which is what Wolfpine's Wait Gate modelled — by the
    instruction's `ex_resource`. `STALLWAIT`'s is `SYNC`, so only B1
    caught it. `tile_regs_wait()` is
    `SEMWAIT(B0, MATH_PACK, wait-while-zero)`, and the first instruction
@@ -1252,19 +1252,19 @@ this landed; what follows is what happened, not what was planned.
    **The fix** is one early return in `WaitGate.LatchedInstruction`,
    plus the table row it names; `optests/packuntilizeinit` is the
    end-to-end reproduction,
-   `tt_sim/pe/tensix/waitgate_stallwait_blocked_test.py` pins the
+   `framework/pe/tensix/waitgate_stallwait_blocked_test.py` pins the
    mechanism without needing tt-metal or the oracle, and
    `tensix-latched-wait-survives-stallwait` publishes it as a behaviour
    marker for the consumer who reported it. The rule is
    arch-independent and applies on Blackhole too, where all 32 replay
    guards are unmoved; *this kernel* is separately blocked there, since
    that arch takes the `llk_math_reconfig_remap` path in the same init,
-   which ttsim calls `UnimplementedFunctionality` and tt-sim does not
+   which ttsim calls `UnimplementedFunctionality` and Wolfpine does not
    finish.
 
 7. **The element-wise FPU ops rounded coarser than silicon — closed
    2026-09-13.** Reported (hand-off of 2026-09-11) as every
-   Gauss-Seidel stencil failing its *equality* gate on tt-sim — 530 of
+   Gauss-Seidel stencil failing its *equality* gate on Wolfpine — 530 of
    1024 points on the one-tile reproducer, all low, by multiples of
    1/16 — while the same binaries were bit-exact on n300 and p150b. The
    data had been sized to the hardware's exactness budget (11
@@ -1277,7 +1277,7 @@ this landed; what follows is what happened, not what was planned.
    contributed at HiFi4. **The mechanism** was a port slip in
    `srcAFidelityBits` / `srcBFidelityBits`: the odd phases isolate the
    remaining mantissa bits as `x - (x & mask)`, a *float* subtraction
-   in the ISA's helper, and tt-sim did it on the bit patterns — an
+   in the ISA's helper, and Wolfpine did it on the bit patterns — an
    integer of a few thousand that, reinterpreted as FP32, is a
    denormal. Phases 1–3 multiplied by ~0, so every fidelity level was
    LoFi, and the compiler's `matmul_tiles` never noticed because
@@ -1297,7 +1297,7 @@ this landed; what follows is what happened, not what was planned.
    retired by `optests/elwmul`: `mul_tiles` at all four fidelities plus
    `add_tiles` / `sub_tiles`, fp32-CB/fp32-Dst and bf16-CB/16-bit-Dst
    arms, 18432 elements **bit-exact against ttsim on Wormhole and on
-   Blackhole**; `tt_sim/pe/tensix/elementwise_datapath_test.py` pins
+   Blackhole**; `framework/pe/tensix/elementwise_datapath_test.py` pins
    vectors from that dump without the oracle to hand. The hand-off's
    three programs — the 32×32 reproducer and the 256×256
    control/DST-chain pair at two cores — are `errors=0` on both drivers,
@@ -1338,7 +1338,7 @@ be re-litigated:
 - **The device's own re-issue interval stays `unknown` and uncharged.**
   Charging `access_latency` as occupancy would assert 0.32 B/cycle
   against the 24 published on the same page.
-- **A tt-sim DRAM tile fronts two GDDR6 channels**, so one queue per
+- **A Wolfpine DRAM tile fronts two GDDR6 channels**, so one queue per
   *tile* over-charges. Each physical channel has its own watermark.
 - **Blackhole's DRAM *write* rate was uncharged on ONE axis too many —
   fixed 2026-08-17.** The channel figure is spent on two: a latency
@@ -1403,12 +1403,12 @@ be re-litigated:
   cross-checks the two*. Since `bank(byte) = (offset / page_size) %
   num_banks`, a wrong page size moves every byte to a different bank
   while leaving every address legal — silently wrong data, not a fault.
-  tt-sim reproduces that: it holds each bank as separate storage at its
+  Wolfpine reproduces that: it holds each bank as separate storage at its
   own NoC coordinate and **executes the kernel's real address
   arithmetic as RV32**, so a page computed into the wrong bank reads
   the wrong bytes here for the same reason it does on silicon. Give
   `examples/banks`' kernel a page size the host did not allocate with
-  and Wormhole tt-sim returns `errors=3072 of 6144` — no crash, no
+  and Wormhole Wolfpine returns `errors=3072 of 6144` — no crash, no
   `TT_FATAL`, clean device close — with the corruption starting at
   **page 12, the first bank wrap**, which is where the page size first
   enters the address at all.
@@ -1425,14 +1425,14 @@ be re-litigated:
   contiguous range could not tell the two layouts apart.
   **The host-side half is refused, and stays refused.** The
   1.89-vs-5.81 GB/s figure quoted at us is a **PCIe/host-DMA rate**,
-  which tt-sim cannot see by construction: there is no PCIe tile
-  (`tt_sim/bridge/cores.py` stubs it to zeros), no host-DMA term in
-  `tt_sim/perf/`, and a host `WRITE`/`READ` off the wire is applied to
-  device memory immediately at zero cycles. A tt-sim run is not
+  which Wolfpine cannot see by construction: there is no PCIe tile
+  (`framework/bridge/cores.py` stubs it to zeros), no host-DMA term in
+  `framework/perf/`, and a host `WRITE`/`READ` off the wire is applied to
+  device memory immediately at zero cycles. A Wolfpine run is not
   evidence about that ceiling in *either* direction. The device-side
   sibling — traffic collapsed onto one bank contending where spread
   traffic does not — needs nothing new, since each channel already
-  carries an occupancy (`DramChannels` in `tt_sim/device/tiles.py`).
+  carries an occupancy (`DramChannels` in `framework/device/tiles.py`).
   Both halves are written up for consumers in
   `docs/cost-model-caveats-for-consumers.md`.
   **Bank-internal timing has no route to provenance**: bank conflicts,
@@ -1528,8 +1528,8 @@ that session settled, and what it left.
   a Wormhole part, not code.**
   The Blackhole half ran 2026-08-12 and left a finding: the plateau is
   **47.147 B/cycle, at *neither* modelled ceiling** — not the 64 B/cycle
-  NoC link tt-sim flattens on, not a channel rate Blackhole publishes.
-  tt-sim predicted 62.2–64.0, so **the model is 26–35 % high on the
+  NoC link Wolfpine flattens on, not a channel rate Blackhole publishes.
+  Wolfpine predicted 62.2–64.0, so **the model is 26–35 % high on the
   level** even though the shape holds. The measured 47.1 agrees with
   rung 2's independent sizing to ~0.05 %. That gap is **not closable by
   measurement**; the read direction is now charged from the vendor
@@ -1680,7 +1680,7 @@ is left, and what must not be re-attempted:
   **over-charging** end, so bounding at 16 invents back-pressure the
   hardware does not have. No in-tree workload touches a PCBuf at all —
   tt-metal 0.74 launches TRISCs through mailboxes. The **read** side
-  is implemented, covered only by `tt_sim/pe/pcbuf_test.py`.
+  is implemented, covered only by `framework/pe/pcbuf_test.py`.
 - **`RDCFG`'s `>= 2` stays UNREACHED — three card runs, two retired
   methods.** `ConfigurationUnit.md` tabulates it under **Latency** at
   IPC 1, so it is a GPR-write latency, and `RDCFG.md`'s "software must
@@ -1703,7 +1703,7 @@ is left, and what must not be re-attempted:
   mutate device state. **Do not attempt a fourth probe without solving
   that**, and note `d_min` is a *lower* bound either way.
 - The mover / PC-buffer point fixes remain.
-- **Open, and a vendor-vs-doc conflict**: tt-sim decodes Blackhole's
+- **Open, and a vendor-vs-doc conflict**: Wolfpine decodes Blackhole's
   `wait_res` at 13 bits per the ISA page, against ttsim's data file at
   12. Four sources say 13, including tt-metal's own LLK header where
   `p_stall::CFGEXU = 0x1000` cannot fit in 12. Reversing it is one
@@ -1727,7 +1727,7 @@ replaces:
   Blackhole.** It read "the baby cores are RV32IM with no Zicsr — no
   `mcycle`, no `minstret`", with no architecture qualifier, and §6 has
   recorded the opposite the whole time: `BabyRISCV/CSRs.md` documents
-  `0xb00 mcycle` and `0xb02 minstret` on Blackhole, and tt-sim has
+  `0xb00 mcycle` and `0xb02 minstret` on Blackhole, and Wolfpine has
   implemented them since 2026-08-18. **True on Wormhole only** (the
   string `csr` appears zero times in its doc tree). What survives is
   the rest: tt-metal 0.74, UMD and the public ISA docs contain no PC
@@ -1768,14 +1768,14 @@ not ordering — and Tensix **hardware performance counters** answer it
 at cycle resolution, per thread, per mechanism, with **no
 instrumentation inside the measured window** (start/stop on TRISC1
 wrap the kernel; readout on BRISC afterwards).
-`TT_METAL_PROFILE_PERF_COUNTERS`'s Blackhole INSTRN bank is tt-sim's
+`TT_METAL_PROFILE_PERF_COUNTERS`'s Blackhole INSTRN bank is Wolfpine's
 own `STALL_REASONS` vocabulary in hardware: `THREAD_STALLS_{0,1,2}`,
 `WAITING_FOR_{SRCA,SRCB}_{CLEAR,VALID}`,
 `WAITING_FOR_{THCON,UNPACK,PACK,MATH,MOVE,SFPU}_IDLE_n`,
 `WAITING_FOR_{NONZERO,NONFULL}_SEM_n`, `THREAD_INSTRUCTIONS_n`.
 
 **What rung 4 now requires.** Three programs — RV-bound, Tensix-bound,
-NoC-bound — run unmodified on silicon and tt-sim under the same
+NoC-bound — run unmodified on silicon and Wolfpine under the same
 tt-metal build. **Every criterion is per core**: on the 2026-08-10 part
 the whole physical column x=11 keeps a wall-clock epoch 1.5e13 cycles
 from the rest, so no cross-core span is admissible.
@@ -1795,7 +1795,7 @@ from the rest, so no cross-core span is admissible.
    check that has ever touched the five wired Tensix backends, which
    rungs 1 and 2 validate *not at all*.
 4. **The NoC split, checked directly.** Built 2026-08-16 —
-   `perfbench/nocevbench` + `tt_sim.perf.noc_events`; see the v2.0
+   `perfbench/nocevbench` + `framework.perf.noc_events`; see the v2.0
    list's item 2 for what it established and what it corrected.
    `TT_METAL_DEVICE_PROFILER_NOC_EVENTS=1` needs **no kernel change**
    and brackets every `noc_async_read_barrier` with timestamped
@@ -1804,7 +1804,7 @@ from the rest, so no cross-core span is admissible.
    no per-transaction completion timestamp**, so the "agreement with
    `noc_flight_cycles` plus queueing" once written here has no
    hardware counterpart and is *not* what the leg does. The comparison
-   is tt-sim's own `noc_trace_*.json` against a card's, decomposed by
+   is Wolfpine's own `noc_trace_*.json` against a card's, decomposed by
    mechanism at ± 25 %; `noc_flight_cycles` is a simulator-side
    diagnostic only, and already contains the queueing.
    **Validated against silicon on both arches 2026-08-17** — six
@@ -1840,7 +1840,7 @@ from the rest, so no cross-core span is admissible.
    name**, and a flush is **charged to its own `profiler` bucket**
    rather than absorbed into `issue`: it is instrumentation the capture
    added, and folding it in would charge the model for the difference
-   between how tt-sim and a card execute the profiler's own DRAM write.
+   between how Wolfpine and a card execute the profiler's own DRAM write.
    It belongs in the partition because **both sides can fill it**,
    which is the test for whether a bucket belongs at all. The bucket is
    an *upper* bound — the `ZONE_END` marker is written before the flush
@@ -1862,8 +1862,8 @@ from the rest, so no cross-core span is admissible.
    *compute* side only and is dropped by the JSON converter, so no
    tt-metal flag recovers the split for these streams (checked against
    0.74 rather than assumed).
-   **tt-sim could fill the bucket from its own internals and refused.**
-   It does know more here — `tt_sim.pe.rv.spin` recognises a baby core
+   **Wolfpine could fill the bucket from its own internals and refused.**
+   It does know more here — `framework.pe.rv.spin` recognises a baby core
    polling L1 — but a `pre_first_event_wait` bucket only the simulator
    can populate makes the card's share **zero by construction** and
    charges the model, through `E_int`, for an artefact of
@@ -1883,9 +1883,9 @@ than the one known open level error (`dramratebench`, 26–35 %). Silicon
 noise is not the limit: the two 2026-08-10 sessions reproduce device
 cycles to 0.1 %.
 
-**The tt-sim blocker closed 2026-08-13**: `RISCV_DEBUG_REG_PERF_CNT_*`
+**The Wolfpine blocker closed 2026-08-13**: `RISCV_DEBUG_REG_PERF_CNT_*`
 is modelled for all five banks, sourcing the `INSTRN_THREAD` counters
-from the quantities tt-sim already tracks — per-thread stalls,
+from the quantities Wolfpine already tracks — per-thread stalls,
 semaphore empty/full, Src ownership, dispatches. Verified end to end on
 the wire with `TT_METAL_PROFILE_PERF_COUNTERS=32`. Three counter
 families were **declined rather than forced**, most importantly
@@ -1991,7 +1991,7 @@ should be assumed BRISC-only.
 Pick up when a kernel or example actually demands it; everything here
 fails loudly today. Grep for `NotImplementedError` in the named files.
 
-**Tensix** (`tt_sim/pe/tensix/`):
+**Tensix** (`framework/pe/tensix/`):
 - ThCon: `ATCAS` / `ATSWAP` / `ATINCGET` (`backends/thcon.py`; the
   NoC-dispatch half is shared with the NoC item below).
 - Mover: region-crossing transfers (`backends/mover.py`); 16 KB /
@@ -2009,7 +2009,7 @@ fails loudly today. Grep for `NotImplementedError` in the named files.
   ISA doc flags its own pseudocode as low-confidence).
 - Numerics: rounding-mode overrides, per-thread `FP16A_FORCE` (parsed,
   not applied), accumulator persistence, the 32-bit ZEROACC bank fixup
-  (deliberately left — tt-sim's `useDst32b` mapping diverges from
+  (deliberately left — Wolfpine's `useDst32b` mapping diverges from
   ttsim's swizzle).
 - **Acquire-half dvalid precondition unchecked** — the release half
   raises `SrcDvalidError`; acquiring a bank the Matrix Unit already
@@ -2024,13 +2024,13 @@ fails loudly today. Grep for `NotImplementedError` in the named files.
   diverges from silicon on a shape no in-tree example uses
   (`docs/plans/tensix-cost-benchmark.md`).
 - ~~**`SEMPOST` above a semaphore's `MaxValue` is silent**~~ — fixed
-  2026-08-20, `tt_sim/pe/tensix/semaphore_contract.py`, behaviour
-  `tensix-semaphore-bounds`. tt-sim's `SEMPOST` still saturates at 15
+  2026-08-20, `framework/pe/tensix/semaphore_contract.py`, behaviour
+  `tensix-semaphore-bounds`. Wolfpine's `SEMPOST` still saturates at 15
   exactly as `SEMPOST.md` says, and `Max` still has no effect on the
   arithmetic (`SEMINIT.md`: "only subsequently used by `SEMWAIT`");
   what is new is that a post *to or past* a `Max` some `SEMINIT`
   declared raises `SemaphoreContractError` instead of returning numbers
-  that are decided by tt-sim's interleaving. `Max` is `SEMWAIT` C1's
+  that are decided by Wolfpine's interleaving. `Max` is `SEMWAIT` C1's
   threshold and nothing else, so reaching it proves the producer
   issued past its own gate. Posts at 15 and gets at 0 — where the
   hardware itself discards the operation, and both tt-metal's LLK and
@@ -2045,14 +2045,14 @@ fails loudly today. Grep for `NotImplementedError` in the named files.
   nothing else in the corpus moves. `TT_SIM_DISABLE_SEMAPHORE_CHECKS=1`
   restores the old silence.
 
-**NoC** (`tt_sim/network/tt_noc.py`):
+**NoC** (`framework/network/tt_noc.py`):
 - Register coverage: many offsets beyond the basic counter set, the
   command buffers and `NOC_CFG` raise on access.
 - Atomic ops beyond ATINC (semantics half of the ThCon item above).
   *Test:* a kernel using `noc_atomic_increment_with_response` waiting
   on `NIU_MST_ATOMIC_RESP_RECEIVED`.
 - Router arbitration & flow control: no buffer back-pressure, no
-  fairness, no virtual channels (which is why tt-sim is structurally
+  fairness, no virtual channels (which is why Wolfpine is structurally
   blind to the `DIR_BIDIR` hang class). **Not to be misread as "no
   contention"** — the cycle cost of two flows sharing a link *is*
   modelled (`NocLinkRegistry`, wired 2026-08-05, `isa_doc_derived`,
@@ -2065,7 +2065,7 @@ fails loudly today. Grep for `NotImplementedError` in the named files.
   matmul-mcast writes identical data — but it is a real gap and wants
   its own guard.
 
-**Device / tile** (`tt_sim/device/`, `tt_sim/misc/`):
+**Device / tile** (`framework/device/`, `framework/misc/`):
 - Soft-reset sequencing applied immediately (multi-step ISA sequence
   not modelled).
 - Tile-control registers: `misc/tile_ctrl.py` is a silently-plausible
@@ -2173,7 +2173,7 @@ and correct" is confirmed. Its cycle source is MMIO
   compute-grid range. It *contains* it** — measured 2026-08-12, the
   default is 8x9 = 72 on Wormhole (not 80) and 13x10 = 130 on
   Blackhole (not 140). One word, and the runbook is already correct.
-- **Retire the stale "tt-sim models no link congestion" claim**, which
+- **Retire the stale "Wolfpine models no link congestion" claim**, which
   predates the 2026-08-05 wiring and survives in seven places:
   `perfbench/README.md:49,226,248`,
   `perfbench/card_session_verdicts.sh:499,743`,
@@ -2192,9 +2192,9 @@ and correct" is confirmed. Its cycle source is MMIO
   owned, modelled-vs-stubbed list; audit script asserts the
   `ISA-docs:` link.
 - Mermaid diagrams: top-level device block (root README), Tensix
-  dataflow (`tt_sim/pe/tensix/README.md`), kernel-launch sequence
+  dataflow (`framework/pe/tensix/README.md`), kernel-launch sequence
   (`driver/wormhole/README.md`).
-- `tt_sim/ISA_INDEX.md` — grep-able ISA-docs cross-reference,
+- `framework/ISA_INDEX.md` — grep-able ISA-docs cross-reference,
   including "not modelled".
 - Shellcheck the `run.sh` family (`driver/{wormhole,blackhole}/run.sh`,
   `optests/diff.sh`, `driver/blackhole/tests/run_examples.sh`).

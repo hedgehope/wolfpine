@@ -39,9 +39,9 @@ in the same rsync.
 
 ## What it is for
 
-tt-sim charges DRAM **endpoint occupancy** since 2026-08-09: a request arriving
+Wolfpine charges DRAM **endpoint occupancy** since 2026-08-09: a request arriving
 while the channel is streaming another one waits for it (`DramChannels` in
-`tt_sim/device/tiles.py`). The number is not a new one — it is
+`framework/device/tiles.py`). The number is not a new one — it is
 `ceil(N / dram.channel_serialisation.bytes_per_cycle)`, which the model already
 spends as a latency — so the term needs no measurement to be *sourced*.
 
@@ -111,7 +111,7 @@ as "the endpoint" rather than "the channel".
 
 `onechan_scale / fanchan_scale`, graded at 0.75. An absolute rule — "`onechan`
 must stay under ×1.5" — is really a question about how wide the sweep was, since
-a channel cannot flatten a load that does not saturate it. On tt-sim's own
+a channel cannot flatten a load that does not saturate it. On Wolfpine's own
 Wormhole numbers with the cost model on (four readers: `onechan` ×2.21 against
 `fanchan` ×3.97) the absolute rule reports the endpoint-occupancy term REFUTED
 by the run that demonstrates it. The ratio reads 0.56 and reports it bound.
@@ -136,8 +136,8 @@ constant, and the sweep can say so per reader count rather than in the abstract.
 ### The prediction — recorded 2026-08-12, before any Wormhole card ran this
 
 `perfbench/dramratebench/prediction-sustained.csv`, pinned cell by cell in
-`tt_sim/perf/dram_rate_sweep_test.py` so that it cannot be quietly revised after
-a measurement. tt-sim, `TT_SIM_COST_MODEL=1`, 1 MiB per reader, 4096 B
+`framework/perf/dram_rate_sweep_test.py` so that it cannot be quietly revised after
+a measurement. Wolfpine, `TT_SIM_COST_MODEL=1`, 1 MiB per reader, 4096 B
 transactions, twelve materialised tiles:
 
 | readers | predicted `onechan` B/cycle | → GB/s at 1 GHz | published |
@@ -165,7 +165,7 @@ Three ways it can be wrong, and each says something different:
 * **it plateaus far below 22** — something upstream of both binds first, and the
   run sizes the reader rather than the endpoint.
 
-Beyond 12 readers tt-sim cannot be run at these parameters in reasonable time —
+Beyond 12 readers Wolfpine cannot be run at these parameters in reasonable time —
 48 tiles × 48 MiB through one modelled channel is over two million simulated
 cycles with 48 tiles stepping — so the 48-reader row is the model's own asymptote
 and is labelled `plateau-extrapolated` in the file rather than passed off as a
@@ -175,7 +175,7 @@ simulated point.
 
 The lab has a Blackhole part and it ran this sweep on 2026-08-09, so nothing
 about Blackhole here can be called a prediction. It is recorded anyway, labelled,
-because of what it shows: tt-sim predicts a plateau at **64.0 B/cycle** and the
+because of what it shows: Wolfpine predicts a plateau at **64.0 B/cycle** and the
 card measured **47.1**. The simulator is 36% high, and the plateau it produces
 is the DRAM tile's NoC **link** — 64 B/cycle exactly — because Blackhole's
 endpoint queue is switched off for want of a published per-channel rate. The
@@ -184,7 +184,7 @@ with rung 2's wholly independent 47.1 B/cycle sizing of Blackhole DRAM reads.
 
 **None of that made anything chargeable, and something became chargeable
 anyway.** The card cannot supply provenance and never did. But re-reading the
-sentence above showed the *block* had been misidentified: what tt-sim was
+sentence above showed the *block* had been misidentified: what Wolfpine was
 missing on Blackhole was `dram.channel_serialisation`, a bytes-per-cycle figure,
 and a bytes-per-cycle figure does not have to arrive by unit conversion from a
 published GB/s. Since 2026-08-12 it arrives instead from arithmetic on two of
@@ -195,21 +195,21 @@ still needs a document; it simply never gated the term.
 
 So the standing of the numbers above has changed, and only in one direction:
 the card's 47.147 is **corroboration** of a derivation that predates it and
-never saw it, agreeing to 0.14 %. tt-sim's own plateau is no longer 64.0 — it
+never saw it, agreeing to 0.14 %. Wolfpine's own plateau is no longer 64.0 — it
 is the derived channel rate, and `plateau_sits_at` now answers `channel` for
 this run where it answered `neither`.
 
 ### Reading a run
 
 ```bash
-python3 -m tt_sim.perf.dram_rate_sweep --measured dram.wormhole.csv
+python3 -m framework.perf.dram_rate_sweep --measured dram.wormhole.csv
 ```
 
 It applies the gates below, prints the aggregate per reader count in
 B/cycle and GB/s, says which ceiling the plateau landed on, and only then
 compares to the committed prediction and to the published table. `--no-prediction`
 reads the levels alone. The program itself prints the same table at the card, so
-none of this needs `tt_sim/` on the card box.
+none of this needs `framework/` on the card box.
 
 ## What it can never do
 
@@ -231,7 +231,7 @@ point of this section — vendor arithmetic is provenance, a card run is not,
 and it stays that way however well the two agree.)
 
 **And "at the shared endpoint" is as far as the shape alone goes** — it is not
-the same claim as "at the GDDR6 channel". tt-sim produces exactly that shape on
+the same claim as "at the GDDR6 channel". Wolfpine produces exactly that shape on
 Blackhole with no endpoint queue at all, out of the DRAM tile's inbound router
 link. Only the level tells them apart, which is what the section above is for.
 
@@ -270,7 +270,7 @@ Two more things a row must prove before it is read:
   `max` rather than `mean` charges the slowest reader against the aggregate,
   which can only make a scaling arm look *less* scaled.
 
-## Against tt-sim
+## Against Wolfpine
 
 `--sim` is a harness check and not a measurement, and what it reads depends on
 which simulator and how many tiles. All three of these are correct and none is a
@@ -312,7 +312,7 @@ on to four significant figures, and the ratio cannot tell a link from a channel
 because the two differ only in their **level**.
 
 That is the whole argument for reading the level as well, and
-`tt_sim.perf.dram_rate_sweep` does exactly that: it puts the plateau next to
+`framework.perf.dram_rate_sweep` does exactly that: it puts the plateau next to
 both ceilings the cost tables hold — the link's `noc.flit_bits` × throughput and
 the channel's `dram.channel_serialisation` — and says which one, or neither, it
 landed on.
@@ -333,7 +333,7 @@ In order, and each can only ever fail the run:
 
 `perfbench/card_session_verdicts.sh`'s `dram_verdict` applies the first four, in
 that order, and `card_session_verdicts_test.sh` runs them against synthetic files
-that fail each one. `tt_sim.perf.dram_rate_sweep` applies the same first four —
+that fail each one. `framework.perf.dram_rate_sweep` applies the same first four —
 as three gates, since 3 and 4 are one arm's reading — and then the fifth, and
 `dram_rate_sweep_test.py` drives **every one of them in both directions**: rows
 built to satisfy it and rows built to break it. That is not tidiness. This
@@ -411,14 +411,14 @@ Wormhole simulator, 2026-08-17:
   produced (8.14 and 16.29 B/cycle) are entirely plausible and would have been
   published.
 * every writer aimed at the *next bank's coordinate* → caught on one point in
-  four, and the reason is worth recording: tt-sim fronts twelve Wormhole banks
+  four, and the reason is worth recording: Wolfpine fronts twelve Wormhole banks
   on **aliases of one modelled DRAM tile**, so a wrong coordinate at the same
   offset lands in the same memory. **The coordinate half of this check is weak
   against the simulator and strong against a card**, where the twelve banks are
   twelve independent tiles. The address half is aliasing-independent and is what
   the first injection exercises.
 
-### What tt-sim predicts, on both parts
+### What Wolfpine predicts, on both parts
 
 Four tiles, 4096 B transactions, `TT_SIM_COST_MODEL=1`:
 
@@ -427,7 +427,7 @@ Four tiles, 4096 B transactions, `TT_SIM_COST_MODEL=1`:
 | Wormhole | 23.406 | 23.327 | **0.997** | `dram.channel_serialisation` is 24 B/cycle for **both** directions there — one published per-channel figure its page states for reads and writes alike — so the model asserts a symmetric endpoint |
 | Blackhole | 44.364 | 60.208 | **1.357** | a `vendor_source_derived` **read** rate of 47.08 B/cycle and **no write rate at all**, so `DramChannels.write_bytes_per_cycle` is `None`, every write claim is a no-op, and the unqueued write arm runs up against the 64 B/cycle NoC link instead |
 
-**tt-sim predicts opposite signs on the two parts, and the Wormhole card's own
+**Wolfpine predicts opposite signs on the two parts, and the Wormhole card's own
 latency data leans a third way** (write dearer). Three positions; this campaign
 can adjudicate only the occupancy one. Blackhole's predicted asymmetry is the
 **shape of an absence** rather than of a measurement, and a card showing
@@ -436,7 +436,7 @@ there.
 
 ### A limitation the simulator has and the card does not
 
-**tt-sim cannot currently produce a non-degenerate write fan-out control.** At
+**Wolfpine cannot currently produce a non-degenerate write fan-out control.** At
 four tiles `fanchan-write` scales ×1.47 on Wormhole and ×1.30 on Blackhole,
 under the ×1.5 gate, and the run correctly reports `DEGENERATE` rather than the
 flat concentrated curve it was hoping for. The cause is topology: the four
@@ -506,7 +506,7 @@ files that prove a widened band still refuses a real move.
 ```
 
 `--dir` adds a `-write` copy of each selected arm; the read arm's rows keep
-their unsuffixed names, so `tt_sim.perf.dram_rate_sweep` and
+their unsuffixed names, so `framework.perf.dram_rate_sweep` and
 `card_session_verdicts.sh` — which both match `onechan` and `fanchan` exactly —
 read a file with writes in it exactly as they read one without. The write
 direction's three columns (`direction`, `witness_ok`, `stray_writes`) are

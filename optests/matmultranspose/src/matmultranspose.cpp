@@ -2,8 +2,8 @@
 //
 // Raised by the hedgehope compiler team: their codegen emitted
 // `matmul_init(5, 4, 4)` -- the third operand is the transpose flag and 4 is
-// truthy -- and tt-sim produced the un-transposed answer, which they read as
-// tt-sim ignoring the flag. It does not; the flag lands in two places with
+// truthy -- and Wolfpine produced the un-transposed answer, which they read as
+// Wolfpine ignoring the flag. It does not; the flag lands in two places with
 // different widths (see the compute kernel), and this program pins down all
 // three cases against the vendor reference simulator:
 //
@@ -15,7 +15,7 @@
 // values, so ops 0 and 1 have exact goldens and "transposed" versus "not" is an
 // unmistakable difference rather than a rounding question. Op 2 has no golden --
 // it is the argument the compiler team actually emitted, and what matters is
-// that tt-sim and ttsim agree on it, which `optests/diff.sh matmultranspose`
+// that Wolfpine and ttsim agree on it, which `optests/diff.sh matmultranspose`
 // checks via the `OPDIFF_RESULT` dump.
 
 #include <bit>

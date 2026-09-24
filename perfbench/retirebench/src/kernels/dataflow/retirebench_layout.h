@@ -49,7 +49,7 @@
 //
 // `reps` is chosen so that every zone lands near 6000 cycles ON A CARD, using
 // the per-instruction costs perfbench/riscvbench measured on Blackhole silicon
-// (2026-08-05, recorded in tt_sim/pe/rv/cost.py's docstring):
+// (2026-08-05, recorded in framework/pe/rv/cost.py's docstring):
 //
 //     addi 1.00   mul indep 0.999   mul dep 1.985   divu 0x12345678/3 33.001
 //     L1 chase 8.098   L1 indep load 1.742   spread L1 store ~5
@@ -63,7 +63,7 @@
 // marker cost would otherwise suggest. `div_large` is the constraint, and it is
 // the one zone whose two sides are KNOWN to disagree before the program is run:
 // the divide's cost is a documented data dependence ("between six and 33 cycles
-// ... dependent upon the magnitude of the dividend"), tt-sim charges the
+// ... dependent upon the magnitude of the dividend"), Wolfpine charges the
 // documented floor of 6 for every operand, and riscvbench read 33.001 on
 // silicon at a 29-bit dividend. So the zone must be long enough that the
 // SIMULATOR side -- the short one, at 6 cycles a divide -- still clears the

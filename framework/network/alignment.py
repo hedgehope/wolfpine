@@ -35,9 +35,9 @@ read (MMIO -> L1)       ``C4``                                     tile.cpp:1581
 
 Deliberately *not* modelled — see the module docstring of the test file for the
 full reasoning — are the byte-enable-mode absolute alignments (byte-enable writes
-are unimplemented in both tt-sim and ttsim), the atomic and inline-write address
+are unimplemented in both Wolfpine and ttsim), the atomic and inline-write address
 rules (ttsim flags those ``UnimplementedFunctionality``, i.e. simulator limits
-rather than hardware limits), and the maximum-packet-size bound (tt-sim
+rather than hardware limits), and the maximum-packet-size bound (Wolfpine
 deliberately *splits* oversized bursts at the NIU instead of rejecting them).
 
 Checking is on by default and is disabled by setting
@@ -102,7 +102,7 @@ def congruence_for_read(src_addr: int, src_is_dram: bool, dram_congruence: int) 
     """The modulus a read must satisfy, given where it is reading *from*.
 
     ``dram_congruence`` is the architecture's
-    :attr:`~tt_sim.arch.profile.ArchProfile.noc_dram_read_congruence` (32 on
+    :attr:`~framework.arch.profile.ArchProfile.noc_dram_read_congruence` (32 on
     Wormhole, 64 on Blackhole).
     """
     if src_is_dram:

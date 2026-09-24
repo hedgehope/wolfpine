@@ -1,0 +1,28 @@
+== date 2026-08-10T09:57:38+01:00
+== uname
+Linux nextgenio-amd02 6.8.0-137-generic #137-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 17 20:28:23 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+== tt-smi -ls
+./run_paper_session.sh: line 449: tt-smi: command not found
+(tt-smi not on PATH)
+== tt-smi -s
+./run_paper_session.sh: line 450: tt-smi: command not found
+(tt-smi not on PATH)
+== lspci Tenstorrent
+27:00.0 Processing accelerators [1200]: Tenstorrent Inc Blackhole [1e52:b140]
+83:00.0 Processing accelerators [1200]: Tenstorrent Inc Blackhole [1e52:b140]
+== kmd version
+2.10.0
+== nocbench --dump-grid header
+# nocbench-grid arch=blackhole soc_grid_x=17 soc_grid_y=12 logical_grid_x=12 logical_grid_y=10
+# noc_x/noc_y are worker_core_from_logical_core(), i.e. the coordinate a kernel addresses.
+# phys_x/phys_y are each core's own NOC_NODE_ID, read by a probe kernel on the first
+# logical row and column and extended per axis. This is the SoC-physical NoC 0 space,
+# which is the only one a link or hop count is valid in.
+== worker rows in the dump: 120
+== UMD banner (from a live launch)
+2026-08-10 09:57:40.868 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-10 09:57:40.879 | info     |             UMD | Established firmware bundle version: 19.6.0 (topology_discovery.cpp:574)
+2026-08-10 09:57:41.004 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1}/[0, 1] and remote chip ids {} (cluster.cpp:168)
+2026-08-10 09:57:41.004 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-10 09:57:41.857 | info     |          Device | Slow dispatch mode: Using full logical grid (12, 10) (core_descriptor.cpp:220)
+2026-08-10 09:57:41.858 | info     |          Device | Slow dispatch mode: Using full logical grid (12, 10) (core_descriptor.cpp:220)

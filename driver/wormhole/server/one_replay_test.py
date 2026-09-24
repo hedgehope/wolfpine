@@ -60,7 +60,7 @@ def main():
         )
 
         # Wait for "listening on" then "Wormhole ready" — the latter signals
-        # the server has finished building the (slow) tt-sim Wormhole.
+        # the server has finished building the (slow) Wolfpine Wormhole.
         deadline = time.monotonic() + 30.0
         ready = False
         while time.monotonic() < deadline:

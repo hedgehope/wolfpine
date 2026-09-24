@@ -64,11 +64,11 @@
 #   raw/*.pow.csv   in-slot power samples -- every attempt, successes and failures
 #   raw/*.clk.csv   sysfs clock and thermal samples, taken throughout
 #   raw/*.post.csv  --bracket only: post-exit samples on a decaying edge
-#   power.csv       the aggregated input to tt_sim.perf.energy_rank
+#   power.csv       the aggregated input to framework.perf.energy_rank
 #   decay.txt       --bracket only: the fitted thermal time constant
 #
-# Analysis happens AT HOME, not here -- it needs tt_sim/ and numpy:
-#   python3 -m tt_sim.perf.energy_rank --activity activity-sim.csv \
+# Analysis happens AT HOME, not here -- it needs framework/ and numpy:
+#   python3 -m framework.perf.energy_rank --activity activity-sim.csv \
 #       --measured power.csv
 #
 # HARNESS TESTING WITHOUT A CARD
@@ -461,5 +461,5 @@ echo "is a different clock state, so the analysis FITS the busy-state floor from
 echo "the arm rows rather than subtracting the baseline." | tee -a "$LOG"
 [ "$BRACKET" = 1 ] && echo "power_bracket_w is the FALLBACK: post-exit, a decaying edge, a different quantity." | tee -a "$LOG"
 echo "Analyse at home:" | tee -a "$LOG"
-echo "  python3 -m tt_sim.perf.energy_rank --activity activity-sim.csv --measured $OUT/power.csv" | tee -a "$LOG"
+echo "  python3 -m framework.perf.energy_rank --activity activity-sim.csv --measured $OUT/power.csv" | tee -a "$LOG"
 exit $status

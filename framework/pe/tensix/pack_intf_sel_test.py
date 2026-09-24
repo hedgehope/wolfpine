@@ -23,7 +23,7 @@ pin all three consequences:
 * an unwritten section is never consulted, while a packer that this PACR *does*
   drive and that genuinely asks for zero compression still raises.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.pack_intf_sel_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.pack_intf_sel_test``) or under
 pytest.
 """
 
@@ -31,9 +31,9 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import DataFormatConversions, TensixConfigurationConstants
 
 BF16 = 5  # DataFormat.BF16
 #: L1_Dest_addr, in 16-byte units, and the byte address it names.

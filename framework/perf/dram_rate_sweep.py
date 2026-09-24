@@ -8,7 +8,7 @@ ONE DRAM channel, simultaneously, with N swept*. The vendor's own answer is
 
 -- an aggregate that does not grow with the number of readers. That flatness
 is **endpoint occupancy stated as a vendor measurement**, and it is the only
-validation available for tt-sim's ``DramChannels`` term on either
+validation available for Wolfpine's ``DramChannels`` term on either
 architecture: rung 2 structurally cannot reach it, because every retained DRAM
 row is ``num_transactions = 1`` and a lone request never finds the channel
 busy.
@@ -45,7 +45,7 @@ Three things this deliberately does not do
   channel looks like, and equally what a saturated link, a saturated issue
   rate, or N readers that never overlapped look like. The gates below run
   first and can only ever fail a run.
-* **It is not a cycle oracle either way.** tt-sim is not cycle-accurate; the
+* **It is not a cycle oracle either way.** Wolfpine is not cycle-accurate; the
   prediction it supplies is of a *shape* and a *level to within a band*, and
   :data:`LEVEL_BAND` is that band, stated once and applied to every point.
 
@@ -54,14 +54,14 @@ Run it
 
 ::
 
-    python3 -m tt_sim.perf.dram_rate_sweep
-    python3 -m tt_sim.perf.dram_rate_sweep --measured dram.wormhole.csv
-    python3 -m tt_sim.perf.dram_rate_sweep --measured dram.csv --no-prediction
+    python3 -m framework.perf.dram_rate_sweep
+    python3 -m framework.perf.dram_rate_sweep --measured dram.wormhole.csv
+    python3 -m framework.perf.dram_rate_sweep --measured dram.csv --no-prediction
 
 With no ``--measured`` it reads the tracked silicon dataset in
-``tt_sim/perf/datasets/``. The prediction it compares against lives in
+``framework/perf/datasets/``. The prediction it compares against lives in
 ``perfbench/dramratebench/prediction-sustained.csv`` so that it travels to a
-card box with ``perfbench/`` alone, where ``tt_sim/`` usually is not importable.
+card box with ``perfbench/`` alone, where ``framework/`` usually is not importable.
 """
 
 from __future__ import annotations
@@ -71,8 +71,8 @@ import csv
 import statistics
 from pathlib import Path
 
-from tt_sim.perf.costs import load_costs
-from tt_sim.perf.model import DramCostModel, NocCostModel
+from framework.perf.costs import load_costs
+from framework.perf.model import DramCostModel, NocCostModel
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -85,7 +85,7 @@ DATASET_DIR = Path(__file__).resolve().parent / "datasets"
 PRIMARY_DATASET = "dramratebench-blackhole-2026-08-09.csv"
 
 #: The prediction, recorded before any card comparison. In ``perfbench/``
-#: rather than in ``tt_sim/perf/datasets/``, twice over: it is not a
+#: rather than in ``framework/perf/datasets/``, twice over: it is not a
 #: measurement on a part, so it must not sit in a directory whose contract says
 #: every file in it is; and ``perfbench/`` is what gets rsynced to a card box,
 #: so an operator can read what was predicted without a repo checkout.
@@ -110,7 +110,7 @@ VENDOR_SOURCE = "wh_dram#performance"
 FLAT_BAND = 1.15
 
 #: How far a measured plateau may sit from the predicted one and still be
-#: called a hit. A quarter, and stated once: tt-sim is a functional oracle, not
+#: called a hit. A quarter, and stated once: Wolfpine is a functional oracle, not
 #: a cycle oracle, so a tighter band would be a claim the simulator cannot
 #: support, and a looser one would accept a plateau at the NoC link's 32
 #: B/cycle as though it were the channel's 24.
@@ -483,7 +483,7 @@ def compare_to_prediction(table, predicted, band=LEVEL_BAND):
 def compare_to_vendor(table, clock_mhz, band=LEVEL_BAND):
     """``[(n, measured_gb_s, vendor_gb_s, deviation, hit)]``.
 
-    Empty unless the run carries a real clock: tt-sim reports 0 MHz, honestly,
+    Empty unless the run carries a real clock: Wolfpine reports 0 MHz, honestly,
     and converting B/cycle at a clock the device did not report would invent
     the very number the comparison is about.
     """
@@ -543,7 +543,7 @@ def report(path, prediction_path=None, use_prediction=True, out=print):
         )
     if not clock_mhz:
         out(
-            "    (the device reported 0 MHz -- tt-sim does -- so no GB/s column is shown;"
+            "    (the device reported 0 MHz -- Wolfpine does -- so no GB/s column is shown;"
         )
         out(
             "     a GB/s converted at a clock the device did not report is not a reading)"

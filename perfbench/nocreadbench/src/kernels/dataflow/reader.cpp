@@ -197,7 +197,7 @@ void run_bursts(const Plan& p, volatile tt_l1_ptr uint32_t* out) {
     //
     // What this does and does not buy, measured rather than assumed. Against
     // NRB2 -- the program the 2026-08-17 Wormhole session ran -- the stateless
-    // arm's PER-TRANSACTION cost is bit-identical on tt-sim: 38.00 cycles on
+    // arm's PER-TRANSACTION cost is bit-identical on Wolfpine: 38.00 cycles on
     // Wormhole and 41.00 on Blackhole, at all three burst intervals, before and
     // after. Its CONSTANT term moved by +4 cycles on Wormhole and +1 on
     // Blackhole, which is register allocation around a shared loop body and not

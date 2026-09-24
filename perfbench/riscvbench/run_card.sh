@@ -136,7 +136,7 @@ fi
 if [ -f "$OUT/riscvbench-main.csv" ]; then
   echo | tee -a "$LOG"
   echo "== analysis" | tee -a "$LOG"
-  python3 -m tt_sim.perf.riscv_bench_sweep --measured "$OUT/riscvbench-main.csv" 2>&1 \
+  python3 -m framework.perf.riscv_bench_sweep --measured "$OUT/riscvbench-main.csv" 2>&1 \
     | tee "$OUT/riscvbench.report.txt" | tail -40
 fi
 

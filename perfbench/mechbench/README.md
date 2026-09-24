@@ -1,4 +1,4 @@
-# mechbench — checking tt-sim's *interior* against silicon's stall counters
+# mechbench — checking Wolfpine's *interior* against silicon's stall counters
 
 Rung 4's **mechanism-attribution leg**. Three silicon comparisons already exist
 in this repo — component slopes to ~1 %, nekbone's per-core zones within
@@ -22,7 +22,7 @@ decomposition pays ≥ 28 device cycles per marker and can only cut the span whe
 a marker was placed, whereas these counters resolve *why* a thread was not
 issuing, at cycle resolution, without touching the program.
 
-tt-sim models the same registers (`tt_sim/misc/perf_counters.py`, landed
+Wolfpine models the same registers (`framework/misc/perf_counters.py`, landed
 2026-08-13) and sources the `INSTRN_THREAD` bank from quantities it already
 tracks. So the *same binary* under the *same environment* produces the *same
 artefact* on both sides — a `profile_log_device.csv` full of `PerfCounter`
@@ -40,7 +40,7 @@ E_int   = Σ |c_m,sim − c_m,hw| / Σ c_hw
 
 Pass requires **`E_int ≤ 25 %`** *and* `E_total ≤ 10 %`. The triangle inequality
 gives `E_total ≤ E_int` always, so **`E_int / E_total` is the compensation,
-measured** — the number a passing total cannot fake. `tt_sim.perf.stall_attribution`
+measured** — the number a passing total cannot fake. `framework.perf.stall_attribution`
 prints it on every comparison line.
 
 **Every criterion is per core.** On the 2026-08-10 part the whole physical
@@ -50,7 +50,7 @@ leaving it to discipline.
 
 ## The partition, and why it is shaped this way
 
-Only four counter families map onto quantities tt-sim tracks. The partition uses
+Only four counter families map onto quantities Wolfpine tracks. The partition uses
 exactly those and nothing else. Per core, over **`3 × ref_cnt` thread-cycles** —
 three Tensix threads each observed for the same window:
 
@@ -83,7 +83,7 @@ the `E_total ≤ E_int` inequality the compensation ratio depends on.
 report contradicts itself across two sections and the later one is right: those
 count cycles a *unit was busy*, not cycles a thread was stalled by it, and
 produce "> 100 %" values. `ANY_THREAD_STALL` and the `*_INSTRN_AVAILABLE_*`
-family were likewise declined as unsourced. In tt-sim they read back zero with a
+family were likewise declined as unsourced. In Wolfpine they read back zero with a
 one-shot warning; `TT_SIM_STRICT_PERF_COUNTERS=1` raises instead.
 
 ### The closure check is a live test, not a formality
@@ -121,7 +121,7 @@ can never produce a `SrcA CLEAR` stall at all.
 
 `examples/four` is the obvious starting point and is where the counter path was
 first demonstrated, but it is a four-iteration ELWADD whose interior is one
-mechanism: on tt-sim it reports `THREAD_STALLS_1 = 102` with
+mechanism: on Wolfpine it reports `THREAD_STALLS_1 = 102` with
 `WAITING_FOR_SRCA_VALID = 101`. A criterion evaluated on that is a criterion
 evaluated on a single number.
 
@@ -185,8 +185,8 @@ So the passes are:
 | pass | mask | why |
 | --- | --- | --- |
 | **A — required** | `32` | `INSTRN_THREAD` alone. This is the leg. Every counter the partition consumes is in this bank. |
-| B — corroboration | `39` (`1\|2\|4\|32`) | adds `FPU`, `PACK`, `UNPACK`. tt-sim models **none** of these and reads them back as zero with a warning, so they are **card-only context** and may not enter the criterion. Free to collect: same run, same window. |
-| C1–C5 — optional | `8`, `16`, `64`, `128`, `256` | the five L1 banks, **one run each** because of the shared mux. tt-sim models none of them. Collect only if someone has asked for L1 port pressure. |
+| B — corroboration | `39` (`1\|2\|4\|32`) | adds `FPU`, `PACK`, `UNPACK`. Wolfpine models **none** of these and reads them back as zero with a warning, so they are **card-only context** and may not enter the criterion. Free to collect: same run, same window. |
+| C1–C5 — optional | `8`, `16`, `64`, `128`, `256` | the five L1 banks, **one run each** because of the shared mux. Wolfpine models none of them. Collect only if someone has asked for L1 port pressure. |
 
 `run_card.sh` runs pass A by default and pass B with `--corroborate`; the L1
 passes are `--l1`, and it runs them as five separate invocations because it has
@@ -267,7 +267,7 @@ firmware got the bridge's 100-cycle poll budget to do a job that measures at
 ~1 400 cycles, and `readRiscProfilerResults` early-returned on a zero
 `HOST_BUFFER_END_INDEX`. The bridge now waits for that publish, and for the
 pushes it issues to land in DRAM, at the one read that consumes it
-(`Device.settle_profiler_flush`; `tt_sim/bridge/profiler_readback_test.py`
+(`Device.settle_profiler_flush`; `framework/bridge/profiler_readback_test.py`
 pins it). `TT_SIM_CYCLES_PER_POLL=5000` is no longer needed, and the
 cost-model-on regime this leg needs is now the default one.
 
@@ -289,7 +289,7 @@ and `srcb_clear = 0`:
 
 This was previously attributed to the readback failure — "the regime that could
 show it cannot be collected". That explanation is now spent: the regime *is*
-collected and the reversal is still absent. **This is a finding about tt-sim's
+collected and the reversal is still absent. **This is a finding about Wolfpine's
 Src-ownership modelling, and it is exactly the kind of interior disagreement
 this leg exists to surface.** It is not a reason to change the criterion, and
 it must not be tuned away before card data exists to check it against.
@@ -308,7 +308,7 @@ quote.**
 ## The analysis
 
 ```bash
-python3 -m tt_sim.perf.stall_attribution \
+python3 -m framework.perf.stall_attribution \
     --sim  /tmp/mechbench-sim/elw/.logs/profile_log_device.csv \
     --card ~/mechbench-session/runs/elw-1/.logs/profile_log_device.csv \
     --report report.txt --json report.json
@@ -328,7 +328,7 @@ Five gates run before any comparison is reported, and a failure is a
 | `partition_closes` | every bucket ≥ 0 and both partitions sum to their own span | a negative `unattributed_stall` (named reasons out-counting `THREAD_STALLS`) or a negative `idle_t` |
 
 **A guard that cannot fail is as damaging as one that cannot pass.**
-`tt_sim/perf/stall_attribution_test.py` builds a passing case and a refusing
+`framework/perf/stall_attribution_test.py` builds a passing case and a refusing
 case for every one of them, from inputs a real session could plausibly produce —
 a concatenated log, a Wormhole-numbered core against a Blackhole-numbered one,
 an unarmed bank, a partition that does not close.
@@ -414,14 +414,14 @@ named exactly: **`WAITING_FOR_NONZERO_SEM_t` against `idle_t`**, via a
 ### Blackhole does not close with margin, and it does not close by luck
 
 It closes **by construction**, and is untested.
-`TensixPerfCounters.note_stall` (`tt_sim/misc/perf_counters.py`) increments
+`TensixPerfCounters.note_stall` (`framework/misc/perf_counters.py`) increments
 `thread_stalls[t]` and at most one reason bucket in the *same call*, so
-`sem_empty_t + sem_full_t ≤ thread_stalls_t` is an identity on any tt-sim log,
+`sem_empty_t + sem_full_t ≤ thread_stalls_t` is an identity on any Wolfpine log,
 on either architecture. Every Blackhole number this leg has is downstream of
 that: the two checked-in `sim-*-blackhole.csv` logs, and both synthetic card
 files, which were hand-derived from them. **`partition_closes` has therefore
 never been evaluated against Blackhole silicon**, and its passing on Blackhole
-is a statement about tt-sim's counter model, not about the part.
+is a statement about Wolfpine's counter model, not about the part.
 `stall_attribution_test.py` now pins both halves of that — the identity in the
 counter model, and its consequence on both checked-in logs — so the claim is not
 left as prose.
@@ -517,7 +517,7 @@ settled negative, not an open item.
 ### The gate can now fail in simulation
 
 Separately, and not dependent on any of the above: `partition_closes` could not
-refuse anything tt-sim produced, and a gate that cannot fail is not a gate.
+refuse anything Wolfpine produced, and a gate that cannot fail is not a gate.
 
 `TensixPerfCounters.note_wait_condition` now counts a cycle in which a *latched*
 wait condition was unsatisfied **without** counting a stall — which is what
@@ -530,11 +530,11 @@ overlapping window and asserts this gate refuses it, and — the direction that
 matters as much — passes a disjoint window built the same way. The refusal is
 now reachable from the machinery, not only from a hand-written CSV.
 
-**What is not claimed:** tt-sim's front end still never calls the new hook. Its
+**What is not claimed:** Wolfpine's front end still never calls the new hook. Its
 only stall hook sits on the held path (`WaitGate._note_latched_wait`, reachable
 only under `latch_wait`), so the un-held cycles of a live latched condition are
 never visited and real simulator logs are unchanged. That remaining gap is in
-`tt_sim/pe/tensix/frontend.py`, and it is recorded rather than closed: closing it
+`framework/pe/tensix/frontend.py`, and it is recorded rather than closed: closing it
 means the wait gate re-evaluating a latched condition every cycle, which is a
 front-end change and must not be approximated by inventing a magnitude.
 
@@ -583,7 +583,7 @@ that is the only place the Src conditions are decomposed.
 
 **Will**, once a card session exists and the gates pass:
 
-* that tt-sim's cycle attribution has been checked against silicon's own
+* that Wolfpine's cycle attribution has been checked against silicon's own
   hardware stall counters, **mechanism by mechanism**, per core, at a stated
   `E_int` — and, crucially, with the compensation `E_int / E_total` quoted, so
   the reader can see how much of a matching total was luck;
@@ -606,7 +606,7 @@ that is the only place the Src conditions are decomposed.
   was unsatisfied, which spans `idle_t` as well. They remain a legitimate
   *fraction of `ref_cnt`* — that is the vendor's own metric 12 — and nothing
   more;
-* anything about the `FPU`, `PACK`, `UNPACK` or `L1` banks, which tt-sim does
+* anything about the `FPU`, `PACK`, `UNPACK` or `L1` banks, which Wolfpine does
   not model and which read back zero;
 * provenance for a cycle cost. The counter semantics come from a **vendor tech
   report and RTL**, not the ISA docs — `vendor_source`, fine for corroboration,

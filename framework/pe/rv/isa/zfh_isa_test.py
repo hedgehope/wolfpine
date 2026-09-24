@@ -9,9 +9,9 @@ import struct
 
 import pytest
 
-from tt_sim.pe.rv.isa.zfh_isa import RV_ZFH_ISA
-from tt_sim.pe.rv.rv32 import FP_REGISTER_BASE
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.pe.rv.isa.zfh_isa import RV_ZFH_ISA
+from framework.pe.rv.rv32 import FP_REGISTER_BASE
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 M = 0xFFFFFFFF
 

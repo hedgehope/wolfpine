@@ -44,9 +44,9 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tt_sim.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
-from tt_sim.bridge import protocol as proto
-from tt_sim.bridge.trace import parse_trace_line
+from framework.bridge import DramCore, EthCore, Fabric, TensixCore, Transport
+from framework.bridge import protocol as proto
+from framework.bridge.trace import parse_trace_line
 
 from .coords import DRAM_COORD_MAP, ETH_COORD_MAP, TENSIX_COORD_MAP
 from .wh_device import make_device
@@ -96,7 +96,7 @@ GOLDEN = {
 class _ForcedConfigOccupancy:
     """A stand-in cost model that charges the Tensix config unit ``cycles``.
 
-    Stands in for a unit cost model (``tt_sim/perf/model.py``) so that the
+    Stands in for a unit cost model (``framework/perf/model.py``) so that the
     *ordering* guarantee around a config write can be exercised without editing
     the cost tables — deliberately a stand-in and not the real thing, so this
     guard stays outside the allow-list of modules that read those tables. Every
@@ -255,8 +255,8 @@ def test_matmulblock_replay():
 def test_matmulblock_replay_with_a_multi_cycle_config_unit():
     """The same program, with the config unit held for more than one cycle.
 
-    The regression test for tt-sim's config-write ordering, run end to end
-    rather than at the unit (``tt_sim/pe/tensix/backend_cost_model_test.py``
+    The regression test for Wolfpine's config-write ordering, run end to end
+    rather than at the unit (``framework/pe/tensix/backend_cost_model_test.py``
     pins the same invariant one cycle at a time). Charging ``RDCFG`` two cycles
     used to make this program print 608.0 for C[0][0] instead of 1120.0, because
     a ``SETC16`` the config unit had already accepted was pushed behind two of

@@ -1,6 +1,6 @@
 """Identifying — and refusing to guess at — the host on the other end of the wire.
 
-The dangerous half of :mod:`tt_sim.bridge.hostlink` is not the signalling, it is
+The dangerous half of :mod:`framework.bridge.hostlink` is not the signalling, it is
 the identification: this code sends ``SIGTERM``, so every path that cannot prove
 which process is the wire peer must return ``False`` rather than pick one. Most
 of what follows tests the refusals.
@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-from tt_sim.bridge import hostlink
+from framework.bridge import hostlink
 
 _LISTENER_SNIPPET = (
     "import socket, sys, time\n"
@@ -56,7 +56,7 @@ def test_wire_port_reads_the_umd_address_shape():
 
 
 @pytest.mark.parametrize(
-    "addr", [None, "", "ipc:///tmp/tt-sim.sock", "tcp://devvm", "tcp://devvm:99999"]
+    "addr", [None, "", "ipc:///tmp/wolfpine.sock", "tcp://devvm", "tcp://devvm:99999"]
 )
 def test_wire_port_declines_anything_it_cannot_read(addr):
     assert hostlink.wire_port(addr) is None
@@ -73,7 +73,7 @@ def test_no_peer_when_nobody_is_listening():
 
 
 def test_no_peer_for_an_address_with_no_port():
-    assert hostlink.find_wire_peer("ipc:///tmp/tt-sim.sock") is None
+    assert hostlink.find_wire_peer("ipc:///tmp/wolfpine.sock") is None
 
 
 def test_we_are_never_our_own_peer():

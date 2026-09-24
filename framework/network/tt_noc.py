@@ -2,23 +2,23 @@ import sys
 import threading
 from enum import IntEnum
 
-from tt_sim.device.clock import Clockable
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.network.alignment import (
+from framework.device.clock import Clockable
+from framework.memory.mem_mapable import MemMapable
+from framework.network.alignment import (
     L1_CONGRUENCE,
     NoCAlignmentError,
     check_congruence,
     congruence_for_read,
 )
-from tt_sim.network.multicast_order import (
+from framework.network.multicast_order import (
     check_corner_order,
     rectangle_destinations,
 )
-from tt_sim.network.noc_coords import WormholeNocCoords
-from tt_sim.perf.model import noc_cost_model
-from tt_sim.trace import EventCategory, NoCEvent, get_bus
-from tt_sim.util.bits import clear_bit, extract_bits, replace_bits, set_bit
-from tt_sim.util.conversion import (
+from framework.network.noc_coords import WormholeNocCoords
+from framework.perf.model import noc_cost_model
+from framework.trace import EventCategory, NoCEvent, get_bus
+from framework.util.bits import clear_bit, extract_bits, replace_bits, set_bit
+from framework.util.conversion import (
     conv_to_bytes,
     conv_to_uint32,
 )
@@ -66,7 +66,7 @@ class NoCCoordinateError(ValueError):
     spinning in pure Python with the device clock stopped and no deadlock
     detector able to fire. There is no legitimate caller with an out-of-grid
     coordinate, so both refuse instead — the same choice
-    :class:`~tt_sim.network.alignment.NoCAlignmentError` and
+    :class:`~framework.network.alignment.NoCAlignmentError` and
     :class:`NoCResponseError` make, and for the same reason.
 
     The message names the coordinate, the grid and which end of the journey it
@@ -148,7 +148,7 @@ def noc_route_links(
 
     Coords are in one NoC's own space, exactly as for :func:`noc_hop_count`, so
     NoC 1's mirrored coords give NoC 1's (opposite) route with no special case.
-    ``tt_sim.perf.noc_congestion_plan.route_links`` **is** this function — the
+    ``framework.perf.noc_congestion_plan.route_links`` **is** this function — the
     experiment planner and the simulator have to name links identically or a
     measured shared-link count describes a different machine from the modelled
     one.
@@ -291,7 +291,7 @@ def _endpoint_noc_coord(endpoint):
     the *other* space and is costed a flight that is not the one it makes.
     There is no fix available while both conventions are live — no rule can
     place a key that means two things — which is why the residual is pinned
-    rather than patched (``tt_sim/network/noc_endpoint_consistency_test.py``).
+    rather than patched (``framework/network/noc_endpoint_consistency_test.py``).
     Under translation NoC 1 carries one convention and the derivation is
     well defined, which is what takes that residual to zero.
     """
@@ -308,7 +308,7 @@ class AliasedEndpoint:
     genuinely different grid cells. Wormhole exposes each of its six channels
     at two worker-visible endpoints on opposite ends of a column —
     ``(0, 11)`` and ``(0, 1)`` are the same channel — and Blackhole's NoC 1
-    view of a channel is a different subchannel from its NoC 0 one. tt-sim
+    view of a channel is a different subchannel from its NoC 0 one. Wolfpine
     models the controller once, with one NUI per NoC standing at the *primary*
     endpoint, and registers the other cells as extra directory keys. Timing a
     packet from the NUI's own coord therefore charged it the flight to a
@@ -372,7 +372,7 @@ class NullEndpoint:
     the simulated NoC doesn't deadlock the calling kernel.
 
     **Acknowledging is deliberate, including for a coord the caller got
-    wrong.** This stands for *a tile tt-sim does not model*, not *a tile that
+    wrong.** This stands for *a tile Wolfpine does not model*, not *a tile that
     is not there*: eth, pcie, arc, router-only and the DRAM channels outside
     the profile are all real NIUs on silicon, and they all ACK. Staying silent
     instead would make a multicast whose rectangle overruns the worker columns
@@ -622,7 +622,7 @@ class NUI(MemMapable, Clockable):
                 # free until it catches). The exception object is enriched in
                 # place, so type, identity and traceback are unchanged and the
                 # set of programs that raise is exactly what it was.
-                from tt_sim.network.attribution import attach_provenance
+                from framework.network.attribution import attach_provenance
 
                 attach_provenance(exc, self, src_addr, dst_addr)
                 raise
@@ -777,7 +777,7 @@ class NUI(MemMapable, Clockable):
                 # ACK count exactly. (The pre-split code multiplied by
                 # noc_cmd_wr_be here, but that's the byte-enable bit and
                 # is 0 in tt-metal's noc_async_write — a latent bug that
-                # was masked because tt-sim resolves responses within the
+                # was masked because Wolfpine resolves responses within the
                 # same cycle pump as the request.)
                 self.nui.nui_counters.increment(
                     NUI.NUICounters.CounterNames.NIU_MST_REQS_OUTSTANDING_ID_0
@@ -929,14 +929,14 @@ class NUI(MemMapable, Clockable):
             (This is the bit packing of ``NOC_MULTICAST_ADDR`` in
             ``tt_metal/hw/inc/wormhole/noc/noc_parameters.h``.) On real
             silicon the NoC routes a single packet that the routers split
-            along the rectangle; tt-sim transmits one ``WRITE`` request
+            along the rectangle; Wolfpine transmits one ``WRITE`` request
             per destination. The master's ``REQS_OUTSTANDING`` counter
             (and the per-trid FIFO) is bumped by ``num_dests`` so the
             kernel's ``noc_async_write_barrier`` waits for all N ACKs.
 
             **Which corner goes in which field depends on the NoC**, and
             getting it wrong is a hang on silicon that used to be silent
-            here — see :mod:`tt_sim.network.multicast_order` for the rule,
+            here — see :mod:`framework.network.multicast_order` for the rule,
             its sources, and the check that now enforces it.
             """
             noc_packet_transaction_id = extract_bits(self.packet_tag, 4, 10)
@@ -1370,7 +1370,7 @@ class NUI(MemMapable, Clockable):
         #: software has to swap the corners (``WormholeB0/NoC/Coordinates.md``,
         #: "Coordinate Translation"). Set by
         #: ``TT_Device._register_tile_internals``; see
-        #: :mod:`tt_sim.network.multicast_order` for the full rule and its
+        #: :mod:`framework.network.multicast_order` for the full rule and its
         #: sources.
         self.broadcast_corners_descend = False
         self.generate_NIU_and_NoC_config()
@@ -1838,7 +1838,7 @@ class NUI(MemMapable, Clockable):
                 # `noc_async_writes_flushed` on a trid compiles to) raise
                 # OverflowError out of `conv_to_bytes`. See
                 # `WormholeB0/NoC/Counters.md` and
-                # `tt_sim/network/noc_counter_accounting_test.py`.
+                # `framework/network/noc_counter_accounting_test.py`.
                 _noc_cmd_wr_inline, noc_cmd_resp_marked = (
                     self.take_outstanding_noc_request(noc_request)
                 )
@@ -2083,7 +2083,7 @@ class NUI(MemMapable, Clockable):
         how much of the *previous* packet is still going out. Separate from
         :meth:`_bandwidth_delay` for one caller: a multicast write is a single
         packet that the routers fan out, so it is injected **once** however
-        many tiles are in the rectangle. tt-sim models the fan-out as N
+        many tiles are in the rectangle. Wolfpine models the fan-out as N
         unicasts, and charging each of them the full injection time would
         invent serialisation the hardware does not have — the over-charging
         direction this project's cost policy asks callers to avoid. So the
@@ -2259,7 +2259,7 @@ class NUI(MemMapable, Clockable):
 
         The kernel tells its own software counter how many ACKs to expect
         (``num_dests``, the argument to ``noc_async_write_multicast``); the NIU
-        counts the ACKs that actually arrive. tt-sim never sees ``num_dests`` —
+        counts the ACKs that actually arrive. Wolfpine never sees ``num_dests`` —
         it is not written to any command register — so the mismatch cannot be
         diagnosed directly. What *can* be: a rectangle that covers cells no tile
         answers for, which is how the mismatch arises in practice. Blackhole's
@@ -2519,7 +2519,7 @@ class NUI(MemMapable, Clockable):
         # these; the read path did not, so a register the kernel had itself
         # written back raised NotImplementedError. tt-metal's device profiler
         # reads 0x14 while starting up, which is what took the whole profiler
-        # path down under tt-sim and left the paper's end-to-end cycle table
+        # path down under Wolfpine and left the paper's end-to-end cycle table
         # with no simulator column.
         elif addr == 0x8:
             return conv_to_bytes(self.request_initiators[0].target_addr_hi)

@@ -23,9 +23,9 @@ What is modelled
 * ``minstret`` / ``minstreth``, incremented by ``RV32I.clock_tick`` on each tick
   that **retired** an instruction: an instruction the cost model held (stalled)
   retires nothing, nor does a ``PEStall``, nor does an unknown instruction (which
-  the hardware would trap on and tt-sim treats as UndefinedBehavior). Cycles the
+  the hardware would trap on and Wolfpine treats as UndefinedBehavior). Cycles the
   pump skipped while the firmware-loop recogniser had the core parked are added
-  back exactly (``tt_sim/pe/rv/spin.py``), so parking cannot silently deflate
+  back exactly (``framework/pe/rv/spin.py``), so parking cannot silently deflate
   the retire count.
 * Both counters are 64-bit and **writable** through either name, per the doc.
   Writes are modelled as an offset from the underlying source, so a counter
@@ -53,7 +53,7 @@ worse than a loud one.
 
 * ``tt_cfg_qstatus`` (``0xbc0``) / ``tt_cfg_bstatus`` (``0xbc1``) report live
   Tensix frontend/backend occupancy as 11-bit per-instruction-type bitmasks.
-  tt-sim models the frontend and the backend units, so these are *reachable* in
+  Wolfpine models the frontend and the backend units, so these are *reachable* in
   principle, but the mapping from its queues to the doc's bitmask (and the
   thread-specific versus or-reduced halves, and the SFPU lane-enable bit) is a
   piece of work with its own correctness question. Until it is done, a wrong
@@ -68,16 +68,16 @@ worse than a loud one.
   so no event can be given a meaning and no count can be honest. The selectors
   are storage; the counters read as 0 **while no event is selected** — which is
   the true count of "nothing is being counted" — and refuse once software has
-  selected an event, because at that point 0 is a claim about an event tt-sim
+  selected an event, because at that point 0 is a claim about an event Wolfpine
   cannot identify.
 * ``intp_restore_pc`` (``0xbca``) is a copy of the ``pc`` an ``mret`` would
-  return to. tt-sim models no interrupts, so before software writes it there is
+  return to. Wolfpine models no interrupts, so before software writes it there is
   no such pc; reads refuse. After a write it reads back what was written, which
   is exactly the hardware's behaviour for a register whose writes the doc says
   ``mret`` ignores.
 * Any address not in the doc's table (``mepc``, ``mcause``, ``mtvec``, ``mie``,
   ``time``, ...) raises. The spec's answer is an illegal-instruction trap, which
-  tt-sim has no machinery for; the doc explicitly records that ``time`` is *not*
+  Wolfpine has no machinery for; the doc explicitly records that ``time`` is *not*
   implemented.
 
 Deliberately not modelled (and not refused)
@@ -96,14 +96,14 @@ Deliberately not modelled (and not refused)
   cost, and the doc gives **no number** for it — no cycle count for the
   serialisation, none for a CSR instruction at all. Per this repo's provenance
   rules an unsourceable number may not be invented, so Zicsr is charged nothing
-  in ``tt_sim/pe/rv/cost.py`` and the omission is recorded there.
+  in ``framework/pe/rv/cost.py`` and the omission is recorded there.
 * **``pmacfg0`` / ``pmacfg1``** (strong ordering for all loads and stores) are
-  storage. tt-sim executes every load and store to completion in program order
+  storage. Wolfpine executes every load and store to completion in program order
   already, so the ordering they request is what it does regardless.
 * **``mcountinhibit``** is storage: the doc records that it cannot inhibit
   ``mcycle`` or ``minstret`` (a non-conformance), and the only other counters it
   could inhibit are the HPM pair that never count. So the register is observable
-  but inert, which is the hardware's behaviour for every bit tt-sim can reach.
+  but inert, which is the hardware's behaviour for every bit Wolfpine can reach.
 * **``vstart`` / ``vl`` / ``vtype`` / ``vlenb`` / ``vxsat`` / ``vxrm``** are
   present on every baby core because the doc's table is not qualified per core,
   even though the V *instructions* are RISCV T2 only (and guarded — see
@@ -120,8 +120,8 @@ loud failure, just a wrong register. ``i_isa`` now declines funct3 1-7 so this
 ISA sees them, and refuses loudly when the core has no CSR file at all.
 """
 
-from tt_sim.pe.rv.isa.rv_isa import RV_ISA
-from tt_sim.util.conversion import conv_to_bytes
+from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.util.conversion import conv_to_bytes
 
 _MASK32 = 0xFFFFFFFF
 _MASK64 = 0xFFFFFFFFFFFFFFFF
@@ -276,7 +276,7 @@ class UnknownCSRError(CSRError):
 
 
 class UnmodelledCSRError(CSRError):
-    """A documented CSR whose value tt-sim cannot produce truthfully."""
+    """A documented CSR whose value Wolfpine cannot produce truthfully."""
 
 
 def _at(pc):
@@ -286,7 +286,7 @@ def _at(pc):
 class CSRFile:
     """One baby core's CSRs.
 
-    Held by the core *and* by its :class:`~tt_sim.pe.register.register_file.RegisterFile`
+    Held by the core *and* by its :class:`~framework.pe.register.register_file.RegisterFile`
     (one object, two references): the register file is what the ISA executors are
     handed, and the core is where the retire counter is bumped from.
 
@@ -322,7 +322,7 @@ class CSRFile:
             raise UnmodelledCSRError(
                 f"{csr_name(addr)} ({hex(addr)}) read on {self.core_label}"
                 f"{_at(pc)}, but this core's CSR file has no clock bound. "
-                f"tt-sim's only cycle counter is the owning tile's TileClock "
+                f"Wolfpine's only cycle counter is the owning tile's TileClock "
                 f"(the one RISCV_DEBUG_REG_WALL_CLOCK_* reads); a core built "
                 f"outside a device has no access to it, and a private counter "
                 f"here would be free to disagree with every other cycle number "
@@ -363,7 +363,7 @@ class CSRFile:
                 f"CSR {hex(addr)} {verb} on {self.core_label}{_at(pc)} is not one "
                 f"the Blackhole baby cores recognise (see BlackholeA0/TensixTile/"
                 f"BabyRISCV/CSRs.md for the complete list). The RISC-V spec's "
-                f"answer is an illegal-instruction trap, which tt-sim does not "
+                f"answer is an illegal-instruction trap, which Wolfpine does not "
                 f"model."
             )
 
@@ -371,10 +371,10 @@ class CSRFile:
         raise UnmodelledCSRError(
             f"{csr_name(addr)} ({hex(addr)}) read on {self.core_label}{_at(pc)} "
             f"reports live Tensix frontend/backend occupancy as an 11-bit "
-            f"per-instruction-type bitmask. tt-sim models those units but does "
+            f"per-instruction-type bitmask. Wolfpine models those units but does "
             f"not yet map them onto this bitmask, and answering 0 would tell a "
             f"spin loop the coprocessor is idle when it may not be. See "
-            f"tt_sim/pe/rv/isa/zicsr_isa.py."
+            f"framework/pe/rv/isa/zicsr_isa.py."
         )
 
     def _refuse_sstatus(self, addr, pc, verb):
@@ -386,7 +386,7 @@ class CSRFile:
         )
 
     def read(self, addr, pc=None):
-        """Read a CSR, refusing anything tt-sim cannot answer truthfully."""
+        """Read a CSR, refusing anything Wolfpine cannot answer truthfully."""
         self._check_known(addr, pc, "read")
         addr = CSR_ALIASES.get(addr, addr)
 
@@ -404,7 +404,7 @@ class CSRFile:
                     f"{csr_name(addr)} ({hex(addr)}) read on {self.core_label}"
                     f"{_at(pc)} with {csr_name(_HPM_COUNTERS[addr])} = {hex(event)}. "
                     f"The event encodings for mhpmevent3/mhpmevent4 are "
-                    f"unpublished, so tt-sim cannot know what was selected and "
+                    f"unpublished, so Wolfpine cannot know what was selected and "
                     f"cannot count it; 0 would be a claim about an event it "
                     f"cannot identify. With no event selected the counter reads "
                     f"0, which is true."
@@ -415,7 +415,7 @@ class CSRFile:
                 raise UnmodelledCSRError(
                     f"intp_restore_pc ({hex(addr)}) read on {self.core_label}"
                     f"{_at(pc)} before anything wrote it. It holds a copy of the "
-                    f"pc an mret would return to, and tt-sim models no "
+                    f"pc an mret would return to, and Wolfpine models no "
                     f"interrupts, so there is no such pc to report."
                 )
             return self._intp_restore_pc
@@ -429,7 +429,7 @@ class CSRFile:
             return self.store.get(addr, 0)
         raise UnmodelledCSRError(  # pragma: no cover - every listed addr is handled
             f"{csr_name(addr)} ({hex(addr)}) is documented but has no behaviour "
-            f"in tt-sim's CSR file."
+            f"in Wolfpine's CSR file."
         )
 
     def write(self, addr, value, pc=None):
@@ -462,7 +462,7 @@ class CSRFile:
             raise UnmodelledCSRError(
                 f"{csr_name(addr)} ({hex(addr)}) written on {self.core_label}"
                 f"{_at(pc)}. Software can overwrite these status registers on "
-                f"hardware, but tt-sim does not model the state they otherwise "
+                f"hardware, but Wolfpine does not model the state they otherwise "
                 f"report (see the read path), so storing the write would make a "
                 f"later read look answerable when it is not."
             )
@@ -506,7 +506,7 @@ class RV_ZICSR_ISA(RV_ISA):
 
     Claims SYSTEM (``0x73``) with funct3 1-3 and 5-7. funct3 0 (``ecall`` /
     ``ebreak`` / ``mret``) stays with ``RV_I_ISA``; funct3 4 is not a Zicsr
-    encoding, so it is declined and falls through to tt-sim's unknown-instruction
+    encoding, so it is declined and falls through to Wolfpine's unknown-instruction
     path, which is the doc's UndefinedBehavior for an invalid instruction.
     """
 
@@ -525,8 +525,8 @@ class RV_ZICSR_ISA(RV_ISA):
             raise NoCSRsError(
                 f"CSR instruction {hex(instr)} at PC "
                 f"{hex(register_file['pc'].read_uint())} on a core with no CSR "
-                f"file. Only Blackhole baby cores have CSRs in tt-sim; see "
-                f"tt_sim/pe/rv/isa/zicsr_isa.py."
+                f"file. Only Blackhole baby cores have CSRs in Wolfpine; see "
+                f"framework/pe/rv/isa/zicsr_isa.py."
             )
 
         addr = (instr >> 20) & 0xFFF

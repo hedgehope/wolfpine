@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Differential Tensix-op test. Runs the *same* tt-metal program through tt-sim
+# Differential Tensix-op test. Runs the *same* tt-metal program through Wolfpine
 # (ours) and through ttsim (the vendor reference sim), and diffs the hex the
-# program dumps (`OPDIFF_RESULT:...`). A match means tt-sim reproduces ttsim's
+# program dumps (`OPDIFF_RESULT:...`). A match means Wolfpine reproduces ttsim's
 # behaviour for whatever op the compute kernel exercises. Because both sims run
 # the same compiled kernel, the check is immune to tt-metal C++->asm churn.
 #
@@ -26,7 +26,7 @@
 # Cleanup only touches the sim servers this run started (they carry its
 # TT_SIM_RUN_TAG) plus orphans left by an earlier diff.sh whose owner is gone,
 # so a concurrent run in another terminal is never disturbed. Set
-# TT_SIM_KILL_ALL_SERVERS=1 to instead kill every tt-sim server on the machine
+# TT_SIM_KILL_ALL_SERVERS=1 to instead kill every Wolfpine server on the machine
 # at startup — the way to clear up after manual runs, which carry no tag.
 
 set -u
@@ -43,7 +43,7 @@ case "$ARCH" in
   wormhole|wh)  ARCH=wormhole;  ORACLE_SO=libttsim_wh.so; DEF_COORDS=1-1 ;;
   *) echo "unknown TT_SIM_ARCH=$ARCH (want blackhole|wormhole)" >&2; exit 2 ;;
 esac
-COORDS="${TT_SIM_TENSIX_COORDS:-$DEF_COORDS}"  # tt-sim needs the worker tile(s); ttsim doesn't
+COORDS="${TT_SIM_TENSIX_COORDS:-$DEF_COORDS}"  # Wolfpine needs the worker tile(s); ttsim doesn't
 TIMEOUT="${TT_SIM_EXAMPLE_TIMEOUT:-300}"
 
 : "${TT_METAL_HOME:?set TT_METAL_HOME to your built tt-metal checkout}"
@@ -52,8 +52,8 @@ export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
 export LD_LIBRARY_PATH="$TT_METAL_HOME/build/lib:${LD_LIBRARY_PATH:-}"
 export TT_METAL_SLOW_DISPATCH_MODE=1
 export PYTHONPATH="$REPO:${PYTHONPATH:-}"
-# UMD spawns the tt-sim server via `python3 -m driver...` off PATH, so the
-# venv (with tt_sim's deps) must be on PATH. Default to the sibling venv; set
+# UMD spawns the Wolfpine server via `python3 -m driver...` off PATH, so the
+# venv (with framework's deps) must be on PATH. Default to the sibling venv; set
 # TT_SIM_VENV to override, or just have the venv active.
 VENV="${TT_SIM_VENV:-$REPO/../venv}"
 [ -x "$VENV/bin/python3" ] && export PATH="$VENV/bin:$PATH"
@@ -133,7 +133,7 @@ our_log="/tmp/optest_${NAME}_${ARCH}_ours.out"
 
 echo "[oracle: ttsim]  $ORACLE_DIR/$ORACLE_SO"
 _run "$ORACLE_DIR/$ORACLE_SO" "" "$ora_log"
-echo "[ours:   tt-sim] $REPO/driver/$ARCH  (coords=$COORDS)"
+echo "[ours:   Wolfpine] $REPO/driver/$ARCH  (coords=$COORDS)"
 _run "$REPO/driver/$ARCH" "$COORDS" "$our_log"
 sim_kill_own_servers
 
@@ -141,13 +141,13 @@ ora="$(_result "$ora_log")"
 our="$(_result "$our_log")"
 
 if [ -z "$ora" ]; then echo "FAIL  $NAME: no result from ttsim (see $ora_log)"; exit 1; fi
-if [ -z "$our" ]; then echo "FAIL  $NAME: no result from tt-sim (see $our_log)"; exit 1; fi
+if [ -z "$our" ]; then echo "FAIL  $NAME: no result from Wolfpine (see $our_log)"; exit 1; fi
 
 if [ "$ora" = "$our" ]; then
-  echo "PASS  $NAME: tt-sim matches ttsim ($(( ${#ora} / 8 )) elements)"
+  echo "PASS  $NAME: Wolfpine matches ttsim ($(( ${#ora} / 8 )) elements)"
   exit 0
 fi
-echo "FAIL  $NAME: tt-sim differs from ttsim"
+echo "FAIL  $NAME: Wolfpine differs from ttsim"
 echo "  oracle: ${ora:0:64}..."
 echo "  ours:   ${our:0:64}..."
 # first differing element. The dumps go in through files, not argv or the

@@ -1,0 +1,7 @@
+rung,rc,wall_s,flavour
+1-add2int,0,2.4,
+2-loopback,0,2.4,
+3-eltwise,134,3.7,
+4-matmul-single,1,3.5,
+5-matmul-multi,134,3.3,
+6-matmul-single-640,134,3.8,

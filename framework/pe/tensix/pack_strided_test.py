@@ -9,7 +9,7 @@ row of successive faces -- which is what turns a row-major
 row spanning a face pair, and the MOP steps ``base`` down the 16 rows of the
 face.
 
-Two decode gaps stood between tt-sim and that behaviour, and both are pinned
+Two decode gaps stood between Wolfpine and that behaviour, and both are pinned
 here:
 
 * ``dst_access_mode`` (raw bit 17) is absent from the shared, Wormhole-layout
@@ -20,13 +20,13 @@ here:
   ``ADDR_MOD_1`` decoded as section 5 -- one no LLK programs -- and the pack Y
   counter silently stopped advancing.
 
-The stride is applied to *logical* Dst rows: tt-sim (like hardware, unlike
+The stride is applied to *logical* Dst rows: Wolfpine (like hardware, unlike
 ttsim) puts every Dst access through ``Adj16``/``Adj32``, whose gates this now
 drives from ``DEST_ACCESS_CFG``. ``registers_test.py`` pins the transforms
 themselves; ``test_dest_access_cfg_write_sets_the_dst_gates`` below pins the
 plumbing.
 
-Runs standalone (``python3 -m tt_sim.pe.tensix.pack_strided_test``) or under
+Runs standalone (``python3 -m framework.pe.tensix.pack_strided_test``) or under
 pytest.
 """
 
@@ -34,14 +34,14 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.arch.blackhole import BLACKHOLE_PROFILE
-from tt_sim.pe.tensix.tensix import TensixCoProcessor
-from tt_sim.pe.tensix.util import (
+from framework.arch.blackhole import BLACKHOLE_PROFILE
+from framework.pe.tensix.tensix import TensixCoProcessor
+from framework.pe.tensix.util import (
     DataFormatConversions,
     TensixConfigurationConstants,
     TensixInstructionDecoder,
 )
-from tt_sim.util.bits import get_nth_bit
+from framework.util.bits import get_nth_bit
 
 BF16 = 5  # DataFormat.BF16
 #: L1_Dest_addr, in 16-byte units, and the byte address it names.
@@ -271,7 +271,7 @@ def test_strided_without_the_dest_access_cfg_gates_raises():
     ``MATH(_llk_math_reconfig_remap_)`` then spins on the MATH_PACK semaphore
     behind the very pack it is meant to configure, so the two bits are still
     clear when PACK issues the PACR. Stating only the condition sends the
-    reader looking for a missing tt-sim mode instead of a missing config write,
+    reader looking for a missing Wolfpine mode instead of a missing config write,
     which is what happened the first time (`optests/packuntilizeinit` on
     Blackhole); the fix belongs in the kernel.
     """
@@ -290,7 +290,7 @@ def test_strided_with_a_non_contiguous_interface_mask_raises():
             _pacr(backend, dst_access_mode=1, read_intf_sel=0x5)
 
 
-# --- The four Blackhole PACR fields tt-sim does not decode at all ------------
+# --- The four Blackhole PACR fields Wolfpine does not decode at all ------------
 #
 # ``ctxt_ctrl`` (3:2), ``addr_cnt_context`` (14:13), ``row_pad_zero`` (20:18)
 # and ``cfg_context`` (22:21) have no entry in the shared Wormhole argument

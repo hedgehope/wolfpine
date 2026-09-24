@@ -1,4 +1,4 @@
-"""The issuing core's loop (``tt_sim/perf/noc_issue_loop.py``).
+"""The issuing core's loop (``framework/perf/noc_issue_loop.py``).
 
 The claims, in the order that matters:
 
@@ -19,7 +19,7 @@ The claims, in the order that matters:
    exactly its instruction count. The six cycles are the model's, not an
    artefact of the program.
 
-Runs standalone (``python3 -m tt_sim.perf.noc_issue_loop_test``) or under
+Runs standalone (``python3 -m framework.perf.noc_issue_loop_test``) or under
 pytest.
 """
 
@@ -28,8 +28,8 @@ from contextlib import contextmanager
 
 import pytest
 
-from tt_sim.perf import noc_issue_loop as loop
-from tt_sim.perf.noc_dataset_sweep import MEMORY_L1, predict_timed_region
+from framework.perf import noc_issue_loop as loop
+from framework.perf.noc_dataset_sweep import MEMORY_L1, predict_timed_region
 
 ARCHES = ("wormhole", "blackhole")
 

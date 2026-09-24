@@ -40,8 +40,8 @@ _REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from tt_sim.bridge import protocol as proto  # noqa: E402
-from tt_sim.bridge.trace import parse_trace_line  # noqa: E402
+from framework.bridge import protocol as proto  # noqa: E402
+from framework.bridge.trace import parse_trace_line  # noqa: E402
 
 #: READs from the same core at the same address, this many times or more, are a
 #: spin-poll (matching driver/tests/cost_model_gate.py: in the captured traces
@@ -82,7 +82,7 @@ def _listen(addr):
 
     The wire protocol's host (UMD, or this replayer standing in for it) is the
     LISTENER; the simulator server is the DIALER (see
-    ``tt_sim/bridge/transport.py``). The server's dial retries until a
+    ``framework/bridge/transport.py``). The server's dial retries until a
     listener appears, so binding after the server started is fine.
     """
     try:

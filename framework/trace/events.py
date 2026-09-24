@@ -82,7 +82,7 @@ BACKEND_UNIT_ALIASES = {
 #: do take an issue slot -- so they are counted in ``busy_cycles`` exactly as
 #: before. They are named here because *occupancy* and *work* are different
 #: questions, and one consumer (the energy activity vector in
-#: :mod:`tt_sim.perf.energy_activity`) needs the second.
+#: :mod:`framework.perf.energy_activity`) needs the second.
 #:
 #: The distinction is not cosmetic. Every SFPU kernel tt-metal compiles pays
 #: 41 of these per ``add_int_tile`` -- 32 ``INCRWC`` from sfpi's ``dst_reg++``
@@ -111,7 +111,7 @@ MATRIX_BOOKKEEPING_OPS = frozenset(
 #:
 #: The union of the two sets must be exactly
 #: ``MatrixUnit.OPCODE_TO_HANDLER``, which
-#: ``tt_sim/trace/observability_test.py`` asserts. The backend raises
+#: ``framework/trace/observability_test.py`` asserts. The backend raises
 #: ``NotImplementedError`` for any Matrix opcode it has no handler for, so no
 #: third category can reach a ``ComputeEvent``, and a Matrix opcode added
 #: tomorrow fails that test until somebody has said which kind it is.
@@ -145,7 +145,7 @@ MATRIX_DATAPATH_OPS = frozenset(
 #: worse than no reason at all.
 #:
 #: The three ``issue_*`` reasons are back-pressure from the target backend unit
-#: (:meth:`tt_sim.pe.tensix.backends.backend_base.TensixBackendUnit.issueInstruction`);
+#: (:meth:`framework.pe.tensix.backends.backend_base.TensixBackendUnit.issueInstruction`);
 #: the rest are the Tensix wait gate declining to release its head instruction.
 STALL_REASONS = frozenset(
     {
@@ -237,7 +237,7 @@ class InstrEvent(Event):
     reg_write_idx: int = -1
     reg_write_value: int = 0
     # How many cycles this core was held before this instruction could
-    # issue, and which of ``tt_sim.pe.rv.cost.STALL_REASON_NAMES`` held
+    # issue, and which of ``framework.pe.rv.cost.STALL_REASON_NAMES`` held
     # it. Both are cost-model state: without ``TT_SIM_COST_MODEL`` no
     # RV instruction can stall at all, so ``0`` / ``""`` is the truthful
     # reading of an un-modelled run, not a missing measurement. Distinct
@@ -292,14 +292,14 @@ def noc_flight_split(event: NoCEvent) -> tuple[int, int, int]:
     ``noc_flight_cycles`` carries, so a consumer can check the decomposition
     against the number it already had rather than taking it on trust.
 
-    What each leg is, and how much of it tt-sim actually models:
+    What each leg is, and how much of it Wolfpine actually models:
 
     * **issue -> injection** — queueing for the sending NIU's outbound port,
       which is held for the whole packet. Modelled.
     * **injection -> arrival** — hops, the packet's own tail, and waiting for a
       router-to-router link another tile's traffic is using. Modelled.
     * **arrival -> service** — time at the destination once the packet is
-      there. tt-sim charges this **only** at a DRAM tile, where it is the
+      there. Wolfpine charges this **only** at a DRAM tile, where it is the
       channel time ``DRAMEndpointNUI.transmit`` adds. At every other endpoint
       it is **exactly zero**, and that zero is a finding rather than a
       measurement: arrival buffering, outstanding-transaction credit limits and

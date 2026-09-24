@@ -25,15 +25,15 @@ than as a reading.
 
 Before this, ``0x64`` raised ``NotImplementedError``, which meant the Blackhole
 half of ``nocreadbench`` — the half that carries the ``CMD_BUF_AVAIL`` bullet —
-could not be smoke-tested against tt-sim at all. ``0x68`` raised the same thing
+could not be smoke-tested against Wolfpine at all. ``0x68`` raised the same thing
 until the probe started reading it.
 
-Runs standalone (``python3 -m tt_sim.network.noc_registers_test``) or under
+Runs standalone (``python3 -m framework.network.noc_registers_test``) or under
 pytest.
 """
 
-from tt_sim.network.tt_noc import NUI
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.network.tt_noc import NUI
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 CMD_BUF_AVAIL_OFFSET = 0x64
 CMD_BUF_OVFL_OFFSET = 0x68
@@ -103,7 +103,7 @@ def test_every_writable_command_register_can_be_read_back():
     write path stores them -- it is a read/write asymmetry, and asymmetries of
     this shape are invisible until something reads the odd one out. tt-metal's
     device profiler reads ``0x14`` during start-up, which took the entire
-    profiler path down under tt-sim and left the evaluation's end-to-end cycle
+    profiler path down under Wolfpine and left the evaluation's end-to-end cycle
     table with no simulator column at all.
 
     So the invariant is stated as a law rather than as two more cases: for
@@ -114,9 +114,9 @@ def test_every_writable_command_register_can_be_read_back():
             nui = NUI(0, 1, 1, None)
             marker = 0xC0DE0000 | (i << 8) | offset
             nui.write(base + offset, conv_to_bytes(marker))
-            assert conv_to_uint32(nui.read(base + offset, 4)) == marker, (
-                f"initiator {i} register {hex(base + offset)} does not read back"
-            )
+            assert (
+                conv_to_uint32(nui.read(base + offset, 4)) == marker
+            ), f"initiator {i} register {hex(base + offset)} does not read back"
 
 
 def test_every_counter_name_has_a_slot():

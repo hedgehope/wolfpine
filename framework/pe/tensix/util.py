@@ -3,8 +3,8 @@ from copy import copy
 
 import numpy as np
 
-from tt_sim.util.bits import extract_bits, get_bits
-from tt_sim.util.yaml_cache import load_yaml_cached
+from framework.util.bits import extract_bits, get_bits
+from framework.util.yaml_cache import load_yaml_cached
 
 # Lookup tables for the block conversions at the end of DataFormatConversions,
 # built on first use and then frozen. Keyed by the name of the conversion they
@@ -111,7 +111,7 @@ class TensixConfigurationConstants:
     def _load(cls, blackhole):
         yaml_name = cls._YAML_BY_ARCH[blackhole]
         cls.config_constants = load_yaml_cached(
-            resources.files("tt_sim.pe.tensix").joinpath(yaml_name),
+            resources.files("framework.pe.tensix").joinpath(yaml_name),
             yaml_name.removesuffix(".yaml"),
         )
         cls.ids = {}
@@ -175,7 +175,7 @@ class TensixInstructionDecoder:
     def init(cls):
         if not hasattr(cls, "tensix_instructions") or not hasattr(cls, "opcodes"):
             cls.tensix_instructions = load_yaml_cached(
-                resources.files("tt_sim.pe.tensix").joinpath(
+                resources.files("framework.pe.tensix").joinpath(
                     "tensix_instructions.yaml"
                 ),
                 "tensix_instructions",

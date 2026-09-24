@@ -1,16 +1,16 @@
 import os
 import sys
 
-from tt_sim.device.clock import Clockable
-from tt_sim.memory.mem_mapable import MemMapable
-from tt_sim.misc.perf_counters import PERF_CNT_OFFSETS
-from tt_sim.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.device.clock import Clockable
+from framework.memory.mem_mapable import MemMapable
+from framework.misc.perf_counters import PERF_CNT_OFFSETS
+from framework.util.conversion import conv_to_bytes, conv_to_uint32
 
 #: ``RISCV_DEBUG_REG_*`` offsets that behave as plain read-what-you-wrote
 #: stores, with their names from tt-metal's ``tensix.h`` (the union of the
 #: Wormhole and Blackhole headers; where the two disagree on a name both are
 #: given). Every one of these is either pure configuration whose reset value of
-#: zero genuinely means "off"/"no override", or a register tt-sim models
+#: zero genuinely means "off"/"no override", or a register Wolfpine models
 #: elsewhere by reading this store back — the reset-PC block at 0x228-0x23C is
 #: read by ``BabyRISCV._blackhole_reset_pc``, and a Blackhole core booting from
 #: its default PC *depends* on an unwritten override register reading zero.
@@ -61,7 +61,7 @@ STORE_REGISTERS = {
 }
 
 #: Named ``RISCV_DEBUG_REG_*`` offsets that report *hardware state* rather than
-#: storing software's own writes. tt-sim models none of them, and returning the
+#: storing software's own writes. Wolfpine models none of them, and returning the
 #: zero they were returning before is a fabricated all-clear: an unmodelled
 #: status register is precisely the "silently-plausible generic store" the
 #: roadmap flags. Reads of these are loud.
@@ -95,7 +95,7 @@ def _permissive():
 
 
 class UnmodelledTileRegisterError(LookupError):
-    """A ``RISCV_DEBUG_REG_*`` read tt-sim cannot answer truthfully.
+    """A ``RISCV_DEBUG_REG_*`` read Wolfpine cannot answer truthfully.
 
     Raised rather than answered with zero, because zero is a *plausible* value
     for every register in this window — a clear status, an idle unit, an
@@ -243,10 +243,10 @@ class TensixTileControl(MemMapable, Clockable):
         if not _permissive():
             raise UnmodelledTileRegisterError(
                 f"RISCV_DEBUG_REG at offset {addr:#05x} ({name}) "
-                f"is not modelled in tt-sim: {why}. Returning 0 would read as a "
+                f"is not modelled in Wolfpine: {why}. Returning 0 would read as a "
                 f"clear status / an idle unit / an unstalled thread, which is a "
-                f"measurement tt-sim has not made. Implement it in "
-                f"tt_sim/misc/tile_ctrl.py, or set {PERMISSIVE_ENV}=1 to "
+                f"measurement Wolfpine has not made. Implement it in "
+                f"framework/misc/tile_ctrl.py, or set {PERMISSIVE_ENV}=1 to "
                 f"downgrade this to a warning and get the old zero back."
             )
         self._warn(addr, why, "read")
@@ -256,7 +256,7 @@ class TensixTileControl(MemMapable, Clockable):
             return
         self._warned.add(addr)
         print(
-            f"tt-sim WARNING: RISCV_DEBUG_REG at offset {addr:#05x} is not "
+            f"Wolfpine WARNING: RISCV_DEBUG_REG at offset {addr:#05x} is not "
             f"modelled and was {verb}: {why}.",
             file=sys.stderr,
         )

@@ -1,9 +1,9 @@
-from tt_sim.pe.tensix.backends.backend_base import DataFormat, TensixBackendUnit
-from tt_sim.pe.tensix.registers import LReg
-from tt_sim.pe.tensix.util import DataFormatConversions
-from tt_sim.perf.model import unit_cost_model
-from tt_sim.util.bits import extract_bits, get_bits, get_nth_bit
-from tt_sim.util.conversion import conv_to_float, conv_to_int32, conv_to_uint32
+from framework.pe.tensix.backends.backend_base import DataFormat, TensixBackendUnit
+from framework.pe.tensix.registers import LReg
+from framework.pe.tensix.util import DataFormatConversions
+from framework.perf.model import unit_cost_model
+from framework.util.bits import extract_bits, get_bits, get_nth_bit
+from framework.util.conversion import conv_to_float, conv_to_int32, conv_to_uint32
 
 _M64 = 0xFFFFFFFFFFFFFFFF
 _M32 = 0xFFFFFFFF
@@ -28,7 +28,7 @@ def fma_model_bh(x, y, z):
     Verbatim port of ttsim's ``src/fma.cpp`` ``fma_model_bh`` — the exact
     hardware FMA the float ALU implements (denormal-flushing inputs/output,
     3 guard/round/sticky bits, round-to-nearest-even). Every SFPU float
-    mul/add/mad on Blackhole rounds through this, so tt-sim must too (a plain
+    mul/add/mad on Blackhole rounds through this, so Wolfpine must too (a plain
     double ``a*b+c`` diverges in the low mantissa bits and compounds through
     e.g. recip's Newton refinement).
     """
@@ -121,7 +121,7 @@ def fma_model_wh(x, y, z):
       make it into the rounding decision.
 
     Fuzz-matched bit-for-bit against ttsim's C over 200k random triples
-    (``tt_sim/pe/tensix/fma_model_test.py`` pins the vectors).
+    (``framework/pe/tensix/fma_model_test.py`` pins the vectors).
     """
 
     def unpack(v):
@@ -341,7 +341,7 @@ class VectorUnit(TensixBackendUnit):
 
     # SFP_STOCH_RND conversion modes (instr_mod1 bits [2:0]); bit 3 selects the
     # immediate descale over src_b. The round-to-nearest constant the ISA uses
-    # for the deterministic path is 0x400000; tt-sim has no SFPU PRNG so the
+    # for the deterministic path is 0x400000; Wolfpine has no SFPU PRNG so the
     # stochastic (rnd_mode == 1) path reuses it. Per
     # WormholeB0/TensixTile/TensixCoprocessor/SFPSTOCHRND_*.md.
     SFP_STOCH_RND_PRNG_RNE = 0x400000
@@ -492,7 +492,7 @@ class VectorUnit(TensixBackendUnit):
         # sub-units are pipelined, so the 2-cycle latency of the arithmetic and
         # LUT ops is time-to-result, not time-the-unit-is-held. The unit "can
         # only accept one instruction per cycle from the outside world", which
-        # is exactly tt-sim's issue behaviour, so this charges nothing new.
+        # is exactly Wolfpine's issue behaviour, so this charges nothing new.
         # See docs/plans/cost-model.md ("The first consumer").
         #
         # THE LATENCY COLUMN IS WHAT ``STALLWAIT``'s C14 NEEDS, and since
@@ -739,7 +739,7 @@ class VectorUnit(TensixBackendUnit):
         # Cast a sign-magnitude int32 in VC to FP32 in VD. Verbatim port of the
         # pseudocode in WormholeB0/TensixTile/TensixCoprocessor/SFPCAST.md.
         # mod1 & 1 selects stochastic rounding (seven PRNG bits) on hardware;
-        # tt-sim does not model the SFPU PRNG, so both modes round to nearest
+        # Wolfpine does not model the SFPU PRNG, so both modes round to nearest
         # even here (the round-to-nearest branch below).
         #
         # Blackhole adds two more modes (2 and 3), which convert between
@@ -806,7 +806,7 @@ class VectorUnit(TensixBackendUnit):
         # FloatInt,IntInt}.md. mod bits [2:0] pick the conversion; bit 3
         # selects the immediate descale over src_b (int32->int8 only). rnd_mode
         # selects stochastic rounding on hardware, which needs the SFPU PRNG
-        # tt-sim does not model, so that path uses the round-to-nearest
+        # Wolfpine does not model, so that path uses the round-to-nearest
         # constant 0x400000. Blackhole additionally has rnd_mode 2 (round toward
         # zero), which is deterministic and therefore modelled exactly.
         mod = instr_args["instr_mod1"]
@@ -1477,7 +1477,7 @@ class VectorUnit(TensixBackendUnit):
     def handle_sfploadmacro(self, instruction_info, issue_thread, instr_args):
         # SFPLOADMACRO is an SFPLOAD that additionally schedules up to four
         # previously-configured vector instructions across the SFPU sub-units,
-        # with per-sub-unit delays. tt-sim's backend has no notion of SFPU
+        # with per-sub-unit delays. Wolfpine's backend has no notion of SFPU
         # sub-units or of deferred issue, and the reference simulator declines
         # to model the op at all ("explicitly out of scope"), so there is no
         # oracle to port and nothing here is invented. Fail loudly with the

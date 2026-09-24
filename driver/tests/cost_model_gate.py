@@ -326,8 +326,8 @@ SPIN_POLL_READS = 8
 
 def _spin_polled(trace):
     """The ``(core, address)`` pairs the host spin-polls in ``trace``."""
-    from tt_sim.bridge import protocol as proto
-    from tt_sim.bridge.trace import parse_trace_line
+    from framework.bridge import protocol as proto
+    from framework.bridge.trace import parse_trace_line
 
     counts = Counter()
     for line in trace.open():
@@ -339,9 +339,9 @@ def _spin_polled(trace):
 
 def _prove_trace(label, trace, build, tolerated):
     """Replay ``trace`` at each rung of the ladder until it is byte-identical."""
-    from tt_sim.bridge import Transport
-    from tt_sim.bridge import protocol as proto
-    from tt_sim.bridge.trace import parse_trace_line
+    from framework.bridge import Transport
+    from framework.bridge import protocol as proto
+    from framework.bridge.trace import parse_trace_line
 
     polled = _spin_polled(trace)
     attempts = []
@@ -407,7 +407,7 @@ def _prove_trace(label, trace, build, tolerated):
 def _blackhole_fabric(pool, cycles_per_poll):
     from driver.blackhole.server.bh_device import make_device
     from driver.blackhole.server.coords import DRAM_COORD_MAP, TENSIX_COORD_MAP
-    from tt_sim.bridge import DramCore, Fabric, TensixCore
+    from framework.bridge import DramCore, Fabric, TensixCore
 
     device = make_device(cycles_per_poll=cycles_per_poll)
     fabric = Fabric()
@@ -553,13 +553,13 @@ def _run(cmd, model_on, timeout=1800):
 def stage_unit(model_on):
     """The simulator's own unit tests, under the model.
 
-    ``pytest tt_sim`` rather than ``pytest tt_sim driver``: the driver tree
+    ``pytest framework`` rather than ``pytest framework driver``: the driver tree
     contains the timing-pinned guards, which this gate handles in stage 3.
     """
-    p, secs = _run([sys.executable, "-m", "pytest", "tt_sim", "-q"], model_on)
+    p, secs = _run([sys.executable, "-m", "pytest", "framework", "-q"], model_on)
     tail = [ln for ln in p.stdout.strip().splitlines() if ln.strip()][-1:]
     print(
-        f"  {'ok  ' if p.returncode == 0 else 'FAIL'} pytest tt_sim -q: "
+        f"  {'ok  ' if p.returncode == 0 else 'FAIL'} pytest framework -q: "
         f"{tail[0] if tail else '(no output)'}  [{secs:.0f}s]"
     )
     if p.returncode:
