@@ -1,5 +1,7 @@
 # Wolfpine
 
+<img src="docs/wolfpine.png" alt="Wolfpine logo" align="right" width="260">
+
 **A framework for simulating AI accelerators, in pure Python.**
 
 Wolfpine is a hackable software framework for building cycle-approximate
