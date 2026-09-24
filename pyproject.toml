@@ -20,8 +20,6 @@ dependencies = [
     "pyelftools",
 ]
 
-version = "1.0"
-
 [project.optional-dependencies]
 dev=["ruff", "pytest"]
 
