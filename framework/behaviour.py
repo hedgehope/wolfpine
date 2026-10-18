@@ -155,7 +155,7 @@ _BEHAVIOURS = (
             "storage reachable at its own NoC 0 coordinate: 12 banks on "
             "Wormhole (6 channels x two 1 GiB dram_views), 8 on Blackhole (8 "
             "channels x one view), counted from the shipped "
-            "driver/<arch>/soc_descriptor.yaml. A write to one bank is "
+            "framework/sim/<arch>/soc_descriptor.yaml. A write to one bank is "
             "invisible in every other; each bank's descriptor coordinate is a "
             "distinct cell that resolves to its own channel's tile (including "
             "the second worker-visible endpoint of a Wormhole channel); and "
@@ -273,6 +273,10 @@ _NOT_A_GUARANTEE = MappingProxyType(
     {
         "UnsupportedBehaviour": (
             "this registry's own failure mode, not a claim about the simulator"
+        ),
+        "UsageError": (
+            "the wolfpine CLI's bad-setup message (no tt-metal checkout, an "
+            "unbuilt one); raised before any program or simulator runs"
         ),
         "NoC1ShadowError": (
             "warn-by-default and opt-in via TT_SIM_NOC1_SHADOW, so a build "

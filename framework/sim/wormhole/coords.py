@@ -1,0 +1,206 @@
+"""Translation tables derived from ``soc_descriptor.yaml`` (next to this module).
+
+The wire bridge receives messages addressed to **physical NoC coordinates**
+(the workers / dram / eth grid positions enumerated in the SoC descriptor).
+Wolfpine packs the same hardware into a **unified coordinate** band (16-25)
+defined by ``Wormhole`` in ``framework/device/tt_device.py``. This module pairs
+the two by reading the descriptor — no hand-rolled tables.
+
+How the pairing works:
+
+- **DRAM.** Each ``dram_views[i]`` entry pins a sub-endpoint of a controller
+  to the wire: ``dram[channel][worker_endpoint[0]]`` is the physical NoC
+  coord; ``Wormhole.DRAM_CHANNEL_UNIFIED_COORDS[channel]`` is the
+  ``DRAMTile`` that backs it. The two sub-endpoints serving the same
+  controller alias to the same ``DRAMTile``, whose 2 GB channel is one flat
+  address space — the 1 GB ``address_offset`` the tt-metal allocator bakes
+  into the buffer address just picks the half.
+
+- **Tensix.** Every ``functional_workers[i]`` entry maps to a unified coord
+  in the 8×10 worker band ``(18-25, 16-25)`` (DRAM occupies ``(16-17, 16-18)``
+  so worker x starts at 18). The y-axis is offset by ``+2 mod 10`` so that
+  physical ``(1, 1)`` lands on unified ``(18, 18)`` — preserving the
+  default single-tile coord the existing examples and ``Wormhole.__init__``
+  hardcode. The full 80-entry map is materialised eagerly so callers can
+  resolve any worker coord; Wolfpine ``TensixTile`` instances are only built
+  on demand (see ``framework/bridge/device.py:Device.ensure_tensix_tile``).
+
+- **Ethernet.** Each ``eth[i]`` entry maps to a unified coord in the eth
+  band ``y ∈ {14, 15}`` (below the worker/DRAM band so the historical
+  (18, 18) Tensix default is preserved). Backed by an ``EthTile`` with
+  L1 SRAM only — no ERisc baby cores yet. Single-chip kernels that
+  hardcode an eth coord (``hello_world_datatypes_kernel`` reads ``(1, 0)``)
+  now see deterministic memory-backed state instead of NullCore zeros.
+
+Anything else (pcie, arc, router-only) is intentionally left out — the
+fabric falls back to ``NullCore`` (zero-fills reads, swallows writes), which
+has proven sufficient for tt-metal device-init traffic.
+"""
+
+import pathlib
+
+import yaml
+
+from framework.bridge.grid import fill_order
+from framework.device.wormhole import Wormhole
+
+_SOC_DESCRIPTOR_PATH = pathlib.Path(__file__).resolve().parent / "soc_descriptor.yaml"
+
+
+def _parse_coord(spec):
+    """Parse a SoC-descriptor coord, accepting either ``"x-y"`` or ``[x, y]``."""
+    if isinstance(spec, (list, tuple)):
+        return (int(spec[0]), int(spec[1]))
+    x, y = spec.split("-")
+    return (int(x), int(y))
+
+
+def _load_soc_descriptor(path=_SOC_DESCRIPTOR_PATH):
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def _build_dram_map(soc):
+    """Pair every ``dram_views`` sub-endpoint with its ``DRAMTile`` unified coord."""
+    dram = [[_parse_coord(c) for c in ch] for ch in soc["dram"]]
+    coord_map = {}
+    for view in soc["dram_views"]:
+        channel = view["channel"]
+        n0, n1 = view["worker_endpoint"]
+        # Both NoCs use the same sub-index inside a worker's dram view; the
+        # descriptor would have to grow asymmetric routing for this to differ,
+        # which Wormhole B0 does not today.
+        assert n0 == n1, f"asymmetric worker_endpoint {view['worker_endpoint']}"
+        physical = dram[channel][n0]
+        coord_map[physical] = Wormhole.DRAM_CHANNEL_UNIFIED_COORDS[channel]
+    return coord_map
+
+
+def _build_tensix_map(soc):
+    """Pair every ``functional_workers`` entry with a unified coord.
+
+    The mapping is derived by indexing each axis into the unified worker
+    band: ``unified_x = 18 + x_idx`` (8 columns → 18..25) and
+    ``unified_y = (y_idx + 2) % 10 + 16``. The y offset of 2 puts
+    physical ``(1, 1)`` at unified ``(18, 18)``, which is the coord
+    ``Wormhole.TENSIX_UNIFIED_COORDS`` defaults to and every existing
+    single-tile example bakes in.
+    """
+    workers = [_parse_coord(w) for w in soc["functional_workers"]]
+    xs = sorted({x for x, _ in workers})
+    ys = sorted({y for _, y in workers})
+    x_to_idx = {x: i for i, x in enumerate(xs)}
+    y_to_idx = {y: i for i, y in enumerate(ys)}
+    coord_map = {
+        (x, y): (18 + x_to_idx[x], (y_to_idx[y] + 2) % len(ys) + 16)
+        for (x, y) in workers
+    }
+    assert coord_map.get((1, 1)) == Wormhole.TENSIX_UNIFIED_COORDS[0], (
+        f"physical (1, 1) maps to {coord_map.get((1, 1))!r}, "
+        f"expected {Wormhole.TENSIX_UNIFIED_COORDS[0]!r}"
+    )
+    return coord_map
+
+
+def _build_eth_map(soc):
+    """Pair every ``eth`` entry with its ``EthTile`` unified coord."""
+    eth = [_parse_coord(c) for c in soc["eth"]]
+    return {
+        physical: Wormhole.eth_unified_coord_from_physical(physical) for physical in eth
+    }
+
+
+_SOC = _load_soc_descriptor()
+TENSIX_COORD_MAP = _build_tensix_map(_SOC)
+DRAM_COORD_MAP = _build_dram_map(_SOC)
+ETH_COORD_MAP = _build_eth_map(_SOC)
+
+#: Path of the checked-in cluster descriptor that turns translation on. Quoted
+#: back to the user by the convention guard, so keep it next to the maps.
+CLUSTER_DESCRIPTOR_PATH = (
+    pathlib.Path(__file__).resolve().parent / "cluster_descriptor.yaml"
+)
+
+
+def _build_translated_wire_alias():
+    """``translated wire coord -> SoC-physical coord``, for workers and eth.
+
+    Only these two move on Wormhole. DRAM does not — UMD's
+    ``WormholeCoordinateManager::fill_dram_noc0_translated_mapping`` says
+    outright "DRAM cores are not translated in Wormhole", and tt-metal agrees
+    (``wh_hal.cpp`` virtualises ``{TENSIX, ETH}`` only) — so a DRAM wire coord
+    is the same in both conventions and needs no entry, and must not appear in
+    the guard's discriminating set either.
+
+    Verified against a wire trace captured from a translated ``examples/one``
+    run: workers appear at ``(18..25, 18..27)``, eth at ``(18..25, 16..17)``,
+    DRAM at ``(0, 11)``.
+    """
+    alias = {
+        Wormhole.translated_coord_from_unified_worker(unified): physical
+        for physical, unified in TENSIX_COORD_MAP.items()
+    }
+    alias.update(
+        {
+            Wormhole.translated_coord_from_eth_physical(physical): physical
+            for physical in ETH_COORD_MAP
+        }
+    )
+    return alias
+
+
+#: Wire coords the host uses under translation, mapped back to the physical
+#: coords everything downstream of ``Fabric`` names tiles by.
+TRANSLATED_WIRE_ALIAS = _build_translated_wire_alias()
+
+
+def wire_conventions():
+    """``(translated_alias, translated_only, untranslated_only)``.
+
+    The two "only" sets are what the convention guard fires on: coordinates
+    that exist in one convention and belong to no tile in the other. DRAM is in
+    neither, because it is untranslated on Wormhole and so is common to both.
+    """
+    translated_only = frozenset(TRANSLATED_WIRE_ALIAS)
+    untranslated_only = frozenset(TENSIX_COORD_MAP) | frozenset(ETH_COORD_MAP)
+    return (
+        dict(TRANSLATED_WIRE_ALIAS),
+        translated_only - untranslated_only,
+        untranslated_only - translated_only,
+    )
+
+
+# tt-metal's compute-with-storage grid on this target when
+# TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE is unset, as **8 columns x 9 rows**,
+# not the 8x10 the SoC descriptor declares. The simulated chip reports zero
+# harvested rows, so tt-metal picks the ``galaxy`` product's row-dispatch entry
+# in ``tt_metal/core_descriptors/wormhole_b0_80_arch.yaml``, whose
+# ``compute_with_storage_grid_range`` ends at logical ``[7, 8]``. Measured, not
+# read off: setting the override to ``7,9`` makes tt-metal 0.74 abort with
+# ``compute_with_storage_end[1]= 8 should be >= …override[1]= 9``, which prints
+# the bound. Physical row 11 is therefore never a compute core. Override with
+# ``TT_SIM_COMPUTE_GRID=WxH`` if a future release moves it.
+DEFAULT_COMPUTE_GRID = (8, 9)
+
+
+def default_tensix_coords(n, env=None):
+    """Return the first ``n`` physical worker coords for ``TT_SIM_TENSIX_CORES=N``.
+
+    The order is tt-metal's, not ours — see :mod:`framework.bridge.grid`: the
+    compute-with-storage grid filled column-major, where that grid is
+    ``DEFAULT_COMPUTE_GRID`` unless ``TT_METAL_CORE_GRID_OVERRIDE_TODEPRECATE``
+    (or ``TT_SIM_COMPUTE_GRID``) says otherwise. So ``N=6`` means ``1-1 … 1-5``
+    plus ``1-7`` with no override, and ``1-1 … 1-5`` plus ``2-1`` under the 4x5
+    override, which is what the two respective ``split_work_to_cores`` calls
+    actually launch on. A program that launches outside the set still hits the
+    go=GO error naming the exact coord to add.
+    """
+    if n < 1:
+        raise ValueError(f"core count must be >= 1, got {n}")
+    ordered = fill_order(TENSIX_COORD_MAP, DEFAULT_COMPUTE_GRID, env)
+    if n > len(ordered):
+        raise ValueError(
+            f"core count {n} exceeds the {len(ordered)} functional workers "
+            f"in soc_descriptor.yaml"
+        )
+    return ordered[:n]

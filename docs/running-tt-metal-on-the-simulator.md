@@ -6,9 +6,9 @@ written to be followed both by a human and by an automated agent driving a
 test cycle.
 
 The mechanism: tt-metal's UMD has a "simulation" chip backend. When
-`TT_METAL_SIMULATOR` points at `driver/wormhole/`, UMD spawns
-`driver/wormhole/run.sh`, which starts the Wolfpine wire-bridge server
-(`python -m driver.wormhole.server`). The tt-metal host binary then talks to
+`TT_METAL_SIMULATOR` points at `driver/wormhole/` (a link to the packaged
+`framework/sim/wormhole/`), UMD spawns its `run.sh`, which starts the Wolfpine
+wire-bridge server (`python -m framework.sim.wormhole`). The tt-metal host binary then talks to
 the simulator over an NNG IPC socket exactly as it would talk to real silicon.
 Only the **slow-dispatch** launch path is supported (see Limitations).
 
@@ -33,7 +33,14 @@ sets:
 | `TT_METAL_SLOW_DISPATCH_MODE` | `1` | forces `EnqueueProgram` to fall back to `detail::LaunchProgram` |
 | `LD_LIBRARY_PATH` | `…/tt-metal/build_Release/lib:…` | tt-metal shared libs |
 
-If you are not using the venv, export those four yourself.
+If you are not using the venv, export those four yourself — or let the `wolfpine`
+command do it: `wolfpine run wormhole <program>` runs one program with them set
+(`blackhole` and `hw` are the other targets), and `eval "$(wolfpine env wormhole)"` /
+`eval "$(wolfpine env off)"` switch the current shell and restore it. It finds the
+simulator directory inside the installed package (`framework/sim/<arch>/`, which
+`driver/<arch>/` links to), points `run.sh` at the right interpreter via
+`WOLFPINE_PYTHON`, and takes tt-metal from `--tt-metal`, the environment, or
+`wolfpine config --tt-metal <path>`. `wolfpine doctor` prints what it resolved.
 
 **Point them at the right tt-metal, and check which one you have.** More than one
 checkout may exist on a development box, and a stale one fails in ways that look

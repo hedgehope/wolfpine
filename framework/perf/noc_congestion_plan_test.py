@@ -121,8 +121,8 @@ def test_worker_layout_matches_the_soc_descriptors():
     """These tables are transcribed; this is what stops them drifting."""
     root = pathlib.Path(__file__).resolve().parents[2]
     for arch in ("wormhole", "blackhole"):
-        path = root / "driver" / arch / "soc_descriptor.yaml"
-        if not path.exists():  # pragma: no cover - a checkout without drivers
+        path = root / "framework" / "sim" / arch / "soc_descriptor.yaml"
+        if not path.exists():  # pragma: no cover
             pytest.skip(f"no {path}")
         soc = yaml.safe_load(path.read_text())
         workers = [

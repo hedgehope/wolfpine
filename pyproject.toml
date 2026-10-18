@@ -23,8 +23,16 @@ dependencies = [
 [project.optional-dependencies]
 dev=["ruff", "pytest"]
 
-[tool.setuptools]
-packages = ["framework"]
+[project.scripts]
+wolfpine = "framework.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["framework*"]
+
+[tool.setuptools.package-data]
+# The sim/<arch>/ directories are what TT_METAL_SIMULATOR points at, so their
+# run.sh and descriptors must ship; the rest is data the simulator loads.
+framework = ["**/*.yaml", "**/*.csv", "**/*.sql", "**/*.md", "sim/*/run.sh"]
 
 [tool.ruff]
 target-version = "py310"

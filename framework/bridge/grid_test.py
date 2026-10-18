@@ -15,7 +15,7 @@ import pytest
 
 from framework.bridge.grid import compute_grid, fill_order, logical_to_physical
 
-# The Wormhole worker grid from driver/wormhole/soc_descriptor.yaml: 8 columns
+# The Wormhole worker grid from framework/sim/wormhole/soc_descriptor.yaml: 8 columns
 # (physical x skips 0 and 5, the DRAM/router columns) by 10 rows (physical y
 # skips 0 and 6, the ethernet rows).
 WH_XS = (1, 2, 3, 4, 6, 7, 8, 9)
@@ -117,7 +117,7 @@ def test_bad_grid_values_raise_rather_than_silently_defaulting():
 
 
 def test_wormhole_driver_agrees_with_the_table():
-    from driver.wormhole.server.coords import (
+    from framework.sim.wormhole.coords import (
         DEFAULT_COMPUTE_GRID,
         TENSIX_COORD_MAP,
         default_tensix_coords,
@@ -139,7 +139,7 @@ def test_wormhole_driver_agrees_with_the_table():
 
 
 def test_blackhole_driver_skips_the_missing_worker_columns():
-    from driver.blackhole.server.coords import (
+    from framework.sim.blackhole.coords import (
         DEFAULT_COMPUTE_GRID,
         default_tensix_coords,
     )

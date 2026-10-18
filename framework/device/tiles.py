@@ -594,7 +594,7 @@ class EthTile(TTDeviceTile):
 
     tile_role = "eth"
 
-    # Per ``driver/wormhole/soc_descriptor.yaml`` (``eth_l1_size: 262144``).
+    # Per ``framework/sim/wormhole/soc_descriptor.yaml`` (``eth_l1_size: 262144``).
     L1_SIZE = 0x40000
     # Per WormholeB0/EthernetTile/BabyRISCV/README.md.
     ERISC_LOCAL_MEM_BASE = 0xFFB00000

@@ -54,21 +54,41 @@ export PYTHONPATH=$PWD:$PYTHONPATH
 
 ## Using Wolfpine as a simulator for tt-metal
 
-tt-metal's UMD has a "simulation" chip backend: point `TT_METAL_SIMULATOR` at the
-[`driver/wormhole`](driver/wormhole) directory and UMD launches Wolfpine in place of real
-silicon, so an ordinary tt-metal program runs against the simulator over a socket — no
-code changes, exactly as it would run on hardware. The minimal setup:
+tt-metal's UMD has a "simulation" chip backend: point `TT_METAL_SIMULATOR` at a simulator
+directory and UMD launches Wolfpine in place of real silicon, so an ordinary tt-metal program
+runs against the simulator over a socket — no code changes, exactly as it would run on
+hardware. The `wolfpine` command (installed with the package) sets that and the other
+variables tt-metal needs, so you never have to know where the package landed:
+
+```bash
+wolfpine config --tt-metal /path/to/tt-metal     # once: your built tt-metal checkout
+
+wolfpine run wormhole ./metal_example_add_2_integers_in_compute   # simulated (or: blackhole)
+wolfpine run hw ./metal_example_add_2_integers_in_compute         # the same, on real hardware
+wolfpine run blackhole                                            # a subshell with the simulator on
+```
+
+`run` sets the variables for that one command only, so nothing leaks into your shell. To
+switch the shell itself (handy when also building with CMake), `eval` the exports instead;
+`off` restores exactly what was there before:
+
+```bash
+eval "$(wolfpine env wormhole)"     # or blackhole, or hw
+eval "$(wolfpine env off)"
+```
+
+`wolfpine doctor` shows which checkout, libraries and simulator directory would be used.
+Under the hood these are the variables it manages, if you would rather export them yourself:
 
 ```bash
 export TT_METAL_RUNTIME_ROOT=/path/to/tt-metal          # your built tt-metal checkout
-export TT_METAL_SIMULATOR="$PWD/driver/wormhole"        # the switch: route execution to Wolfpine
+export TT_METAL_SIMULATOR="$(python3 -c 'from framework.sim import simulator_dir; print(simulator_dir("wormhole"))')"
 export TT_METAL_SLOW_DISPATCH_MODE=1                    # the only launch path the sim models
 export LD_LIBRARY_PATH="$TT_METAL_RUNTIME_ROOT/build/lib:$LD_LIBRARY_PATH"
-
-# then run any tt-metal program, e.g. an upstream example:
-cd "$TT_METAL_RUNTIME_ROOT/build/programming_examples"
-./metal_example_add_2_integers_in_compute
 ```
+
+In a repository checkout `driver/wormhole` and `driver/blackhole` link to the same simulator
+directories, so existing `TT_METAL_SIMULATOR=$PWD/driver/wormhole` setups keep working.
 
 A set of ready-to-run example programs, plus a build-and-run test suite, lives under
 [`examples`](examples). For the full walkthrough — building the

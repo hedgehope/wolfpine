@@ -48,7 +48,8 @@
 # merely *mentions* the pattern, so a shell invoked with the pattern in its
 # argv is a candidate — that is not hypothetical, it killed the calling shell
 # while this file was being written. Every kill here additionally requires the
-# process to be an actual `-m driver.<arch>.server` invocation.
+# process to be an actual `-m framework.sim.<arch>` (or the older
+# `-m driver.<arch>.server`) invocation.
 #
 # USAGE
 #     . "$REPO/driver/sim_procs.sh"
@@ -164,6 +165,7 @@ _sim_servers() {
     # is not mistaken for a live server.
     case "${cmd%% *}" in */python* | python*) ;; *) continue ;; esac
     case "$cmd" in
+      *"-m framework.sim.wormhole "* | *"-m framework.sim.blackhole "*) ;;
       *"-m driver.wormhole.server "* | *"-m driver.blackhole.server "*) ;;
       *) continue ;;
     esac

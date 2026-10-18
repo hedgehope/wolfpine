@@ -27,7 +27,7 @@ visible at all is that the banks are really apart:
   is where a consumer reads it, and every view's range lies inside the channel
   Wolfpine actually models.
 
-The banks here are derived from ``driver/<arch>/soc_descriptor.yaml`` exactly
+The banks here are derived from ``framework/sim/<arch>/soc_descriptor.yaml`` exactly
 as tt-metal derives them — ``dram_views[b].channel`` picks the row of ``dram``,
 ``worker_endpoint[0]`` picks the NoC 0 subchannel within it, ``address_offset``
 is the base inside the channel — rather than from the profile the model is
@@ -81,8 +81,8 @@ PROBE_OFFSET = 0x2000
 
 
 def _soc_descriptor(arch):
-    path = _ROOT / "driver" / arch / "soc_descriptor.yaml"
-    if not path.exists():  # pragma: no cover - a checkout without drivers
+    path = _ROOT / "framework" / "sim" / arch / "soc_descriptor.yaml"
+    if not path.exists():  # pragma: no cover
         pytest.skip(f"no {path}")
     return yaml.safe_load(path.read_text())
 

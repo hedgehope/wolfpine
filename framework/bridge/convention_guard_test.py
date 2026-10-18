@@ -11,9 +11,9 @@ untranslated run.
 
 import pytest
 
-from driver.blackhole.server import coords as bh_coords
-from driver.wormhole.server import coords as wh_coords
 from framework.bridge import Fabric, install_convention_guard
+from framework.sim.blackhole import coords as bh_coords
+from framework.sim.wormhole import coords as wh_coords
 
 ARCHES = {"wormhole": wh_coords, "blackhole": bh_coords}
 
@@ -132,9 +132,9 @@ def test_the_server_factory_builds_the_device_in_the_mode_it_was_told(arch):
     the device and the guard — so a device keyed one way behind a guard set the
     other way is not a state this can reach."""
     if arch == "wormhole":
-        from driver.wormhole.server.wh_device import make_device
+        from framework.sim.wormhole.wh_device import make_device
     else:
-        from driver.blackhole.server.bh_device import make_device
+        from framework.sim.blackhole.bh_device import make_device
 
     assert make_device().tt_device.noc_translation is False
     assert make_device(noc_translation=True).tt_device.noc_translation is True

@@ -81,7 +81,7 @@ _WH_UNIFIED_TO_PHYSICAL = {
 }
 _WH_PHYSICAL_TO_UNIFIED = {v: k for k, v in _WH_UNIFIED_TO_PHYSICAL.items()}
 
-#: Blackhole's 140 functional workers, per ``driver/blackhole/soc_descriptor.yaml``
+#: Blackhole's 140 functional workers, per ``framework/sim/blackhole/soc_descriptor.yaml``
 #: — columns 1-7 and 10-16 (8 and 9 are ARC / router-only), rows 2-11.
 _BH_WORKERS = [
     (x, y) for x in list(range(1, 8)) + list(range(10, 17)) for y in range(2, 12)

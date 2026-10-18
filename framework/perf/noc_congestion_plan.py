@@ -267,8 +267,8 @@ EXPERIMENT 4 -- VIRTUAL CHANNEL ARBITRATION. TWO writers whose payloads share
 # ---------------------------------------------------------------------------
 
 #: SoC-physical NoC 0 worker columns and rows, per architecture. Transcribed
-#: from the SoC descriptors (``driver/wormhole/soc_descriptor.yaml``,
-#: ``driver/blackhole/soc_descriptor.yaml``); ``noc_congestion_plan_test.py``
+#: from the SoC descriptors (``framework/sim/wormhole/soc_descriptor.yaml``,
+#: ``framework/sim/blackhole/soc_descriptor.yaml``); ``noc_congestion_plan_test.py``
 #: reads those files back and asserts these still match, so the two cannot
 #: drift. They are needed because a plan's link arithmetic must happen on the
 #: FULL torus -- the non-worker columns (DRAM, PCIe) are routers a packet

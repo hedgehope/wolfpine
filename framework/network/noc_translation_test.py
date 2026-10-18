@@ -79,10 +79,10 @@ def test_blank_override_falls_through_to_the_descriptor(tmp_path):
 def test_the_checked_in_descriptors_declare_translation():
     # These are the files the docs tell users to export, so if one ever stopped
     # declaring translation the whole feature would silently stop working.
-    from driver.blackhole.server.coords import (
+    from framework.sim.blackhole.coords import (
         CLUSTER_DESCRIPTOR_PATH as bh_descriptor,
     )
-    from driver.wormhole.server.coords import CLUSTER_DESCRIPTOR_PATH as wh_descriptor
+    from framework.sim.wormhole.coords import CLUSTER_DESCRIPTOR_PATH as wh_descriptor
 
     for path in (wh_descriptor, bh_descriptor):
         assert path.exists(), path

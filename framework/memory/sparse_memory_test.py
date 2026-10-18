@@ -29,7 +29,7 @@ BLACKHOLE_TOP_DOWN_ADDR = 0xFEFF_FC00
 
 
 def test_channel_sizes_match_the_soc_descriptors():
-    """`dram_bank_size` from driver/<arch>/soc_descriptor.yaml."""
+    """`dram_bank_size` from framework/sim/<arch>/soc_descriptor.yaml."""
     assert WORMHOLE_PROFILE.dram_channel_size == 2147483648
     assert BLACKHOLE_PROFILE.dram_channel_size == 4278190080
 
