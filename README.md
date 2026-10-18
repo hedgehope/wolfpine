@@ -20,6 +20,7 @@ down, poke at simulator state directly from a driver script.
 
 ## Contents
 
+- [Quick start](#quick-start)
 - [Installation](#installation)
 - [Using Wolfpine as a simulator for tt-metal](#using-wolfpine-as-a-simulator-for-tt-metal)
 - [Repository overview](#repository-overview)
@@ -32,11 +33,56 @@ Building tooling on those outputs: [`docs/trace-schema.md`](docs/trace-schema.md
 is the stable, versioned schema — field meanings, units and what you may
 rely on.
 
+## Quick start
+
+You need Python ≥ 3.10 and a built [tt-metal](https://github.com/tenstorrent/tt-metal)
+checkout. Install Wolfpine from PyPI and tell it where tt-metal is:
+
+```bash
+pip install wolfpine
+wolfpine config --tt-metal /path/to/tt-metal    # once; saved to ~/.config/wolfpine
+wolfpine doctor                                  # check what it found
+```
+
+Then run any tt-metal program against the simulator with `wolfpine run <target>`, where the
+target is `wormhole`, `blackhole`, or `hw` for real hardware. The program needs no changes:
+
+```bash
+cd /path/to/tt-metal/build/programming_examples
+wolfpine run wormhole  ./metal_example_add_2_integers_in_compute   # simulated Wormhole
+wolfpine run blackhole ./metal_example_add_2_integers_in_compute   # simulated Blackhole
+wolfpine run hw        ./metal_example_add_2_integers_in_compute   # the same binary on hardware
+```
+
+`wolfpine run` sets tt-metal's environment variables (`TT_METAL_SIMULATOR`,
+`TT_METAL_SLOW_DISPATCH_MODE`, `TT_METAL_RUNTIME_ROOT`, `LD_LIBRARY_PATH`) for that one
+command only, so nothing is left behind in your shell. Leave out the command to get a
+subshell with the target switched on (`exit` to leave it). To switch your current shell
+instead — handy when building your own programs with CMake — `eval` the exports; `off`
+puts back exactly what was there before:
+
+```bash
+eval "$(wolfpine env blackhole)"   # or wormhole, or hw
+cmake -B build -S . && cmake --build build && ./build/my_program
+eval "$(wolfpine env off)"
+```
+
+Run `wolfpine --help` for the full list of commands.
+
 ## Installation
 
-Wolfpine is pure Python and requires Python ≥ 3.10. Clone the repository and install it in
-editable mode, which pulls in its dependencies (numpy, pyyaml, pynng, flatbuffers,
-pyarrow, pyelftools):
+Wolfpine is pure Python and requires Python ≥ 3.10. It depends on numpy, pyyaml, pynng,
+flatbuffers, pyarrow and pyelftools, which pip installs for you.
+
+**From PyPI** — the simulator library plus the `wolfpine` command, everything needed to run
+tt-metal programs:
+
+```bash
+pip install wolfpine
+```
+
+**From source** — for the example programs, the low-level driver scripts and the test
+suite, or to hack on the simulator itself:
 
 ```bash
 git clone https://github.com/hedgehope/wolfpine.git
@@ -44,9 +90,9 @@ cd wolfpine
 pip install -e .           # add [dev] for the ruff + pytest tooling: pip install -e .[dev]
 ```
 
-This installs the `framework` simulator library. The example drivers live under `driver/`
-and are run from the repository root, so keep the repo root on your `PYTHONPATH` when
-invoking them directly (the tt-metal flow below wires this up for you automatically):
+Both install the `framework` simulator library and the `wolfpine` command. The example
+drivers under `driver/` are not part of the package; they run from the repository root, so
+keep the repo root on your `PYTHONPATH` when invoking them directly:
 
 ```bash
 export PYTHONPATH=$PWD:$PYTHONPATH
@@ -57,28 +103,14 @@ export PYTHONPATH=$PWD:$PYTHONPATH
 tt-metal's UMD has a "simulation" chip backend: point `TT_METAL_SIMULATOR` at a simulator
 directory and UMD launches Wolfpine in place of real silicon, so an ordinary tt-metal program
 runs against the simulator over a socket — no code changes, exactly as it would run on
-hardware. The `wolfpine` command (installed with the package) sets that and the other
-variables tt-metal needs, so you never have to know where the package landed:
+hardware. The simulator directories ship inside the package (`framework/sim/wormhole` and
+`framework/sim/blackhole`), which is why the [`wolfpine` command](#quick-start) is the easy
+way in: it finds them for you.
 
-```bash
-wolfpine config --tt-metal /path/to/tt-metal     # once: your built tt-metal checkout
-
-wolfpine run wormhole ./metal_example_add_2_integers_in_compute   # simulated (or: blackhole)
-wolfpine run hw ./metal_example_add_2_integers_in_compute         # the same, on real hardware
-wolfpine run blackhole                                            # a subshell with the simulator on
-```
-
-`run` sets the variables for that one command only, so nothing leaks into your shell. To
-switch the shell itself (handy when also building with CMake), `eval` the exports instead;
-`off` restores exactly what was there before:
-
-```bash
-eval "$(wolfpine env wormhole)"     # or blackhole, or hw
-eval "$(wolfpine env off)"
-```
-
-`wolfpine doctor` shows which checkout, libraries and simulator directory would be used.
-Under the hood these are the variables it manages, if you would rather export them yourself:
+`wolfpine` looks for tt-metal in this order: `--tt-metal` (given before the target, e.g.
+`wolfpine run --tt-metal /path wormhole ./prog`), then `$TT_METAL_RUNTIME_ROOT` or
+`$TT_METAL_HOME`, then the path saved by `wolfpine config`. If you would rather export
+the variables yourself, these are the ones it manages:
 
 ```bash
 export TT_METAL_RUNTIME_ROOT=/path/to/tt-metal          # your built tt-metal checkout
@@ -88,7 +120,7 @@ export LD_LIBRARY_PATH="$TT_METAL_RUNTIME_ROOT/build/lib:$LD_LIBRARY_PATH"
 ```
 
 In a repository checkout `driver/wormhole` and `driver/blackhole` link to the same simulator
-directories, so existing `TT_METAL_SIMULATOR=$PWD/driver/wormhole` setups keep working.
+directories, so `TT_METAL_SIMULATOR=$PWD/driver/wormhole` works too.
 
 A set of ready-to-run example programs, plus a build-and-run test suite, lives under
 [`examples`](examples). For the full walkthrough — building the
