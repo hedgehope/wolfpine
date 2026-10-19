@@ -133,14 +133,12 @@ how to turn it on, and how to read the output.
 | [`docs/profiling.md`](docs/profiling.md) | **Profiling your kernels.** Every tracing and profiling mode, what to install, and example commands |
 | [`docs/simulator-overview.md`](docs/simulator-overview.md) | How Wolfpine is put together: repository layout, the key parts of the simulator, and what the timing model claims |
 | [`docs/trace-schema.md`](docs/trace-schema.md) | The stable, versioned schema for building tools on the trace outputs |
-| [`docs/cost-model-caveats-for-consumers.md`](docs/cost-model-caveats-for-consumers.md) | Where the cycle model is known to be wrong, and by how much |
 | [`docs/upstream-examples-status.md`](docs/upstream-examples-status.md) | Which of tt-metal's upstream `programming_examples/` run on Wolfpine, on each architecture |
-| [`docs/bh_arch.md`](docs/bh_arch.md) | Blackhole microarchitecture facts measured on silicon |
-| [`docs/simulator-wall-clock.md`](docs/simulator-wall-clock.md) | For simulator developers: where Wolfpine's own host time goes, and each optimisation round |
-| [`docs/plans/`](docs/plans) | Design notes, e.g. [`cost-model.md`](docs/plans/cost-model.md) for the cycle-cost tables |
-| [`docs/upstream/`](docs/upstream) | Draft bug reports for tt-metal, UMD and the ISA documentation (not yet filed) |
 | [`examples/README.md`](examples/README.md) | The example tt-metal programs and their test suite |
 | [`ROADMAP.md`](ROADMAP.md) | What is done, what is next, and the evidence behind the timing model |
+| [`docs/cost-model-caveats-for-consumers.md`](docs/cost-model-caveats-for-consumers.md) | Where the cycle model is known to be wrong, and by how much |
+| [`docs/bh_arch.md`](docs/bh_arch.md) | Blackhole microarchitecture facts measured on silicon |
+| [`docs/simulator-wall-clock.md`](docs/simulator-wall-clock.md) | For simulator developers: where Wolfpine's own host time goes, and each optimisation round |
 
 ## Contributing
 
