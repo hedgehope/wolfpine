@@ -10,7 +10,7 @@ stages with memory-stall back-pressure on L1 / NoC reads"*).
 interpreter pays one attribute read and one branch per instruction. That matters
 more here than anywhere else in the tree: the RV interpreter is the hottest path
 in the simulator and was optimised ~2.3x by removing exactly this kind of
-per-instruction overhead (see ``driver/wormhole/docs/profiling.md``).
+per-instruction overhead (see ``docs/simulator-wall-clock.md``).
 
 **What is modelled, and what each thing is.** The four costs come from four
 different kinds of statement in the ISA docs — a latency, a queue's throughput,

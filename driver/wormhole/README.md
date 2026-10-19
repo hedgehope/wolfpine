@@ -199,7 +199,7 @@ TT_SIM_TRACE_PERFETTO=/tmp/run.json.gz ./build/one
 ```
 
 A full walkthrough — what each output is and which downstream tool reads it — lives in
-[docs/profiling.md](docs/profiling.md). Developer-side docs (event schema, adding a
+[docs/profiling.md](../../docs/profiling.md). Developer-side docs (event schema, adding a
 writer) are in [framework/trace/README.md](../../framework/trace/README.md); design history and
 what isn't yet modelled is in [ROADMAP §H](../../ROADMAP.md).
 

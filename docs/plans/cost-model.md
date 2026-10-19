@@ -1352,7 +1352,7 @@ on `two` — the shorter, more RV-dominated run — it is within **0.2 %** of th
 control on both statistics. So: **no cost distinguishable from a control group
 of identical code**, upper-bounded around 1 %, which is the only form in which
 "no measurable cost" is a claim rather than a hope. Full method and numbers in
-[`driver/wormhole/docs/profiling.md`](../../driver/wormhole/docs/profiling.md).
+[`docs/simulator-wall-clock.md`](../simulator-wall-clock.md).
 With the model *on*, `four` costs ~8 % more wall clock.
 
 ## The NoC hop model, where a total changes shape

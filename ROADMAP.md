@@ -7,7 +7,7 @@ landed, and how, is in git history and the plan docs
 (`docs/plans/blackhole-support.md`, `docs/plans/event-driven-pump.md`,
 `docs/plans/cost-model.md`, `docs/plans/tensix-cost-benchmark.md`,
 `docs/plans/riscv-front-end-benchmark.md`,
-`driver/wormhole/docs/profiling.md`,
+`docs/profiling.md`, `docs/simulator-wall-clock.md`,
 `docs/upstream-examples-status.md`). Older docs that cite this file's
 previous §A–§L layout refer to the revision before this one — see
 `git log -p ROADMAP.md`.

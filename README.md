@@ -24,16 +24,10 @@ down, poke at simulator state directly from a driver script.
 
 - [Quick start](#quick-start)
 - [Installation](#installation)
-- [Using Wolfpine as a simulator for tt-metal](#using-wolfpine-as-a-simulator-for-tt-metal)
-- [Repository overview](#repository-overview)
-- [What the timing model claims, and what it does not](#what-the-timing-model-claims-and-what-it-does-not)
-- [Key parts of the simulator](#key-parts-of-the-simulator)
-
-Profiling a kernel: [`driver/wormhole/docs/profiling.md`](driver/wormhole/docs/profiling.md)
-walks through every output the simulator can produce.
-Building tooling on those outputs: [`docs/trace-schema.md`](docs/trace-schema.md)
-is the stable, versioned schema — field meanings, units and what you may
-rely on.
+- [How it works with tt-metal](#how-it-works-with-tt-metal)
+- [Profiling your kernels](#profiling-your-kernels)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
 
 ## Quick start
 
@@ -100,83 +94,57 @@ keep the repo root on your `PYTHONPATH` when invoking them directly:
 export PYTHONPATH=$PWD:$PYTHONPATH
 ```
 
-## Using Wolfpine as a simulator for tt-metal
+## How it works with tt-metal
 
 tt-metal's UMD has a "simulation" chip backend: point `TT_METAL_SIMULATOR` at a simulator
 directory and UMD launches Wolfpine in place of real silicon, so an ordinary tt-metal program
-runs against the simulator over a socket — no code changes, exactly as it would run on
-hardware. The simulator directories ship inside the package (`framework/sim/wormhole` and
-`framework/sim/blackhole`), which is why the [`wolfpine` command](#quick-start) is the easy
-way in: it finds them for you.
+runs against it over a socket, exactly as it would on hardware. The simulator directories
+ship inside the package, and `wolfpine run` / `wolfpine env` set that variable and the
+handful of others tt-metal needs. To set them by hand, or for multi-tile grids,
+diagnostics and every other knob, see the
+[runbook](docs/running-tt-metal-on-the-simulator.md).
 
-`wolfpine` looks for tt-metal in this order: `--tt-metal` (given before the target, e.g.
-`wolfpine run --tt-metal /path wormhole ./prog`), then `$TT_METAL_RUNTIME_ROOT` or
-`$TT_METAL_HOME`, then the path saved by `wolfpine config`. If you would rather export
-the variables yourself, these are the ones it manages:
+Ready-to-run example programs, plus a build-and-run test suite, live in
+[`examples`](examples). Wolfpine is not cycle-accurate: its timing model is a
+documented **floor**, every cycle charged at the low end of a published bound; see
+[what it claims](docs/simulator-overview.md#what-the-timing-model-claims-and-what-it-does-not).
+
+## Profiling your kernels
+
+Every profiling and tracing mode is an environment variable, needs no code change, and
+works on both Wormhole and Blackhole. The quickest answer to "where did my kernel's cycles
+go?":
 
 ```bash
-export TT_METAL_RUNTIME_ROOT=/path/to/tt-metal          # your built tt-metal checkout
-export TT_METAL_SIMULATOR="$(python3 -c 'from framework.sim import simulator_dir; print(simulator_dir("wormhole"))')"
-export TT_METAL_SLOW_DISPATCH_MODE=1                    # the only launch path the sim models
-export LD_LIBRARY_PATH="$TT_METAL_RUNTIME_ROOT/build/lib:$LD_LIBRARY_PATH"
+TT_SIM_COST_MODEL=1 TT_SIM_PROFILE=/tmp/myrun wolfpine run blackhole ./your_program
+less /tmp/myrun/report.md
 ```
 
-In a repository checkout `driver/wormhole` and `driver/blackhole` link to the same simulator
-directories, so `TT_METAL_SIMULATOR=$PWD/driver/wormhole` works too.
+Beyond that ranked report there are Perfetto timelines, Parquet datasets, KCachegrind and
+LCOV outputs, and tt-metal's own device profiler, NoC event trace, performance counters and
+`DPRINT`. **[`docs/profiling.md`](docs/profiling.md)** covers each one: what to install,
+how to turn it on, and how to read the output.
 
-A set of ready-to-run example programs, plus a build-and-run test suite, lives under
-[`examples`](examples). For the full walkthrough — building the
-examples, the `TT_SIM_TENSIX_COORDS` grid-pinning knob, diagnostics, structured tracing and
-the deadlock watchdog — see **[`driver/wormhole/README.md`](driver/wormhole/README.md)**.
+## Documentation
 
-## Repository overview
+| Document | Read it for |
+| --- | --- |
+| [`docs/running-tt-metal-on-the-simulator.md`](docs/running-tt-metal-on-the-simulator.md) | **The runbook.** Environment, multi-tile grids, every server knob, diagnostics, the deadlock watchdog, `DPRINT`, limitations |
+| [`docs/profiling.md`](docs/profiling.md) | **Profiling your kernels.** Every tracing and profiling mode, what to install, and example commands |
+| [`docs/simulator-overview.md`](docs/simulator-overview.md) | How Wolfpine is put together: repository layout, the key parts of the simulator, and what the timing model claims |
+| [`docs/trace-schema.md`](docs/trace-schema.md) | The stable, versioned schema for building tools on the trace outputs |
+| [`docs/cost-model-caveats-for-consumers.md`](docs/cost-model-caveats-for-consumers.md) | Where the cycle model is known to be wrong, and by how much |
+| [`docs/upstream-examples-status.md`](docs/upstream-examples-status.md) | Which of tt-metal's upstream `programming_examples/` run on Wolfpine, on each architecture |
+| [`docs/bh_arch.md`](docs/bh_arch.md) | Blackhole microarchitecture facts measured on silicon |
+| [`docs/simulator-wall-clock.md`](docs/simulator-wall-clock.md) | For simulator developers: where Wolfpine's own host time goes, and each optimisation round |
+| [`docs/plans/`](docs/plans) | Design notes, e.g. [`cost-model.md`](docs/plans/cost-model.md) for the cycle-cost tables |
+| [`docs/upstream/`](docs/upstream) | Draft bug reports for tt-metal, UMD and the ISA documentation (not yet filed) |
+| [`examples/README.md`](examples/README.md) | The example tt-metal programs and their test suite |
+| [`ROADMAP.md`](ROADMAP.md) | What is done, what is next, and the evidence behind the timing model |
 
-The simulator implementation is in the [framework](https://github.com/hedgehope/wolfpine/tree/main/framework) directory, with the [driver](https://github.com/hedgehope/wolfpine/tree/main/driver) directory providing a range of examples that illustrate running the simulator. These are individually documented, but to summarise:
+## Contributing
 
-* [wormhole](https://github.com/hedgehope/wolfpine/tree/main/driver/wormhole) is where you likely want to go to. It provides an implementation of a Wormhole, currently with one DRAM tile and one Tensix block (although this is easy to expand, although will likely be slow!) It holds a set of example tt-metal programs that are built against a local tt-metal checkout and run against the simulator — exactly as they would run on hardware, only the device is the simulator. Each validates its own results, so the examples double as a test suite. See its README for how to build and run them.
-* [blackhole](https://github.com/hedgehope/wolfpine/tree/main/driver/blackhole) is the Blackhole driver: the same wire bridge and machinery as wormhole (all shared in [`framework/bridge`](https://github.com/hedgehope/wolfpine/tree/main/framework/bridge)), pointed at a Blackhole device instead. Point `TT_METAL_SIMULATOR` at `driver/blackhole` to route execution there. Workers are materialised on demand by the wire bridge, so a program gets exactly the grid it launches on, up to the full 130; see its README.
-* [simple](https://github.com/hedgehope/wolfpine/tree/main/driver/simple) are very basic examples, demonstrating the memory subsystem and running codes on a vanilla RV32IM CPU.
-
-### What the timing model claims, and what it does not
-
-The simulator carries a cost model of **documented provenance**: every cycle
-figure is traceable to the ISA documentation or a vendor source, there are
-**zero un-sourced estimates** (asserted by test), and it has been checked
-against real silicon. Stated precisely:
-
-> Runs real tt-metal programs unmodified on both architectures, on the full
-> default grid, with a timing model of documented provenance, corroborated
-> against silicon at the **slope** and **launch** level on both parts, and
-> **by mechanism** for NoC-bound work on both parts.
-
-Four caveats belong with that sentence rather than under it, because three of
-them are permanent:
-
-- **It is a floor.** Every bound is charged at its low end, by rule, so it
-  under-predicts wherever hardware sits above a documented minimum.
-- **Mechanism-level checking is one leg of three.** The RV-bound leg is
-  Blackhole-only (Wormhole documents no CSRs, so there is no retired-instruction
-  count) and currently fails its bar; the Tensix mechanism leg cannot be built
-  at all from the counters the hardware exposes.
-- **That failure has a single, sourced cause** — integer divide, where the
-  documentation gives only a 6–33 cycle range and no algorithm, so a
-  magnitude-dependent term cannot be sourced at any provenance.
-- **Energy is ranking-level only**, and barely beats a model that knows nothing
-  but the cycle count. Absolute joules are out of reach of the instrument.
-
-The full evidence, including what was proven *impossible* rather than merely
-left undone, is in [`ROADMAP.md`](ROADMAP.md).
-
-Optional diagnostic information can be provided by each RISC-V baby core, the NoC, the Tensix co-processor and memory, enabling tracing of the execution of a program. This is currently at the instruction and architectural state level, but could be enhanced in the future to provide feedback to developers around potential code bottlenecks or other issues.
-
-This is written in Python, mainly to make it easy for people to hackaround and experiment with things. If you want to add some functionality, or fix a bug, then please feel free to go ahead and raise a PR. This is still work in progress, so also please raise issues etc as you find them!
-
-## Key parts of the simulator
-
-There are a few of key components which are worth highlighting:
-
-* [tt_device.Wormhole](https://github.com/hedgehope/wolfpine/blob/93da242e8a1a26160afaca43b0772bebc88b9171/tt_sim/device/tt_device.py#L111) creates the Wormhole, currently with a single DRAM tile and a tensix tile. Here you can see the NoC coordinates specified of each, and also the booleans provided to _TensixTile_ are whether to report diagnostic information (the first five for each RISC-V baby core, then next two for each NoC and then the separate Tensix co-processor choices). In the [wormhole](https://github.com/hedgehope/wolfpine/tree/main/driver/wormhole) tt-metal flow these are set from the `TT_SIM_DIAG_*` environment variables (see that directory's README).
-* [tt_device.TensixTile](https://github.com/hedgehope/wolfpine/blob/93da242e8a1a26160afaca43b0772bebc88b9171/tt_sim/device/tt_device.py#L186) plumbs everything together within a Tensix tile, setting all the memory addresses and ranges for each individual component. These are all based on the ISA documentation [memory map](https://github.com/tenstorrent/tt-isa-documentation/blob/main/WormholeB0/TensixTile/BabyRISCV/README.md). 
-* [tt_noc](https://github.com/hedgehope/wolfpine/blob/main/framework/network/tt_noc.py) is the implementation of the NoC, it is not yet complete with all the functionality but is sufficient to communicate between tiles and, for example, read and write between DRAM and the Tensix tile.
-* [rv](https://github.com/hedgehope/wolfpine/tree/main/framework/pe/rv) provides the RV32IM implementation with [.ttinsn extension](https://github.com/tenstorrent/tt-isa-documentation/blob/main/WormholeB0/TensixTile/BabyRISCV/PushTensixInstruction.md#ttinsn-instruction-set-extension). This is fairly self explanatory, providing a pluggable approach to combining ISAs. The [BabyRISCV](https://github.com/hedgehope/wolfpine/blob/main/framework/pe/rv/babyriscv.py) ties this together for the baby RISC-V cores in the Tensix tile, for instance determining the initial PC value after a soft reset as per [here](https://github.com/tenstorrent/tt-isa-documentation/blob/main/WormholeB0/TensixTile/SoftReset.md).
-* [tensix](https://github.com/hedgehope/wolfpine/tree/main/framework/pe/tensix) is the implementation of the Tensix coprocessor as per [here](https://github.com/tenstorrent/tt-isa-documentation/tree/main/WormholeB0/TensixTile/TensixCoprocessor). This is not fully complete, but enough to run a range of codes that use the matrix, vector and scalar units (and all the associated unit implementation required to enable this). 
+This is written in Python, mainly to make it easy for people to hack around and experiment
+with things. If you want to add some functionality, or fix a bug, then please feel free to
+go ahead and raise a PR. This is still work in progress, so also please raise issues etc as
+you find them!

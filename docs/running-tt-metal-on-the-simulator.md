@@ -42,6 +42,19 @@ simulator directory inside the installed package (`framework/sim/<arch>/`, which
 `WOLFPINE_PYTHON`, and takes tt-metal from `--tt-metal`, the environment, or
 `wolfpine config --tt-metal <path>`. `wolfpine doctor` prints what it resolved.
 
+To export them by hand instead — these are exactly the variables `wolfpine` manages:
+
+```bash
+export TT_METAL_RUNTIME_ROOT=/path/to/tt-metal          # your built tt-metal checkout
+export TT_METAL_SIMULATOR="$(python3 -c 'from framework.sim import simulator_dir; print(simulator_dir("wormhole"))')"
+export TT_METAL_SLOW_DISPATCH_MODE=1                    # the only launch path the sim models
+export LD_LIBRARY_PATH="$TT_METAL_RUNTIME_ROOT/build/lib:$LD_LIBRARY_PATH"
+```
+
+Swap `"wormhole"` for `"blackhole"` to target Blackhole. In a repository checkout
+`driver/wormhole` and `driver/blackhole` link to the same simulator directories, so
+`TT_METAL_SIMULATOR=$PWD/driver/wormhole` works too.
+
 **Point them at the right tt-metal, and check which one you have.** More than one
 checkout may exist on a development box, and a stale one fails in ways that look
 like a Wolfpine bug rather than a configuration mistake:
@@ -669,7 +682,7 @@ compute result is wrong. Full table: `driver/wormhole/README.md`.
 ### 4.3 Structured traces (JSONL / Perfetto / etc.)
 
 Nine `TT_SIM_TRACE_*` writers produce machine-readable output for downstream
-tooling. See **`driver/wormhole/docs/profiling.md`** for the full walkthrough.
+tooling. See **[`docs/profiling.md`](profiling.md)** for the full walkthrough.
 
 ### 4.3a Where your cycles went: the NoC event trace
 

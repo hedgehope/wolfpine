@@ -20,7 +20,7 @@ on it. If you find yourself opening `framework/trace/` to answer a question
 about an output format, that is a bug in this document — please report
 it.
 
-- **Producing the data**: [`driver/wormhole/docs/profiling.md`](../driver/wormhole/docs/profiling.md)
+- **Producing the data**: [`docs/profiling.md`](profiling.md)
   is the walkthrough — which environment variable turns on which output.
 - **Extending the simulator**: [`framework/trace/README.md`](../framework/trace/README.md)
   is the implementer's guide (the event bus, adding a writer). You do not

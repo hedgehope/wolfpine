@@ -26,8 +26,8 @@ shape of the slice table is documented at
 ## 1. Top slices by duration
 
 Surfaces the longest-running architectural events — useful for spotting
-stall hotspots once duration data becomes meaningful (durations are
-synthetic 1-cycle today; see §I cycle accuracy in ROADMAP.md).
+stall hotspots. Widths are modelled cycles with `TT_SIM_COST_MODEL=1`
+set; with it unset every slice is genuinely one cycle wide.
 
 ```sql
 SELECT name, COUNT(*) AS n, SUM(dur) AS total_dur, AVG(dur) AS avg_dur

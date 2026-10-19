@@ -236,7 +236,7 @@ live tile forces: 124 k cycles/s at one worker down to **3.1 k** at 80 (324
 further ~3.0 µs per Tensix tile per cycle, because `DeadlockDetector.tick` walked
 every tile and every core unconditionally — **92 % of the all-dormant floor at 80
 workers**. That is the number
-[`driver/wormhole/docs/profiling.md`](../driver/wormhole/docs/profiling.md#measure-first-where-the-watchdogs-time-actually-went)
+[`docs/simulator-wall-clock.md`](simulator-wall-clock.md#measure-first-where-the-watchdogs-time-actually-went)
 cites; the watchdog is now sampled rather than per-cycle.
 
 Two paragraphs of the original were retracted at the time and are not reproduced:

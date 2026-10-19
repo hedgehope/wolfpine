@@ -1,0 +1,3222 @@
+# Where Wolfpine's own wall clock goes
+
+This is a **developer** document: a measured log of where the *simulator's*
+host time goes, and of each optimisation round that changed it. It is not
+about profiling your kernel — for that, see [`docs/profiling.md`](profiling.md).
+
+It was previously the appendix of the kernel-profiling guide. Measurements are
+dated and tied to the tree they were taken on; re-measure before quoting any of
+them against a later tree.
+
+Everything above is about profiling *your kernel*. This appendix is
+about profiling *the simulator*, which is what [`ROADMAP.md`
+§L](../ROADMAP.md) asks for before any JIT / rewrite decision is
+taken: "no 'use Numba' or 'rewrite in Cython' decision without trace
+data showing where the cycles go". §I (cycle-approximate performance
+modelling) is the headline goal and it adds per-cycle work on top of
+what is measured here, so the numbers below are the budget that work
+has to fit into.
+
+**Measured 2026-08-02** against `0b7e1c6` plus an unrelated dirty tree
+(`git diff --stat`: 14 files, +413/-107, concurrent work in
+`tensix/backends/{matrix,packer,unpacker}.py`, `tensix/registers.py`,
+`network/tt_noc.py`, `arch/`, `optests/`). Machine: 12th Gen Core
+i7-12700H, 16 threads, CPython 3.12.13, `TT_SIM_THREADED` unset
+(sequential pump). Re-measure before quoting these against a later
+tree.
+
+## Method
+
+Workloads are the **Blackhole offline replay guards**
+(`driver/blackhole/server/*_replay_test.py`). Each replays a captured
+tt-metal wire trace socket-free, in one process, with no tt-metal, no
+UMD and no IPC in the measurement — so the wall clock is the
+simulator and nothing else. That is confirmed by the numbers: with
+module import excluded, 97–99 % of each run is inside
+`MultiTileClock.run`.
+
+Three instruments, all driven from throw-away scripts that monkeypatch
+rather than edit the tree:
+
+- **`cProfile`/`pstats`** for exact call counts. Note its distortion on
+  this workload is large — `six` goes 35.8 s → 86.4 s (2.4×) — because
+  the hot code is call-dense, so cProfile *over*-weights the leafiest
+  code. Call counts are trusted; time shares are not.
+- **A stack-sampling profiler** (2 ms interval, background thread +
+  `sys._current_frames`) for undistorted time shares — overhead is
+  inside run-to-run noise (`six`: 34.0 s sampled vs 35.8 s not).
+  `py-spy` is **not installed** in this environment and nothing was
+  installed system-wide to get it; the hand-rolled sampler stands in.
+  Samples are attributed twice: to the leaf frame, and to the
+  outermost Wolfpine subsystem on the stack ("who owns this cycle").
+- **Microbenchmarks** (`timeit`) isolating individual per-instruction
+  costs, so the writeup can quote nanoseconds and not only percentages.
+
+Simulated cycles are counted by wrapping `MultiTileClock.run`. Note
+the replay guards pump in chunks driven by the captured host polling
+(mostly `cycles_per_poll` = 100), so cycle counts are the real number
+of device cycles the kernel needed.
+
+## Headline: cycles per wall-clock second
+
+| workload | what it is | device cycles | pump wall | **cycles/s** | RV instrs retired |
+|---|---|---|---|---|---|
+| `two` | NoC/L1 smoke | 8,200 | 2.10 s | 3,900 | — |
+| `reduce` | 5 reduction variants | 10,200 | 2.97 s | 3,439 | — |
+| `nine` | multi-CB dataflow | 11,500 | 5.87 s | 1,958 | — |
+| `sfpumath` | SFPU transcendentals | 19,300 | 7.23 s | 2,671 | — |
+| `four` | Int8 add via FPU | 107,400 | 29.51 s | 3,639 | 524,956 |
+| `six` | **128³ bf16 matmul** | 27,500 | 35.68 s | **771** | 125,456 |
+
+**Wolfpine currently runs at roughly 1–4 k simulated cycles per second**,
+dropping to ~770 cycles/s when the Tensix matrix unit is busy. Per
+simulated RV instruction that is ~50 µs (`four`: 524,956 instructions
+in the 84 % of 29.5 s owned by the RV cores ⇒ ~21 k instr/s), and
+~84 M Python function calls for 525 k instructions is **~120 Python
+calls per simulated RV instruction**.
+
+## The wall-clock partition
+
+Sampled shares, attributed to the outermost owning subsystem. Two
+clearly distinct regimes:
+
+| subsystem | `six` (matmul) | `four` | `nine` | `reduce` | `sfpumath` |
+|---|---|---|---|---|---|
+| Tensix matrix / FPU | **70.3 %** | 0.1 % | 0.4 % | 2.1 % | 0.8 % |
+| RV32IM baby cores | 20.5 % | **84.2 %** | **77.4 %** | **69.7 %** | **65.0 %** |
+| Tensix vector / SFPU | — | — | — | — | 11.2 % |
+| Tensix unpacker | 2.7 % | 0.5 % | 2.0 % | 3.3 % | 1.5 % |
+| Tensix packer | 0.7 % | 0.2 % | 0.4 % | 1.5 % | 0.4 % |
+| Tensix frontend (decode) | 1.0 % | 0.9 % | 1.5 % | 3.9 % | 4.5 % |
+| NoC (NIU ticks) | 1.8 % | 6.1 % | 5.3 % | 7.2 % | 4.3 % |
+| bridge (trace replay, host msgs) | 1.0 % | 5.1 % | 6.6 % | 5.6 % | 4.3 % |
+| clock/pump dispatch itself | 0.8 % | 0.4 % | 1.5 % | 0.3 % | 3.9 % |
+| trace/event bus (disabled) | 0.1 % | — | — | — | 0.4 % |
+| everything else | 1.0 % | 2.5 % | 5.0 % | 6.4 % | 3.7 % |
+
+Read across the row: **outside matmul, the RV32IM interpreter is
+two-thirds to five-sixths of the entire simulator.** Inside matmul, one
+function — `matrix.py:_fpu_group_sums` — is 42 % of the whole process.
+
+Top leaf frames, `six`:
+
+```
+  42.21%  tensix/backends/matrix.py:_fpu_group_sums
+   5.31%  tensix/backends/matrix.py:_fpu_accumulate
+   3.91%  tensix/registers.py:__getitem__
+   3.89%  tensix/backends/matrix.py:<genexpr>
+   3.10%  tensix/util.py:FP32ToDstFormatBF16
+   2.67%  tensix/registers.py:getDst16b
+   2.42%  pe/register/register.py:write
+```
+
+Top leaf frames, `four` (representative of the RV-bound majority):
+
+```
+  11.17%  pe/register/register.py:write
+   8.51%  pe/register/register.py:read
+   6.45%  network/tt_noc.py:clock_tick
+   5.87%  util/conversion.py:conv_to_int32
+   5.63%  pe/rv/isa/rv_isa.py:get_int
+   5.08%  pe/rv/isa/rv_isa.py:get_bits
+   4.74%  device/clock.py:clock_tick
+   3.77%  pe/register/register_file.py:clear_write_record
+   3.72%  trace/bus.py:get_bus
+   3.48%  memory/memory.py:read
+   3.46%  pe/rv/isa/rv_isa.py:<genexpr>
+```
+
+## The idle-pump floor, and how it scales
+
+A device with every baby core held in soft reset still has to be
+ticked. Running the `driver/blackhole` device (8 DRAM tiles + N Tensix
+tiles) with nothing happening:
+
+| Tensix tiles | registered clockables | idle cycles/s | µs/cycle |
+|---|---|---|---|
+| 1 | 44 | 24,850 | 40.2 |
+| 2 | 72 | 15,095 | 66.2 |
+| 4 | 128 | 9,230 | 108.3 |
+| 8 | 240 | 4,428 | 225.9 |
+
+Dead linear in component count at **~0.94 µs per component-tick**. Two
+consequences:
+
+1. **The pump is not today's bottleneck.** On `six` it is 0.8 % of the
+   wall clock; on the single-Tensix workloads the 24.8 k cycles/s floor
+   is 7–30× above the 0.8–3.9 k cycles/s actually achieved.
+2. **It is a hard ceiling, and it moves the wrong way.** Even with all
+   modelled work made free, one Tensix tile caps at ~25 k cycles/s, and
+   a realistic 8-Tensix device at ~4.4 k cycles/s — *below* what a
+   single tile achieves doing real work today.
+
+Where the idle 40 µs/cycle goes (sampled, 1 Tensix tile):
+
+```
+  38.5%  network/tt_noc.py:clock_tick     (18 NIUs x empty request list,
+                                           each taking self._inbox_lock and
+                                           allocating a fresh list)
+  13.6%  device/clock.py:clock_tick       (the dispatch loop itself)
+ ~28%    the per-core soft-reset poll     (conv_to_int32 7.5%, memory
+                                           convert_addr_to_target_range 6.8%,
+                                           memory_map.locate 3.4%,
+                                           get_nth_bit 2.7%, ...)
+```
+
+That last one is worth calling out on its own: `BabyRISCV.clock_tick`
+reads `SOFT_RESET` (`0xFFB121B0`) through the **full memory map** —
+interval lookup, polymorphic `mem_mapable` dispatch, byte→int
+conversion — for all five cores on every cycle, whether or not the core
+is running. That is 5 memory-map traversals per tile per cycle of pure
+overhead, and it is ~28 % of the idle floor.
+
+## Anatomy of one simulated RV instruction
+
+~50 µs each, ~120 Python calls each. Microbenchmarks of the individual
+pieces (200 k iterations, ns per call):
+
+| operation | current | obvious alternative |
+|---|---|---|
+| `Register.read()` (4-byte numpy `uint8` array → `bytes`) | 511 ns | 30 ns (plain int) |
+| `Register.write(bytes)` (`np.frombuffer` + slice assign) | 2,234 ns | 16 ns |
+| opcode decode: `get_bits(instr,0,6)` + `.reverse()` + `bits_to_int()` | 4,303 ns | 327 ns (`int.from_bytes & 0x7F`) |
+| the two disassembly f-strings passed to `print_snoop` | 1,477 ns | 0 ns (not built) |
+| `get_bus().is_enabled(...)` with tracing off | 125 ns | ~0 ns (hoisted flag) |
+
+Four structural findings behind those numbers, all confirmed by call
+counts in the cProfile run of `four`:
+
+- **Every GPR is a 4-element numpy array.** 2.41 M `Register.read` and
+  1.41 M `Register.write` calls for 525 k instructions; `numpy.frombuffer`
+  is called 1.42 M times. numpy's per-call overhead is being paid on
+  4-byte scalars, where it is pure loss.
+- **The opcode is decoded by building a string.** `RV_I_ISA.run` calls
+  `get_bits(instr, 0, 6)` (a 7-element list comprehension), reverses it,
+  then `bits_to_int` does `"".join(str(bit) ...)` and `int(s, 2)` —
+  530,625 `str.join` calls, one per instruction.
+- **Disassembly text is built even when diagnostics are off.** The
+  handlers call `RV_ISA.print_snoop(snoop, f"lb {cls.get_reg_name(rd)},
+  {hex(offset)}(...)", f"...")` — Python evaluates the f-strings *before*
+  the call, so the strings and the `get_reg_name` lookups happen
+  unconditionally and are then discarded. `get_reg_name` shows up at
+  3–4 % of total wall clock on the RV-bound workloads.
+- **Tracing bookkeeping runs with tracing off.** `RegisterFile` installs
+  a Python closure over every `Register.write` (1.41 M extra calls), and
+  `rv32.clock_tick` calls `clear_write_record()` (3.8 % of wall clock on
+  `four`) plus `get_bus()` (3.7 %) on every instruction.
+
+## Anatomy of one MVMUL
+
+`six` issues **4,096 MVMULs** and spends ~70 % of 35.7 s in them ⇒
+**~6.1 ms per MVMUL**. Each one calls `_fpu_group_sums` 128 times
+(524,288 calls total, ~29 µs each) and `_fpu_accumulate` 128 times.
+
+`_fpu_group_sums` is a faithful model of the hardware's fixed-point
+datapath: 16 fidelity-masked mantissa products, then two 8-lane
+exponent-aligned integer reductions. It is written with Python lists,
+`range`, `max`/`min` over generators (2.1 M `max` and 8.4 M `min` calls
+in the profile) and arbitrary-precision ints.
+
+**It is not numpy.** §L's Numba bullet assumes the Tensix numeric
+inner loops are "already numpy" and predicts a 2–3× win on top; that
+assumption does not hold for the matrix path. The values involved all
+fit comfortably in `int64` (mantissa products ≤ 2²², exponents 8-bit),
+so the loop *is* `@njit`-able with explicit typing — but the expected
+win is one to two orders of magnitude, not 2–3×, because the baseline
+is interpreted scalar Python, not vectorised numpy.
+
+## Tracing overhead
+
+Measured on the same workloads by enabling the writers and re-running
+(pump-only wall clock, so import and trace-file parsing are excluded):
+
+| workload | off | `TT_SIM_TRACE_COUNTERS` (interval 100) | interval 1000 | `TT_SIM_TRACE` (JSONL) |
+|---|---|---|---|---|
+| `reduce` | 2.97 s | 5.98 s (**2.0×**) | 5.47 s (1.8×) | 11.05 s (**3.7×**) |
+| `nine` | 5.87 s | 12.03 s (**2.0×**) | 12.08 s (2.1×) | 23.32 s (**4.0×**) |
+| `six` | 35.68 s | 45.15 s (**1.27×**) | 45.38 s (1.27×) | 57.48 s (1.6×) |
+
+Perfetto (`TT_SIM_TRACE_PERFETTO`) measures the same as counters
+(1.9–2.4×).
+
+- Counter tracing costs **~2× on RV-bound workloads**, and only ~1.27×
+  on `six` — because `six`'s time is inside one Tensix op that publishes
+  a handful of events, while the RV-bound runs publish per instruction
+  and per memory access.
+- **`TT_SIM_TRACE_COUNTERS_INTERVAL` barely matters** (interval 1000 is
+  within noise of interval 100, in both directions across repeats). The
+  cost is `EventBus.enabled = True` turning on publication everywhere,
+  not the flush cadence. Tuning the interval is not a lever.
+- Output size is the real differentiator: the counter Parquet dataset
+  for `nine` is **40 KB**; the JSONL for the same run is **61 MB** and
+  the Perfetto JSON **11 MB**. Counters are the only writer that is
+  plausibly usable at kernel scale — a 2× slowdown on a run that already
+  takes an hour is a different proposition, but the dataset stays small.
+- **Caveat: `TT_SIM_TRACE_*` is Wormhole-only.**
+  `framework.trace.auto.enable_from_env` is called from
+  `framework/device/wormhole.py` and nowhere else, so a `Blackhole` device
+  silently ignores every trace env var. The measurements above were
+  obtained by calling `enable_from_env()` explicitly from the harness.
+  Wiring it into `Blackhole.__init__` is a one-line fix and is a
+  prerequisite for using any of §H's observability on Blackhole.
+  (Since fixed — `enable_from_env` is called from `TT_Device.__init__`,
+  guarded by `framework/device/parity_test.py`, so the numbers below were
+  taken on Blackhole with no harness patching.)
+
+### What §H's cycle-attributing fields cost (2026-08-03)
+
+Measured when ROADMAP §H's "gated on §I" observability landed (real
+Perfetto durations, NoC `issue_cycle`/`arrival_cycle`, RV stall
+attribution, per-unit `busy_cycles`). Method as elsewhere in this
+document: **two frozen full-tree copies** — the change, and the same
+tree with only the change reverted — alternating order per round,
+**minimum of 5 rounds**, end-to-end wall clock of
+`driver.blackhole.server.four_replay_test`. The Perfetto row is a
+separate 3-round A/B re-run after the output-size fix below, so that it
+measures the writer that shipped.
+
+| config | before | after | ratio |
+|---|---|---|---|
+| tracing off | 11.53 s | 10.92 s | **0.95** |
+| `TT_SIM_TRACE_COUNTERS` | 25.42 s | 28.81 s | 1.13 |
+| `TT_SIM_TRACE_PERFETTO` | 31.60 s | 30.41 s | **0.96** |
+| `TT_SIM_TRACE_COUNTERS` + `TT_SIM_COST_MODEL=1` | 22.49 s | 24.12 s | 1.07 |
+
+- **Nothing measurable off the tracing path.** The after tree measured
+  *faster* with tracing off, which is the only honest reading of "no
+  cost": the added work is inside `if trace_instr:` and inside the
+  writers. The one exception is a `self._current_cycle()` per NoC
+  `transmit` (two attribute reads, 24 times on this workload).
+- **Single-digit-percent on the tracing path**, and the 1.13 is the
+  weakest of the four numbers: the `before`-minimum for that config came
+  from the only round that ran on a quiet machine. Restricted to
+  rounds 1–4, where both trees saw the same contention, the same config
+  is **1.07**. Two other agents were running gates on this machine
+  throughout, which the interleave-and-take-the-minimum protocol bounds
+  but does not remove.
+- **Perfetto output size is unchanged**: 65,828,313 B after vs
+  65,805,799 B before (+0.03 %). It was +9 MB (+13.6 %) in a first cut
+  that put `"stall_cycles": 0` in the args of every instruction slice —
+  ~16 bytes of zero on the highest-volume event in the trace, on a run
+  where nothing can stall. The arg is now emitted only when there was a
+  stall, which is also the only time it says anything. Before that fix
+  the same A/B measured 1.09; after it, 0.96 — the writer's extra work
+  was never the cost, the extra bytes were.
+- The headline from the previous section stands: **the cost is
+  `EventBus.enabled`, not what the writers do with the events.** These
+  fields ride along inside a 2–4× that was already being paid.
+
+## How far is a 640³ matmul?
+
+`six` is 128³ bf16 = 4×4×4 tiles = 64 tile-matmuls = 4,096 MVMULs in
+35.7 s. `matmul_single_core` at 640³ is 20×20×20 = 8,000 tile-matmuls =
+**512,000 MVMULs**, 125× more work on the same single-core code path.
+Scaling the measured 6.1 ms/MVMUL:
+
+- MVMUL alone: 512,000 × 6.1 ms ≈ **3,100 s ≈ 52 minutes**
+- with the RV dataflow that feeds it scaling similarly: **~1.5–2 hours**
+- cross-check via cycles: ~125 × 27,500 ≈ 3.4 M device cycles at 771
+  cycles/s ≈ 4,400 s. Same order.
+
+So §L's "already times out" is not marginal — it is off by two orders
+of magnitude from interactive. To run 640³ in **one minute** needs
+~57,000 cycles/s, a **~75× speedup**; that is above even the *idle*
+single-tile pump ceiling of 24.8 k cycles/s, so no amount of making the
+modelled work cheaper gets there on its own. A "tolerable" ten-minute
+run needs ~10×, which is reachable without touching the pump.
+
+## Ranked optimisation targets
+
+Ranked by (measured share × confidence that the fix is mechanical).
+This section was written as the measurement half of §L's "profile
+first, optimise second"; **targets 1 and 3 have since been done** — see
+"[What landed: targets 1 and 3](#what-landed-targets-1-and-3)" at the
+end of this document for the changes and the measured result.
+
+1. **RV32IM instruction interpreter — GPR representation and decode.**
+   65–84 % of wall clock on every non-matmul workload. Four independent
+   sub-targets, each backed by a microbenchmark above: numpy-backed
+   4-byte GPRs (0.5 µs read / 2.2 µs write vs ~20 ns for ints); the
+   string-join opcode decode (4.3 µs vs 0.33 µs); unconditionally-built
+   disassembly f-strings (1.5 µs, and 3–4 % of total wall clock in
+   `get_reg_name` alone); and the always-on tracing bookkeeping
+   (`clear_write_record` 3.8 %, `get_bus` 3.7 %, the `wrapped_write`
+   closure 1.4 M calls). These are ~12 µs of the ~50 µs per instruction
+   and none of them requires a JIT — they are pure-Python wins, which
+   makes them the cheapest thing on this list.
+2. **`matrix.py:_fpu_group_sums` / `_fpu_accumulate`.** 47.5 % of the
+   matmul workload in two static methods with no I/O, no state, and
+   int64-representable arithmetic. Best Numba target in the codebase by
+   a distance; also the one place where a numpy rewrite (16 products as
+   a vector op) is plausible.
+3. **The per-cycle soft-reset poll in `BabyRISCV.clock_tick`.** ~28 % of
+   the idle floor, five full memory-map traversals per tile per cycle,
+   for a register that changes a handful of times per run. Caching it,
+   or having the reset write invalidate a flag, is a contained change.
+4. **`NUI.clock_tick` when idle.** 38 % of the idle floor and 4–7 % of
+   real workloads: 18 NIUs per tile-pair each take a `threading.Lock`
+   and allocate a list every cycle, in a mode (`TT_SIM_THREADED`) that
+   is off by default. Early-out when both queues are empty.
+5. **`MemoryMap` interval lookup / `MemorySpace.read`.**
+   `convert_addr_to_target_range` + `locate` + `_publish_mem_event` are
+   3–7 % across workloads and 1.27 M calls on `four`. §L correctly flags
+   this as Numba-hostile; the win here is caching the last-hit range,
+   not JIT.
+6. **The clock pump itself.** 0.3–1.5 % today, so *not* worth touching
+   for its own sake — but it is a ceiling that degrades linearly with
+   tile count (§I's multi-tile ambitions and §A's threading both push
+   straight into it). Fix it when §I lands, not before.
+
+## What this says about §L's own hypotheses
+
+- **"The tick-every-component pump is the wrong shape"** — *supported
+  as a ceiling, contradicted as today's bottleneck.* The pump is
+  0.3–1.5 % of current wall clock; rewriting it now would be invisible.
+  But it caps a single-Tensix device at ~25 k cycles/s and an
+  8-Tensix device at ~4.4 k cycles/s, which is below the target for any
+  kernel-scale workload. §L's sequencing ("land the event-driven pump
+  *before* JIT'ing") is right for a different reason than stated: not
+  because the pump is slow, but because the JIT targets in the current
+  shape (per-component `clock_tick`) are not the JIT targets in the
+  event-driven shape.
+- **"Numba on the Tensix numeric inner loops; already numpy so expect
+  2–3×"** — *target supported, rationale contradicted.*
+  `_fpu_group_sums` is scalar interpreted Python over lists and
+  arbitrary-precision ints, not numpy. The upside is therefore much
+  larger than 2–3× — but it also means the cheaper move (rewrite the
+  16 products as a numpy/int64 vector op, no JIT, no new dependency)
+  should be tried first, and Numba evaluated against *that* baseline.
+- **"RV32IM execute — only if rewritten table-driven over typed
+  arrays; significant refactor"** — *supported, and under-prioritised.*
+  RV32IM is the single largest consumer of wall clock across the suite
+  (65–84 % on four of the five workloads measured), well ahead of the
+  Tensix backends outside matmul. §L lists it second behind the Tensix
+  loops; the data says it should be first. It also does not need the
+  full table-driven-over-typed-arrays refactor to pay: the four
+  sub-targets in item 1 above are local edits worth an estimated ~25 %
+  of RV time on their own.
+- **"MemoryMap lookup is the most-called function in the sim"** —
+  *contradicted on call count, supported on cost class.* On `four` the
+  most-called Wolfpine functions are `Register.read` (2.41 M) and
+  `RegisterFile.get` (2.83 M); `memory_map.locate` is 1.27 M. It is
+  still 3–7 % of wall clock and still Numba-hostile, so the conclusion
+  drawn from it (don't JIT it) stands.
+- **`nogil=True` to revive §A threading** — *no new evidence either
+  way, but note the arithmetic.* On the matmul workload 70 % of the
+  time is in one Tensix unit on one tile, so releasing the GIL there
+  helps only multi-tile runs; and the barrier those runs must cross is
+  the ~0.94 µs/component-tick pump, which threading does not remove.
+
+## Reproducing
+
+The harnesses used here are deliberately throw-away (they monkeypatch;
+they do not modify the simulator). To repeat the baseline:
+
+```bash
+export PYTHONPATH=~/wolfpine
+# wall clock + simulated cycles for any replay guard
+time python3 -m driver.blackhole.server.six_replay_test
+
+# exact call counts
+python3 -c "
+import cProfile, pstats, importlib
+m = importlib.import_module('driver.blackhole.server.six_replay_test')
+cProfile.run('m.main()', '/tmp/six.prof')
+pstats.Stats('/tmp/six.prof').sort_stats('tottime').print_stats(30)"
+
+# tracing overhead: same run, writers on (Wormhole; on Blackhole call
+# framework.trace.enable_from_env() by hand first — see the caveat above)
+TT_SIM_TRACE_COUNTERS=/tmp/counters \
+  python3 -m driver.wormhole.server.offline_replay_test
+```
+
+For the undistorted time shares, a sampling profiler is required —
+`cProfile` inflates this workload 2.4× and skews toward call-dense
+code. `py-spy record -o out.svg -- python3 -m
+driver.blackhole.server.six_replay_test` is the tool of choice if it is
+available; it was not installed here.
+
+# What landed: target 2, batching the FPU accumulate datapath
+
+**Measured 2026-08-02**, same machine as the appendix above (12th Gen
+Core i7-12700H, CPython 3.12.13, `TT_SIM_THREADED` unset). The tree was
+busy with other concurrent work, so every number here is an A/B between
+two git worktrees — `HEAD` and `HEAD` plus this change only — run
+**interleaved** (base, then after, per workload) and reported as the
+**minimum of 3–8 repeats**, because contention can only add time. An
+earlier non-interleaved sweep showed every workload "improving",
+including ones that never enter this code; that pass is discarded.
+
+## What changed
+
+`MatrixUnit._fpu_group_sums` / `_fpu_accumulate` are unchanged and are
+now the *reference*: they stay the readable port of ttsim's C and the
+oracle the tests fuzz against. `perform_mvmul_exact` instead calls two
+new batched methods, `_fpu_group_sums_batch` / `_fpu_accumulate_batch`,
+which are the same arithmetic in numpy over a whole MVMUL at once
+(16 lanes × up to 16 SrcB rows × 16 Dst columns). This is legal because
+nothing in an MVMUL sequences: each of the 256 (row, column)
+accumulations reads and writes its own Dst element.
+
+No JIT, no new dependency. §L's premise that this code was "already
+numpy" was wrong (see above); a plain numpy/int64 rewrite was tried
+first, as the appendix recommended, and it is enough.
+
+## Result
+
+| workload | uses this path | base | after | factor |
+|---|---|---|---|---|
+| `six` (128³ bf16 matmul) | 70 % of wall clock | 30.87 s | **16.78 s** | **1.84×** |
+| `matmulidx` | matmul | 5.53 s | **3.93 s** | **1.41×** |
+| `reduce` (GAPOOL) | 2 % | 2.83 s | 2.84 s | 1.00× |
+| `four`, `nine`, `two`, `eight`, `three`, `five`, `sfpumath`, … | no | — | — | within ±7 % noise, no direction |
+
+`six` is now ~1,640 device cycles/s, up from ~890 on this machine.
+
+The datapath itself, timed in one process against the scalar pair on
+identical inputs (min of 7 × 100 iterations, one MVMUL = 8 rows × 16
+columns × 16 lanes = 128 group-sum calls):
+
+| implementation | µs per MVMUL | µs per group-sum call |
+|---|---|---|
+| scalar (the reference) | 4,991 | 39.0 |
+| batched, first cut | 798 | 6.2 |
+| batched, final | **516** | **4.0** |
+
+**9.7× on the two functions**, which is why a 47.5 % share turns into a
+1.84× workload win rather than a 1.9× one — Amdahl, plus the operand
+gather that is now the larger half of an MVMUL (below).
+
+Two numpy details were worth 1.55× between the first cut and the final
+one, and are worth knowing before optimising any other backend:
+
+- **Reduce over a *leading* axis, never a trailing one.** The lane axis
+  is what gets reduced, so the arrays are laid out lane-first.
+  `y.max(axis=1)` on `(2, 8, rows, cols)` is **4.2 µs**; the identical
+  reduction written as `y.max(axis=-1)` on `(rows, cols, 2, 8)` is
+  **21.7 µs**. numpy reduces a leading axis as one vectorised pass per
+  index over contiguous blocks; a trailing one becomes an interpreted
+  loop over every outer element.
+- **`np.clip` is ~3× `np.minimum(np.maximum(...))`** (9.5 µs vs 3.6 µs
+  on these shapes), and with only two groups, combining them by index
+  (`np.maximum(g[0], g[1])`, 2.8 µs) beats any reduction call.
+
+Broadcasting is the remaining tax: the one op that broadcasts SrcA
+against SrcB costs 16.0 µs where the same shape contiguous costs 6.1 µs.
+At these array sizes (2,048 and 256 elements) numpy is overhead-bound at
+roughly 3–10 µs per operation, so the ~55 operations are close to the
+floor for this approach. Getting materially below 516 µs/MVMUL would
+need a JIT — and that is now a ~30 % of `six` target, not a 47.5 % one,
+so it should be re-argued against the new baseline rather than assumed.
+
+## Bit-identity
+
+Required, not approximated: this code feeds a bit-exact differential
+against the vendor simulator.
+
+- `framework/pe/tensix/fpu_accumulate_test.py` keeps pinning the **scalar**
+  pair against the vectors generated from ttsim's C model for both
+  architectures, and gains two fuzz tests that assert the batched pair is
+  **equal**, not close, to the scalar one: 8,000 lane sets across all
+  four fidelity phases, and 16,000 accumulations (half from the real
+  datapath, half synthetic and biased toward tiny mantissas, since a
+  magnitude of exactly 1 is what trips the Wormhole −1 renormalisation
+  and a uniform draw never produces one). 203 tests pass.
+- `driver.wormhole.server.offline_replay_test` reproduces **126/126**
+  host READs bit-for-bit, which is the end-to-end statement.
+- All 16 Blackhole replay guards pass, as do the 11 Wormhole example
+  replays.
+- The live differential against the vendor simulator still matches on
+  both FPU programs: `./optests/diff.sh reduce` and
+  `./optests/diff.sh matmulidx`, 2,560 elements each, PASS.
+
+The overflow argument, which is the thing a numpy rewrite can get wrong
+silently where Python bigints would not: the fidelity slices cap manA at
+31 and manB at 127 (checked exhaustively over all 1,024 mantissa
+patterns × 4 phases), so a product is < 2¹²; the alignment shift is
+clamped to 30, so `(man << 1) + (1 << shift)` < 2³¹ and the shifted-down
+term never exceeds the product; eight of those sum to < 2¹⁵ and
+`<< 13` to < 2²⁸; three aligned terms plus a ≤ 2²⁴ Dst mantissa stay
+< 2³⁰. Everything is int64 with ~33 bits of headroom, and < 2³⁰ is also
+what makes `np.frexp` on the float64 view an exact `bit_length`.
+
+## What did not pay off
+
+- **Vectorising each `_fpu_group_sums` call on its own**, i.e. 16 lanes
+  per numpy call. At ~1.5 µs of ufunc overhead × ~25 operations that is
+  roughly the 29 µs it replaces. The win comes entirely from batching the
+  whole instruction; anything narrower is a wash.
+- **Keeping the natural `(row, column, lane)` layout.** It reads better
+  and costs 1.55× (see above).
+- **`np.where(cond, x, 0)` → `x * cond`** and `np.int64(1) << shift` →
+  a power-of-two lookup table: both measured 20–30 % faster on the
+  individual operation, which is under 1 % of the MVMUL, and both make
+  the correspondence with ttsim's C harder to see. Not taken.
+
+## The new shape of an MVMUL, and the next target
+
+With the datapath at 516 µs, the **operand gather is now the larger half
+of an MVMUL**. Per MVMUL `perform_mvmul_exact` still makes ~384 scalar
+`SrcRegister.__getitem__` calls and ~1,150 `DataFormatConversions` calls
+(`BF16InSrcToFP32` → `BF16InSrcToBF16` → `TF32InSrcToTF32`, three Python
+frames per lane), plus 256 `getDst16b`/`setDst16b` pairs. In the
+post-change cProfile of `six` those are the top Wolfpine leaves after the
+batch methods themselves.
+
+That is a contained follow-up — `SrcRegister` already stores a numpy
+array, so the gather can be a slice — but it duplicates the bit
+permutations that live in `util.py`, so it wants an exhaustive
+equivalence test (the Src word is only 19 bits) rather than a copied
+expression. It was left out of this pass deliberately: it is a different
+target from the one the ranking above named. (It has since been done — see
+"[What landed: the Tensix operand gather](#what-landed-the-tensix-operand-gather)"
+at the end of this document.)
+
+Revised ranking after this change: item 1 (the RV32IM interpreter) is
+now the largest consumer on *every* workload including `six`, item 2 is
+retired, and the Src/Dst gather above enters roughly where item 2 was.
+
+# What landed: targets 1 and 3
+
+**Measured 2026-08-02**, same machine and method as the appendix above
+(12th Gen Core i7-12700H, CPython 3.12.13, `TT_SIM_THREADED` unset).
+The working tree had moved on since the baseline measurements — concurrent
+work in `tensix/backends/{matrix,vector}.py` had already roughly halved
+`six` — so every number here comes from an **interleaved A/B**: the same
+tree, with only `framework/pe/rv/` + `framework/pe/register/` swapped between
+the pre-change and post-change versions, alternating variants round by
+round and taking the minimum over rounds. Absolute "before" figures
+therefore differ from the tables above; the ratios are the point.
+
+## Result
+
+| workload | before (pump) | after (pump) | speedup | before cyc/s | after cyc/s |
+|---|---|---|---|---|---|
+| `two` | 1.43 s | 0.64 s | **2.23×** | 5,750 | 12,809 |
+| `reduce` | 2.25 s | 1.06 s | **2.12×** | 4,534 | 9,614 |
+| `nine` | 4.31 s | 1.85 s | **2.33×** | 2,669 | 6,232 |
+| `sfpumath` | 5.51 s | 2.82 s | **1.96×** | 3,503 | 6,852 |
+| `four` | 27.26 s | 10.35 s | **2.64×** | 3,939 | 10,381 |
+| `six` (matmul) | 17.33 s | 12.80 s | **1.35×** | 1,587 | 2,148 |
+
+A second, independent A/B run on a more loaded machine reproduced
+1.90–2.87× on the five non-matmul workloads. `six` gains least because
+only ~20 % of it was ever RV; that ~20 % is now ~5 %.
+
+**The RV-bound workloads went from 2.7–5.8 k to 6.2–12.8 k simulated
+cycles/s.** For reference, the idle-pump ceiling for one Tensix tile
+measured above is 24.8 k cycles/s — the interpreter is now within 2–4×
+of the pump floor rather than 7–30× below it, which moves targets 4
+(`NUI.clock_tick`) and 6 (the pump) up the list.
+
+## The changes
+
+Six edits, all in `framework/pe/rv/` and `framework/pe/register/`. Per-change
+figures are single-run, taken in sequence during development (so they
+carry the machine's ±15 % run-to-run noise), on `four` / `nine`:
+
+1. **GPRs are `bytes`, not 4-element numpy arrays**
+   (`pe/register/register.py`). `read()` returns the stored object with
+   no copy; `write()` is an attribute store. `four` 31.3 → 24.2 s,
+   `nine` 5.4 → 3.9 s.
+2. **Fetch once per cycle; ISAs decode an integer word**
+   (`rv32.clock_tick` + every `isa/*.py`). `run()` gained an `instr`
+   parameter carrying the 32-bit word (defaulting to `RV_ISA.fetch()`
+   so direct callers and unit tests are unaffected). This kills the
+   `get_bits` → `reverse` → `bits_to_int` string-join opcode decode
+   *and* the repeated `int.from_bytes` inside every `get_int`, *and*
+   the duplicate instruction fetch each ISA in the chain used to do.
+3. **`RegisterFile` cheapened**: `get()` indexes the list directly and
+   falls back to the name map on `TypeError`; `__getitem__ = get`
+   removes a call per access; the tracing write-hook closure is now
+   installed only while an `INSTR` subscriber is listening, and
+   `clear_write_record()` / `get_bus()` no longer run per instruction
+   (the bus is held on the core). (2)+(3) together: `four` 24.2 →
+   19.3 s, `nine` 3.9 → 3.4 s.
+4. **The soft-reset poll resolves its component once**
+   (`babyriscv._read_soft_reset`). `0xFFB121B0` is looked up through
+   the memory map on the first tick and read directly thereafter, and
+   the bit test is a precomputed mask instead of `get_nth_bit`. This
+   was target 3. `four` 19.3 → 14.4 s, `nine` 3.4 → 2.9 s — much larger
+   than the "~28 % of the idle floor" estimate suggested, because the
+   poll was **half of every `MemorySpace.read` in the simulator**
+   (on `nine`: 115,000 of 241,307 calls).
+5. **Disassembly is built only when snooping.** Every `print_snoop`
+   call site is wrapped in `if snoop:`, and the `info_msg` f-strings
+   are assigned inside `if snoop:` blocks. `print_snoop` still takes
+   and re-checks the flag; its docstring now explains why the callers
+   guard anyway (Python evaluates the f-string before the call).
+   `four` 14.4 → 11.8 s, `nine` 2.9 → 1.8 s — **the single biggest
+   win on the list**, and the one that cost the least.
+6. **`Register.read_uint()` / `read_int()`** replace
+   `conv_to_uint32(reg.read())` at 50 call sites. Worth 1.10–1.21×,
+   which needed six interleaved rounds to resolve — see "noise floor"
+   below.
+
+Microbenchmarks, 200 k iterations (compare with the table in "Anatomy
+of one simulated RV instruction"):
+
+| operation | before | after |
+|---|---|---|
+| `Register.read()` | 294 ns | 72 ns |
+| `Register.write(bytes)` | 2,457 ns | 151 ns |
+| opcode decode | 4,980 ns | ~0 (a mask on the fetched word) |
+| `get_int` on one field | 1,049 ns | 370 ns |
+| the two disassembly f-strings | 1,722 ns | 0 ns (not built) |
+
+Call counts on `nine` (cProfile, so inflated but comparable):
+total calls **15.10 M → 7.69 M**; `MemorySpace.read` 241,307 →
+119,944; `RegisterFile.get` 485,186 → 207,607 (plus 485,186
+`__getitem__` frames gone); `str.join` 90,995 → 0; `wrapped_write`
+240,358 → 0; `clear_write_record` and `get_bus` → 0.
+
+## Behaviour deltas (all deliberate, all verified)
+
+Gates: `ruff` clean; `pytest framework driver` 207 passed; 16/16 Blackhole
+replay guards; `driver.wormhole.server.offline_replay_test` **126/126
+byte-identical**; `examples_replay_test` 11 passed. Snoop output
+(`driver/simple/ex2`, `ex5` with `snoop=True`, covering
+add/addi/andi/auipc/beq/bge/ebreak/fence/fence.i/jal/jalr/lui/lw/**mul**/slli/sw)
+diffs clean against the old code.
+
+Three things do change, none of them architectural state:
+
+- **Uninitialised GPRs now read as zero.** The old `Register` used
+  `np.empty`, so a register read before its first write returned
+  whatever was in the freed numpy page. That was *non-deterministic*:
+  running the Wormhole replay twice under `TT_SIM_TRACE_COMMITLOG`
+  produced different values for `x22`/`x24`/`x25` in one BRISC function
+  epilogue (`0x0003633b` vs `0xc021ace0`, `0x2ae1ace0` vs
+  `0xc021ace0` — leaked host-process pointers). Those three lines are
+  the *only* commitlog difference across all five cores, and they are
+  now stably zero.
+- **The mem-event stream loses the soft-reset polls and the duplicate
+  instruction fetches.** Both were simulator artefacts that no hardware
+  bus transaction corresponds to; on `nine` they were half of all
+  memory-space reads, so `TT_SIM_TRACE`/counter output gets both
+  smaller and more faithful.
+- **The register protocol grew `read_uint`/`read_int`.** Anything
+  standing in for a `Register` must implement them — in-tree that is
+  the four `_Reg` fakes in `isa/*_test.py`, which were updated.
+
+## What did not pay off, and other notes
+
+- **`__slots__` on `Register`** looked free and is not compatible with
+  the tracing write hook, which installs a per-instance `write`
+  attribute shadowing the method. Dropped rather than restructure the
+  hook; plain attribute access was not measurably slower.
+- **Speeding up `util/conversion.py` itself** was rejected: the
+  helpers are used by every subsystem, so it is a wide blast radius
+  for a win that change 6 gets locally on the path that actually cares.
+  `conv_to_uint32(b)` is 435 ns against 153 ns for a bare
+  `int.from_bytes` — two thirds of that is the wrapper and the nested
+  `conv_to_int32` call. Worth revisiting as its own change.
+- **The noise floor matters at this point.** With two other agents
+  working on the same machine, single runs of `nine` varied 1.8–2.7 s
+  (±20 %). Change 6 (1.1×) is *below* that; it took six interleaved
+  A/B rounds with min-of-rounds to show it is real. Any further RV
+  micro-optimisation needs the same discipline or it is unfalsifiable.
+- **Readability tension, declared.** Two of the six changes trade
+  some directness for speed: `if snoop:` guards around calls to a
+  function that already checks `snoop` (documented in
+  `RV_ISA.print_snoop`'s docstring), and `run()` taking a
+  pre-fetched word instead of reading the PC itself. The second is
+  arguably a clarity *gain* ("the core fetches, the ISA decodes") and
+  the `instr=None` default keeps every ISA runnable standalone. What
+  was **not** done: no table-driven dispatch, no inlined bit-field
+  arithmetic replacing `RV_ISA.get_int`, no hand-unrolled handlers.
+  Those are the next ~10–15 %, and they are where the ISA modules
+  would stop reading like the RISC-V spec.
+- **Still on the table inside the interpreter:** `MemorySpace.read` is
+  now the largest single non-pump cost on the RV path (119,944 calls on
+  `nine`, with `_publish_mem_event` and `memory_map.locate` under it) —
+  that is target 5, unchanged. `conv_to_bytes` on the register-write
+  path (150,180 calls on `nine`) is the mirror image of change 6 and
+  cannot use the same trick without bypassing the tracing write hook.
+
+## Reproducing these numbers
+
+```bash
+export PYTHONPATH=~/wolfpine
+# per-workload wall clock; wrap MultiTileClock.run to get pump-only time
+time python3 -m driver.blackhole.server.four_replay_test
+
+# the A/B: snapshot framework/pe/rv + framework/pe/register at the two commits,
+# swap them into the same tree, alternate variants, take min over rounds.
+# Do not compare across sessions — the rest of the tree moves.
+```
+
+# What landed: target 6, an event-driven cycle pump (phase 1)
+
+**Measured 2026-08-02**, same machine as the appendix above (12th Gen Core
+i7-12700H, CPython 3.12.13, `TT_SIM_THREADED` unset). Design and the remaining
+phases: [`docs/plans/event-driven-pump.md`](plans/event-driven-pump.md).
+
+This is ranked target **6** ("the clock pump itself"), which the appendix
+explicitly said was *not* worth touching for its own sake — 0.3–1.5 % of wall
+clock — but was a ceiling that degrades linearly with tile count. Both halves
+of that judgement held up: the pump was not a bottleneck, and removing the
+ceiling is nonetheless worth 13–32× on the floor and 1.05–1.45× on real
+workloads. Target **4** (`NUI.clock_tick` when idle) is folded in here rather
+than fixed separately, as the appendix suggested.
+
+## What changed
+
+The pump stops ticking a tile that has nothing to do. `clock_tick(cycle_num)`
+is untouched everywhere, and so is tick *order* — the only change is **who
+gets ticked and when**.
+
+- `Clockable` gains an optional `is_clock_idle()`, defaulting to `False`
+  (i.e. "not idle"), so a component that has not opted in keeps its tile awake
+  forever. Every override is the negation of a guard already present in that
+  component's own `clock_tick`.
+- `TileClock` (a `Clock` subclass, so `MultiTileClock.run` is unchanged) skips
+  its whole component list while dormant. It falls asleep when the tile's
+  `clock_quiescent()` probe passes, evaluated *after* the tick; it wakes on
+  the three things that can act on a dormant tile from outside — `NUI.transmit`,
+  a host read/write through `TT_Device`, and a reset.
+- Fifteen components opted in: the NIUs, the baby cores, TDMA, the Tensix
+  backend units (base predicate plus five that carry extra state), and the
+  three frontend units. `matrix.py` / `vector.py` / `packer.py` / `misc.py`
+  needed nothing — they do not override `clock_tick`, so the base predicate is
+  complete for them.
+- Independently, `NUI.clock_tick` early-outs when both queues are empty
+  (target 4): **511 ns → 162 ns**, and it still matters after the tile gate,
+  because a *live* Tensix tile's two NIUs are idle on most cycles.
+
+## Result: the idle floor
+
+A `driver/blackhole` device (8 DRAM tiles + N Tensix tiles) with every baby
+core held in soft reset — the same benchmark as "The idle-pump floor, and how
+it scales" above. Best of 4 interleaved rounds over two **frozen tree
+snapshots**, alternating which variant runs first each round (see "Method
+note" below — this matters).
+
+| Tensix tiles | clockables | base cycles/s | after cycles/s | factor | base µs/cyc | after µs/cyc |
+|---|---|---|---|---|---|---|
+| 1 | 44 | 43,371 | **575,749** | **13.3×** | 23.06 | 1.74 |
+| 2 | 72 | 30,933 | **529,901** | **17.1×** | 32.33 | 1.89 |
+| 4 | 128 | 18,304 | **427,742** | **23.4×** | 54.63 | 2.34 |
+| 8 | 240 | 10,413 | **335,141** | **32.2×** | 96.03 | 2.98 |
+
+(The base column is faster than the original appendix table because targets 1
+and 3 landed in between; 0.40 µs per component-tick now, not 0.94.)
+
+**The scaling shape is the result, more than the factor.** The floor was dead
+linear in *component* count. It is now flat at **0.19 µs per tile-clock** —
+9 tile-clocks cost 1.74 µs/cycle, 16 cost 2.98 µs/cycle — i.e. linear in
+*tiles* and independent of what is on them. A realistic 8-Tensix device now
+idles at 335 k cycles/s where it used to idle at 10 k, which is above the
+~57 k cycles/s a one-minute 640³ matmul would need rather than an order of
+magnitude below it.
+
+## Result: real workloads
+
+Blackhole offline replay guards, pump-only wall clock. Six interleaved rounds
+over the frozen snapshots with alternating order; both min-of-rounds and
+median-of-rounds are given because the noise floor on this machine is ±15 %
+and the two statistics disagree by more than the effect on `nine`.
+
+| workload | µs/cycle (after) | base | after | min-factor | median-factor |
+|---|---|---|---|---|---|
+| `two` | 60 | 0.59 s | **0.41 s** | **1.45×** | 1.29× |
+| `reduce` | 88 | 0.98 s | **0.78 s** | **1.26×** | 1.31× |
+| `four` | 80 | 8.58 s | **6.76 s** | **1.27×** | 1.16× |
+| `nine` (2 tiles) | 150 | 1.81 s | **1.50 s** | 1.20× | 1.07× |
+| `sfpumath` | 140 | 2.87 s | **2.62 s** | 1.09× | 1.15× |
+| `six` (matmul) | 254 | 7.31 s | **7.00 s** | 1.04× | 1.05× |
+
+In cycles/s: `two` 13,898 → 20,197; `reduce` 10,387 → 13,077; `four` 12,513 →
+15,888; `nine` 6,364 → 7,662; `sfpumath` 6,734 → 7,352; `six` 3,760 → 3,926.
+
+**The spread across workloads is Amdahl, not variance in the saving.** The
+saving is a constant ~13 µs of pump overhead per simulated cycle, and it
+divides into whatever that workload's own cycle costs. The accounting closes:
+
+```
+  16 DRAM-tile NIU ticks       16 x 511 ns  =  8.2 us   (tiles now dormant)
+   8 DRAM tile-clock frames     8 x ~190 ns =  1.5 us
+   2 live-tile NIU early-outs   2 x 349 ns  =  0.7 us
+  ------------------------------------------------------
+                                              ~10.4 us modelled
+                                               ~13 us measured (four)
+```
+
+Predicted factors from that alone: `two` 1.28×, `sfpumath` 1.10×, `six` 1.05×
+— which is what the table says. `six` gains least for the same reason it
+gained least from target 1: its cycle is 254 µs of matmul, so 13 µs is 5 %.
+
+Where the dormancy actually happens, instrumented over a whole run
+(`TileClock.dormant_cycles` / total tile-cycles):
+
+| workload | DRAM tiles dormant | Tensix tiles dormant |
+|---|---|---|
+| `two` | 65,583 / 65,600 = **100.0 %** | 0 / 8,200 = 0.0 % |
+| `four` | 859,165 / 859,200 = **100.0 %** | 0 / 107,400 = 0.0 % |
+| `six` | 219,656 / 220,000 = **99.8 %** | 0 / 27,500 = 0.0 % |
+| `nine` | 91,965 / 92,000 = **100.0 %** | 99 / 23,000 = 0.4 % |
+
+That table is the honest limit of phase 1: **every DRAM tile sleeps through
+essentially the entire run, and no Tensix tile ever sleeps.** BRISC spins in
+the firmware loop from launch to teardown, so the tile is legitimately busy by
+the predicate. Getting the Tensix side needs per-*component* gating inside a
+live tile (phase 3 of the plan), which is a strictly larger correctness claim
+because it has to be right about components that observe each other's state
+mid-cycle.
+
+## Bit-identity
+
+The pump determines execution *order*, so a bug here surfaces as subtly wrong
+numbers rather than a crash. Gates, all on the final tree:
+
+- `driver.wormhole.server.offline_replay_test` — **126/126 host READs
+  reproduced bit-for-bit**, unchanged.
+- All **17** Blackhole replay guards pass; `six_replay_test` still reports
+  **PCC = 0.9982**, to the digit. Any movement in that number would mean
+  execution order changed.
+- `pytest framework driver` — 236 passed (including a new
+  `framework/device/clock_test.py`: dormancy engages, the always-list and
+  `on_tick` still see every cycle, and each of the three wake stimuli works).
+- `examples_replay_test` — 11 passed. `ruff` clean.
+
+The argument behind the gates, in one line each: a skipped tick is only ever
+skipped when every component on the tile has said its own `clock_tick` guard
+would fail; the decision is made *after* the tick, so a component owing
+exactly one more tick gets it; and within an awake tile nothing changes at all.
+
+## Method note: interleaving is not enough on a shared machine
+
+The first sweep of this change was interleaved base-then-after per workload,
+per round — the discipline the rest of this document uses — and it reported
+`four` at 1.30× and `two` at 1.68×. Both were inflated. Two confounds that
+interleaving alone does not remove:
+
+1. **The tree moves.** Another agent was editing `tensix/backends/matrix.py`
+   and `tensix/registers.py` during the sweep. Only the changed files were
+   being swapped, so the *shared* code differed between early and late runs.
+2. **Order within a round is fixed.** With `base` always first and `after`
+   always second, any monotone drift — the other agent's code getting faster,
+   the machine getting quieter — lands entirely on `after`.
+
+The numbers above come from **two frozen full-tree snapshots** (`framework/` +
+`driver/` copied wholesale, with only the 13 changed files reverted in one of
+them) and **alternating the order every round**. Under that protocol `four`
+came back at 1.16–1.27× and `two` at 1.29–1.45×. Anything measured on this
+machine at under ~1.3× needs both.
+
+`six` is the cautionary case: a first six-round interleaved-but-unfrozen A/B
+gave min-ratio 1.027 and median-ratio 0.990 — i.e. "faster and slower" — with
+base ranging 7.2–9.3 s on identical code. The frozen protocol resolves it to a
+consistent 1.04–1.05×, which is exactly what the per-cycle accounting predicts.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+# idle floor: build a Blackhole device, materialise N Tensix tiles, run it
+# with every core in soft reset and time MultiTileClock.run.
+# real workloads: wrap MultiTileClock.run for pump-only time, e.g.
+time python3 -m driver.blackhole.server.four_replay_test
+
+# dormancy share: read TileClock.dormant_cycles off every tile after a run
+python3 -c "
+from driver.blackhole.server.bh_device import make_device
+d = make_device().tt_device
+d.run(1000)
+print([(c, t.clock.dormant_cycles) for c, t in d.tile_directory.items()])"
+```
+
+Do **not** A/B across sessions, and on a shared machine do not A/B without
+freezing both trees and alternating the order — see the method note above.
+
+# What landed: the Tensix operand gather
+
+**Measured 2026-08-02**, same machine as the appendix (12th Gen Core i7-12700H,
+CPython 3.12.13, `TT_SIM_THREADED` unset). This is the follow-up named in "The
+new shape of an MVMUL, and the next target" above: with the FPU datapath
+batched, the operand gather was the larger half of an MVMUL.
+
+Two other agents were working in the tree, so every number is an **interleaved
+A/B between two frozen git worktrees** — `HEAD` and `HEAD` plus this change
+only — alternating base/after per workload and reported as the **minimum of 5
+rounds**. All correctness gates were run in the frozen worktree too, not in the
+shared tree (a run in the shared tree failed 11 examples on someone else's
+half-saved edit, which is exactly the trap this method exists to avoid).
+
+## What changed
+
+`perform_mvmul_exact` used to read its operands one datum at a time: ~384
+scalar `SrcRegister.__getitem__` calls, ~1,150 `DataFormatConversions` frames
+(`BF16InSrcToFP32` → `BF16InSrcToBF16` → `TF32InSrcToTF32` per lane), and
+132 `getDst16b` + 128 `setDst16b`/`FP32ToDstFormatBF16` pairs, per instruction.
+It now gathers a rectangle at a time:
+
+- **`SrcRegister.readRows(row, n)`** returns the `n x 16` block as int64 (a
+  slice of the numpy array it already stored), and **`DstRegister`** gained
+  `getDst16bRows` / `setDst16bRows` / `getDst32bRows` / `setDst32bRows`, the
+  per-datum accessors applied to whole rows — same row adjustment, same zero
+  flags, same 32-bit hi/lo split.
+- **The conversions are not reimplemented.** They are masks, shifts and ors, so
+  handing the *same* classmethod an int64 array converts the whole block. The
+  one exception was `FP32ToBF16`, whose denormal flush was an `if exp == 0`;
+  it is now `man * (exp != 0)`, which is the same value for a scalar.
+
+So there is no second copy of the Src/Dst bit permutations to keep in step —
+the batched path calls the documented ISA port itself.
+
+## Result
+
+Whole-process wall clock, min of 5 interleaved rounds:
+
+| workload | MVMUL/GAPOOLs | base | after | factor |
+|---|---|---|---|---|
+| `six` (128³ bf16 matmul) | 4,096 | 12.51 s | **7.81 s** | **1.60×** |
+| `matmulblock` | 1,536 | 5.30 s | **4.05 s** | **1.31×** |
+| `matmulidx` | 384 | 2.51 s | **2.24 s** | **1.12×** |
+| `reduce` (GAPOOL) | 36 | 1.78 s | 1.68 s | 1.06× |
+| `four`, `nine`, `two`, `sfpumath` | **0** | — | — | 0.93–1.06×, no direction |
+
+The last row is the control, and it is a *verified* zero rather than an assumed
+one: a wrapper counting `perform_mvmul_exact` calls reports exactly 0 for those
+four workloads, so any difference there is noise (`nine`'s 0.93× included).
+
+Per instruction, timed in-run by wrapping `perform_mvmul_exact` in both trees:
+
+| workload | base µs/MVMUL | after µs/MVMUL | share of run, base → after |
+|---|---|---|---|
+| `six` | 1,829 | **753** | 57.6 % → 36.4 % |
+| `matmulidx` | 1,624 | **637** | 33.7 % → 17.4 % |
+| `matmulblock` | 1,584 | **662** | 53.7 % → 33.0 % |
+| `reduce` (4 rows, not 8) | 1,106 | **634** | 3.3 % → 1.9 % |
+
+And the gather itself, isolated (min of 7 × 300 iterations; one MVMUL = a 16×16
+SrcA block, an 8×16 SrcB block and an 8×16 Dst rectangle):
+
+| | base | after | factor |
+|---|---|---|---|
+| operand gather (SrcA + SrcB + Dst read) | 666 µs | **56.5 µs** | 11.8× |
+| result store (convert + 128 `setDst16b`) | 222 µs | **28.1 µs** | 7.9× |
+| together | 889 µs | **85 µs** | **10.5×** |
+
+Where the remaining 85 µs goes: SrcA convert 17.1, SrcB transpose + convert
+14.4, Dst read + convert 20.6, result convert 19.7, store 5.7. That is ~35 numpy
+calls at the 1–3 µs/op floor the earlier section measured, so this is close to
+done without a JIT — and the datapath is once again the whole of what is left
+(~660 µs of the 753).
+
+One numpy lesson, and it is the same one as last time in a new disguise:
+**convert the transposed SrcB block through `np.ascontiguousarray`**. A ufunc
+over a transposed view returns an F-ordered result, and every downstream op then
+pays: `_fpu_group_sums_batch` is 155 µs on a contiguous SrcB operand and 180 µs
+on the view-derived one, while the copy itself is free (15.5 vs 15.6 µs).
+
+## Bit-identity
+
+Required, not approximated — this feeds the differential against the vendor
+simulator.
+
+- `framework/pe/tensix/conversion_batch_test.py` (new) proves the array form of
+  every conversion the batched path can reach equals the scalar form **over the
+  whole input space**, not on a sample: all 2¹⁹ Src words for the six
+  `*InSrcTo*` conversions, all 2¹⁶ Dst16b words for the four Dst ones, and for
+  the FP32-width ones every equivalence class (all 2¹⁶ sign/exponent/high-
+  mantissa combinations × five low halves, plus 200 k random words). 15 tests,
+  6.9 s. `registers_test.py` gains six tests pinning each block accessor against
+  the scalar accessor it replaces, including flag-cleared rows and both
+  Blackhole row-remap gates.
+- All **17** Blackhole replay guards pass, `driver.wormhole.server.offline_replay_test`
+  reproduces **126/126** host READs bit-for-bit, `examples_replay_test` 11
+  passed, and `pytest framework driver` is **228 passed** (207 + 21 new).
+- The live differential against the vendor simulator passes on **both**
+  architectures: `./optests/diff.sh matmulidx` and the same under
+  `TT_SIM_ARCH=wormhole`, 2,560 elements each, PASS.
+- `six` still reports `PCC(golden, device) = 0.9982`, unchanged to the last
+  digit.
+
+## What did not pay off
+
+- **A 2¹⁹-entry lookup table per conversion.** It is the fastest option —
+  `LUT[block]` is 3.5 µs against 16.1 µs for the ufunc chain — but it is 4.2 MB
+  per conversion (two are live), it saves ~25 µs of a 753 µs MVMUL (3 %), and it
+  replaces a call to the documented ISA port with a table. Not taken.
+- **Hand-fusing the conversion expressions**, e.g. `BF16InSrcToFP32` as one
+  shifted mask instead of nine ufunc calls. Worth ~5 µs of 85, and it is exactly
+  the correspondence with the ISA pseudocode that makes these functions
+  reviewable. Not taken.
+- **Batching the element-wise FP path** (`elementwise_fp_other`, the
+  ELWADD/ELWSUB/ELWMUL operand gather). Measured first: it is called 4,096 times
+  in `four_fp` for 0.04 s of a 1.53 s run (2.6 %), 512 times in `reduce`, and
+  **zero** times in the other 15 guards. It also computes in Python floats
+  through caller-supplied closures, so vectorising it risks float64/float32
+  rounding differences for ~1 % of one workload. Not taken; re-measure if an
+  element-wise-heavy kernel ever shows up.
+
+## The next target inside the matmul
+
+With the gather at 85 µs, `six` is ~36 % `perform_mvmul_exact` and essentially
+all of that is `_fpu_group_sums_batch` / `_fpu_accumulate_batch` again — now at
+~660 µs/MVMUL of numpy at the 1–3 µs/op overhead floor. That is the JIT
+argument's proper baseline, and it should be re-argued against it rather than
+against the pre-batch scalar code. The next non-JIT item visible in `six`'s
+profile is the **unpacker**, which still writes Src one datum at a time
+(131,072 `BF16ToSrcBF16` + `SrcRegister.__setitem__` calls per run) — the same
+shape of change as this one, in `backends/unpacker.py`.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+# per-workload A/B: two frozen worktrees, alternating, min of N rounds
+git worktree add --detach /tmp/gb_base HEAD    # and /tmp/gb_after + your diff
+time python3 -m driver.blackhole.server.six_replay_test
+
+# per-MVMUL cost: wrap MatrixUnit.perform_mvmul_exact with perf_counter and
+# run any guard; it also tells you whether a workload uses the path at all.
+```
+
+# What landed: the unpacker's Src/Dst writes
+
+**Measured 2026-08-02**, same machine as the appendix (12th Gen Core i7-12700H,
+CPython 3.12.13, `TT_SIM_THREADED` unset). This is the target named at the end
+of the operand-gather section: with the MVMUL read side batched, the unpacker
+was the largest remaining non-JIT hotspot, moving **131,072 datums one at a
+time** per `six` run.
+
+Other agents were active in the tree throughout (one of them mid-save in
+`device/clock.py`, which produced a spurious `AttributeError` in an early
+measurement), so every number below comes from an **interleaved A/B between two
+frozen git worktrees** — `HEAD` and `HEAD` plus this change only — alternating
+which variant runs first each round. All correctness gates were run in the
+frozen worktree too.
+
+## Measure first: what the loop actually sees
+
+Before touching anything, `perform_unpack` was wrapped with a counter recording
+its parameter combination, over all 17 Blackhole guards and the 11 Wormhole
+example replays. Only nine combinations occur:
+
+| in -> out | destination | where | datums |
+|---|---|---|---|
+| BF16 -> BF16 | SrcA + SrcB | `six`, `matmulblock`, `matmulidx`, `reduce` | 131,072 in `six` alone |
+| INT8 -> INT8 | SrcA + SrcB | `four`, `nine` | 8,192 each |
+| FP32 -> BF16 | SrcA + SrcB | `four_fp` | 8,192 |
+| FP32 -> TF32 | SrcA | `sfpumath` | 3,072 |
+| INT32 -> INT32 | Dst | `five`, `loopback`, `optest` | 8,192 / 4,096 / 6,144 |
+| FP32 -> FP32 | Dst | `five_fp` | 8,192 |
+| INT32 / FP32, `ZeroWrite2` | SrcA | WH `nine`, `sfpumath` | 16 per call |
+| BF16 -> BF16, haloize | SrcA | `reduce`, `reduceneg` | 1,024 of 5,440 |
+| *(none)* | — | `two`, `three`, `eight` | **0 calls** |
+
+Three facts fell out of that census and shaped the change:
+
+1. **The loop is already a clean rectangle.** The awkward modes the ISA doc
+   describes — `rowStride`, `upsampleZeroes`, `upsampleInterleave` — were
+   *passed to* `perform_unpack` and never read: the input walk is
+   `inAddr_Datums += datumSizeBytes`, flat. So there was no discontiguity to
+   work around, and the batched path is exactly as (in)complete as the scalar
+   one it replaces. Nothing was skipped by batching that the scalar loop
+   handled. (Since then those three no longer reach `perform_unpack` at all:
+   `check_modelled_settings` rejects a non-abutting `RowStride` or a non-zero
+   `Upsample_rate` at decode, so the rectangle is now a precondition rather
+   than a lucky property of the corpus.)
+2. **Every observed call has `colShift == 0` and `numRows <= 64`**, and the
+   only transpose is `reduce`'s 4 calls.
+3. **`two`, `three` and `eight` never enter the function at all** — the
+   verified control group, not an assumed one.
+
+## What changed
+
+`_unpack_block` in `backends/unpacker.py` does what the datum loop did, a
+rectangle at a time, and returns False for the cases it cannot:
+
+- **One L1 read.** `AddressableMemory.read(addr, numRows * 16 * size)` and
+  `np.frombuffer` with a `uint8`/`uint16`/`uint32` view. Datums are
+  little-endian and so is the host, so the view is the same value per datum as
+  `conv_to_uint32` of its bytes.
+- **One conversion.** `formatConversion` is the *same* method, handed an int64
+  array instead of an int — the technique the operand gather established. Two
+  branches inside it had to become arithmetic to survive a block, and both are
+  the same value for a scalar: INT8's `if raw_datum: raw_datum |= 16 << 10`
+  became `raw_datum | (16 << 10) * (raw_datum != 0)`, and the FP32 -> BF16
+  denormal flush turned out to be exactly `DataFormatConversions.FP32ToBF16`,
+  which the gather had already made branch-free. No conversion is
+  reimplemented.
+- **One indexed write.** `SrcRegister.writeDatums(rows, columns, values)` is
+  the new write counterpart to `readRows` — literally `self.data[rows, cols] =
+  values`, with the scalar setter's indexing rules (a negative column wraps, an
+  out-of-range row raises). Dst reuses the gather's `setDst16bRows` /
+  `setDst32bRows`.
+
+The destination index arithmetic is transcribed from the scalar loop rather
+than re-derived: `rows` is the `row` loop variable as an array, `cols` is
+`np.arange(16) - colShift`, and haloize is the same two assignments done at
+once (`outRows, outCols = (outRows & ~0xF) | outCols, outRows & 0xF` — the
+tuple's right-hand side evaluates first, which is what the scalar version's
+`rowLowBits` temporary is for). Because they are index arrays rather than
+slices, the **column shift and the haloize transpose came along for free**;
+there was no reason to leave them on the scalar path.
+
+### Deliberately left scalar
+
+- **Datum widths that are not 1, 2 or 4 bytes** — the BFP formats with their
+  shared exponents. `DATA_FORMAT_TO_BITS` gives BFP4/BFP2 a size of *zero*
+  bytes, so the scalar loop does not handle them either; declining keeps the
+  two paths equally (in)correct rather than inventing behaviour.
+- **`FP32 -> FP16` out.** `FP32ToFP16` saturates and flushes with an `if/elif`.
+  Zero guards reach it, and handing it a block raises rather than silently
+  taking one arm — pinned by a test, so it cannot quietly start "working".
+- **Row counts large enough for the destination row map to alias** (`> 64` into
+  a Src bank, `> 16` into Dst under `SetOvrdWithAddr`). An indexed assignment
+  would then depend on numpy's ordering where the scalar loop's last-write-wins
+  is explicit. No guard reaches it; the check is 4 lines.
+
+## Result
+
+Per-`UNPACR` cost, timed in-run by wrapping `perform_unpack` in both frozen
+worktrees, min of 5 alternating rounds:
+
+| workload | UNPACRs | datums | base | after | factor | share of base run |
+|---|---|---|---|---|---|---|
+| `six` | 128 | 131,072 | 0.908 s | **0.021 s** | **43x** | 10.9 % -> 0.3 % |
+| `matmulblock` | 36 | 36,864 | 0.285 s | **0.005 s** | **57x** | 8.4 % -> 0.2 % |
+| `five` | 32 | 8,192 | 0.072 s | **0.004 s** | 18x | 4.6 % |
+| `four` | 32 | 8,192 | 0.085 s | **0.005 s** | 17x | 0.9 % |
+| `four_fp` | 32 | 8,192 | 0.052 s | **0.005 s** | 10x | 4.2 % |
+| `sfpumath` | 12 | 3,072 | 0.021 s | **0.002 s** | 10x | 0.7 % |
+| `reduce` | 40 | 5,440 | 0.044 s | **0.005 s** | 9x | 4.5 % |
+
+Per datum that is **6.9 us -> 0.16 us** on `six`'s 1024-datum unpacks. After the
+change the cost is nearly flat in the datum count (112–165 us per call whatever
+the size), i.e. it is numpy's per-call overhead — about 20 array ops — and no
+longer the data.
+
+Whole-process wall clock and CPU time, min and median of 9 interleaved
+alternating rounds:
+
+| workload | wall base | wall after | min ratio | median ratio | CPU min ratio |
+|---|---|---|---|---|---|
+| `six` | 9.20 s | **8.07 s** | **1.14x** | 1.09x | 1.12x |
+| `matmulblock` | 4.12 s | 3.98 s | 1.04x | 1.12x | 1.02x |
+| `four_fp` | 2.11 s | 2.09 s | 1.01x | 1.04x | 0.96x |
+| `four`, `reduce`, `five` | — | — | 0.94–1.00x | 1.01–1.02x | 0.96–1.04x |
+| `two`, `eight` (**0 unpacks**) | — | — | 1.06–1.08x | 1.01–1.05x | 1.02–1.05x |
+
+The control row is the honest reading of the rest of the table: on this machine,
+under this much contention, whole-run A/B noise is about **±6 %** even frozen
+and alternated. Only `six` clears it, and it clears it in all four statistics at
+the value the per-call measurement predicts (-0.89 s on an 8–9 s run). Everything
+else is a real but sub-noise 1–5 %, which is exactly what the share column
+above says it should be. The per-call table, not the whole-run table, is the
+measurement of this change.
+
+## Bit-identity
+
+Required, not approximated.
+
+- `framework/pe/tensix/conversion_batch_test.py` gains the unpack direction: the
+  four to-Src conversions over their whole input space (2^19 for
+  `TF32ToSrcTF32` / `TF32ToSrcFormatTF32`, 2^16 for `BF16ToSrcBF16` /
+  `FP16ToSrcFP16`), **and `UnPackerUnit.formatConversion` itself end to end** —
+  every (in, out, `unpackToDst`) triple `_unpack_block` accepts, array against
+  scalar, over the whole 8- or 16-bit datum space or every equivalence class of
+  the 32-bit one. That is the test that actually covers the two branch
+  removals. 45 tests, 11 s.
+- `registers_test.py` gains `writeDatums` against the scalar setter over the
+  four index maps the unpacker builds (rectangle, wrapped SrcB rows, shifted
+  column, haloize transpose).
+- `pytest framework driver` is **267 passed** (236 + 31), all **17** Blackhole
+  replay guards pass, `driver.wormhole.server.offline_replay_test` reproduces
+  **126/126** host READs bit-for-bit, `examples_replay_test` 11 passed.
+- `six` still reports `PCC(golden, device) = 0.9982`, unchanged to the last
+  digit.
+- The live differential against the vendor simulator passes on **both**
+  architectures: `./optests/diff.sh matmulidx` and the same under
+  `TT_SIM_ARCH=wormhole`, 2,560 elements each, PASS.
+
+## What did not pay off, and what is next
+
+- **Batching the Src *clear* loops** (`handle_set_src_to_zero` and Blackhole's
+  `_handle_unpacr_nop_blackhole`, each a 64x16 scalar write). Measured before
+  writing anything: 0.041 s of `sfpumath`'s 3.1 s run and 0.006 s of `reduce`'s,
+  **zero** in every other guard — and most of even that is the blocked-and-retry
+  early return, not the clear itself. Not taken.
+- **A separate fast path for the common rectangle** (contiguous rows, no column
+  shift, no transpose) as a slice assignment instead of a 2-D indexed one. It
+  is worth a few microseconds of a 150 us call and it would mean two
+  destination-index derivations to keep in step with the ISA pseudocode instead
+  of one. Not taken.
+- **The remaining ~150 us per UNPACR is now per-call numpy overhead**, not the
+  datums, so the next win in this file would have to come from doing fewer,
+  larger unpacks — which the hardware model does not permit. With the unpacker
+  at 0.3 % of `six`, the matmul datapath (`_fpu_group_sums_batch` /
+  `_fpu_accumulate_batch`, ~660 us of a 753 us MVMUL) is once again the whole
+  of what is left.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+# which formats a guard actually unpacks, and whether it unpacks at all:
+# wrap UnPackerUnit.perform_unpack and count its arguments.
+# per-UNPACR cost: wrap the same method with perf_counter.
+git worktree add --detach /tmp/ub_base HEAD   # and /tmp/ub_after + your diff
+time python3 -m driver.blackhole.server.six_replay_test
+```
+
+Freeze both trees, alternate the order, and read the control workloads before
+believing any whole-run ratio under ~1.1x — see the method note in the
+event-driven-pump section, which this change's numbers confirm again.
+
+# Investigated and not real: the `six` "regression" after the optests commits
+
+**Measured 2026-08-03**, same machine as the appendix (12th Gen Core i7-12700H,
+CPython 3.12.13, `TT_SIM_THREADED` unset). A single run of `six_replay_test`
+timed 6.99 s before commits `469899b` ("Pumping of instructions") and `0ac4b39`
+(the optests differential fixes) landed, and 8.11 s after — an apparent 16 %
+give-back on the day five optimisations took `six` from 35.68 s to single
+digits. **It does not reproduce. HEAD is faster than the pre-change tree on
+every statistic**, and this section is the evidence, kept because a documented
+non-regression is worth as much as a fix.
+
+## Result: three interleaved A/Bs, three frozen worktrees
+
+`pre` = `fe0d279` (before both commits), `mid` = `469899b`, `head` = `0ac4b39`.
+Full-tree `git worktree` snapshots, order rotated every round, whole-process
+wall clock **and** child CPU time (`RUSAGE_CHILDREN`), min and median of each.
+
+| sweep | rounds | machine | pre | mid | head | head vs pre |
+|---|---|---|---|---|---|---|
+| 1 | 9 | loaded (load 8–18) | 7.552 s | 6.889 s | **6.789 s** | **0.90×** |
+| 2 | 11 | loaded → quiet | 7.691 s | — | **6.977 s** | **0.91×** |
+| 3 | 6 | quiet (load 1.4) | 7.815 s | 7.298 s | **6.094 s** | **0.78×** |
+
+(wall-clock **minimum** of the rounds — the statistic this document uses,
+because contention can only add time. The medians agree in direction in all
+three sweeps: 0.90×, 0.89×, 0.91×. CPU-time min agrees too: 0.92×, 0.94×,
+0.84×.) `head` is not slower than `pre`; it is **~1.1× faster**, which is the
+unpacker batching in `469899b` showing up where it should. The quiet-machine
+`head` minimum of **6.09 s** is *below* the 6.99 s that was reported as the
+"before".
+
+## Why the original numbers disagreed
+
+The machine was not quiet. During the first sweep an unrelated build was
+running (`ftn-opt` / `tt-opt` / `tt-xftn`, load average climbing 1.4 → 18.7),
+and a single `head` run in that window came back at 10.65 s against 7.47 s for
+the same code twelve minutes later. Two single runs taken minutes apart cannot
+separate a 16 % effect from that. This is the third time this document has had
+to say it: **freeze both trees, alternate the order, take the minimum of
+several rounds, and say which statistic you used.**
+
+## Why it could not have been real, mechanically
+
+The four changes in the bisection space were each instrumented in the frozen
+`head` worktree rather than argued about. Call counts are the measurement:
+
+| suspect | reached in `six`? | cost |
+|---|---|---|
+| **Sparse DRAM backing** (`SparseAddressableMemory`) | 192 reads + 48 writes, 480 KiB | **0.004 s of 6.0 s = 0.07 %** |
+| **Cost-model hook** (`busy_until` / `cost_model` guards in `TensixBackendUnit.clock_tick`) | 275,000 unit-ticks | ≤ **0.023 s = 0.3 %** (85 ns/call upper bound, which includes the call frame the guard does not pay for) |
+| **Blackhole SFPU decode** (`_read_dest_reg_addr`, `_compare_lanes`) | **0 calls** — verified, not assumed | 0 |
+| **RV32I `sh` fix** (`rs2_val[0:1]` → `[0:2]`) | a slice bound | 0 |
+
+Sum: **under 0.03 s of a 7 s run**, against the 1.12 s that was being looked
+for. The suspicion that sparse DRAM would bite because "`six` streams tiles
+from DRAM continuously" is the interesting one to correct: `six` moves its
+128³ operands through *L1* once the reader kernel has fetched them, so the
+sparse path sees 240 calls in the whole run, not one per tile row.
+
+Sparse-DRAM census across all 22 Blackhole guards, so the point is not
+specific to `six`:
+
+| guard | sparse calls | bytes | share of run |
+|---|---|---|---|
+| `six` | 240 | 491,520 | 0.07 % |
+| `matmulblock` | 18 | 106,496 | 0.03 % |
+| `optest` | 10 | 81,920 | 0.06 % |
+| every other guard | 3–16 | ≤ 49,152 | **≤ 0.05 %** |
+
+The worst case in the tree is 0.07 %. A last-hit chunk cache, a bigger chunk
+size, or a flat-array fast path would all be measurable in a microbenchmark and
+invisible in every workload, so none was written — the change is already at the
+point where the honest answer is "leave it alone".
+
+## Gates (nothing changed, so these are a pin, not a check)
+
+`ruff check` / `ruff format` clean; `pytest framework driver` **349 passed**;
+**22/22** Blackhole replay guards; `driver.wormhole.server.offline_replay_test`
+**126/126 byte-identical**; `pytest driver/wormhole/server/` **18 passed**;
+`six` reports `PCC(golden, device) = 0.9982`, unmoved.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+git worktree add --detach /tmp/wt_pre  fe0d279
+git worktree add --detach /tmp/wt_head 0ac4b39
+# alternate the order every round, take the min, and check `uptime` while you
+# do it — a background build is worth more than the effect you are chasing.
+
+# whether a change is even reached: wrap the suspect method with a counter and
+# run the guard, e.g. SparseAddressableMemory.read / VectorUnit._compare_lanes.
+```
+
+---
+
+# What landed: the RISC-V cost model, and what it costs when it is off
+
+The §I cycle-cost model reached the baby RISC-V cores' load/store path
+(`framework/pe/rv/cost.py`; write-up in
+[`docs/plans/cost-model.md`](plans/cost-model.md#the-risc-v-cores-where-the-cycles-finally-moved)).
+It is not an optimisation, so the only question this document has to answer is
+the one the RV interpreter's history makes urgent: **the interpreter is the
+hottest path in the simulator and was made ~2.3× faster by deleting
+per-instruction overhead, so what does adding a per-instruction cost hook cost
+when the model is switched off?**
+
+The hook is one instance-attribute read and one predicted branch, before the
+ISA dispatch:
+
+```python
+cost = self.rv_cost                       # None unless TT_SIM_COST_MODEL
+if cost is not None and not cost.can_issue(instr, cycle_num, register_file):
+    return
+```
+
+`rv_cost` is an instance attribute (not the class attribute it shadows), for
+the same reason `TensixBackendUnit.busy_until` is: a class-attribute read on
+this path is an MRO walk.
+
+## Result: no measurable cost, with a control group that says so
+
+Three **frozen full-tree copies** — `new` (the working tree), `base` (the same
+tree with *only* this change reverted, so the concurrently-uncommitted Tensix
+cost wiring is in both arms), and `ctrl` (a byte-identical copy of `base`,
+verified with `diff -rq`). Twelve rounds, order alternated each round, `four`
+timed once per round and `two` five times per round (it is only ~1.5 s, so a
+single run is startup-dominated). `TT_SIM_COST_MODEL` unset throughout.
+
+| guard | statistic | base | ctrl | new |
+| --- | --- | --- | --- | --- |
+| `four` | median of 12 | 11.515 s | 11.502 s (**−0.1 %**) | 11.617 s (**+0.9 %**) |
+| `four` | min of 12 | 10.508 s | 10.965 s (**+4.4 %**) | 10.696 s (**+1.8 %**) |
+| `two` | median of 12×5 | 1.520 s | 1.531 s (**+0.7 %**) | 1.512 s (**−0.6 %**) |
+| `two` | min of 12×5 | 1.398 s | 1.395 s (**−0.2 %**) | 1.396 s (**−0.2 %**) |
+
+The control group is the whole point, and it is why both statistics are
+reported. `ctrl` is the *same code as `base`*, and it lands anywhere from
+−0.1 % to +4.4 % depending on which statistic you take. `new` is inside that
+band on every line, and on `two` — the shorter, more RV-dominated run, where a
+per-instruction overhead should show up most cleanly — it is indistinguishable
+from the control to within 0.2 %. **No cost distinguishable from a control
+group of identical code**, with an upper bound around 1 % rather than a claim
+of exactly zero. (This is the discipline the "Investigated and not real"
+section above exists to enforce — single-run timings on this machine have
+already sent one agent chasing a regression that did not exist. An earlier pass
+of this same A/B, against a `base` that was a plain HEAD worktree and therefore
+*missing* the concurrent Tensix work, produced +0.1 % / −3.0 % with a control
+at +4.4 % / −0.8 %: a different set of numbers, the same conclusion, and a
+reminder to check what is actually in each arm.)
+
+With the model **on**, the same `four` run is ~8 % slower in wall clock (11.55 s
+→ 12.43 s, median of three alternating runs — only just outside the noise floor)
+and 0.18 % longer in simulated cycles. The scoreboard walk is cheap because it
+is a list index and two integer compares; nobody should read the on-state as a
+performance path regardless.
+
+## Gates
+
+`ruff check` / `ruff format` clean; `pytest framework driver` **401 passed** (380
+before, +19 `framework/pe/rv/cost_test.py`, +2
+`framework/pe/tensix/sync_mixed_queue_test.py`); **22/22** Blackhole replay
+guards; `driver.wormhole.server.offline_replay_test` **126/126
+byte-identical**; `pytest driver/wormhole/server/` **18 passed**; `six` reports
+`PCC(golden, device) = 0.9982`, unmoved. All with `TT_SIM_COST_MODEL` unset,
+which is the contract.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+git worktree add --detach /tmp/bench/base HEAD
+cp -a /tmp/bench/base /tmp/bench/ctrl          # the control: identical code
+rsync -a --exclude .git ~/wolfpine/ /tmp/bench/new/
+diff -rq /tmp/bench/base/framework /tmp/bench/ctrl/framework   # verify the control
+# then: 6 rounds, order alternated, median per variant. Report the control's
+# own deviation next to the change's — a change smaller than the control is a
+# non-result, not a win.
+
+# simulated-cycle A/B at one-cycle resolution (the guards poll every 2000-5000
+# cycles, which hides anything smaller): monkeypatch the guard module's
+# PUMP_CHUNK to 1, wrap _build_fabric to keep the device, and read
+# device.tt_device.clocks[0].clock_tick_num after main().
+
+# where the RV stalls went: core.rv_cost.summary() on each baby core after a
+# run — total stall cycles, split by load-use / store-rate / integer-unit, and
+# loads counted per address region.
+```
+
+---
+
+# What landed: the deadlock watchdog, sampled instead of polled
+
+The progress watchdog (`framework/device/deadlock.py`, wired from
+`Wormhole.__init__` as the pump's `on_tick`) took its whole progress signature
+**every cycle** — every tile, every baby core, every NIU, every Tensix thread —
+to find a condition whose window is 50,000 cycles and which fires a handful of
+times in a run, if ever. On the full-worker-grid feasibility study
+([`docs/upstream-examples-status.md`](upstream-examples-status.md#what-the-full-grid-actually-costs))
+that made it **92 % of an 80-worker idle pump**. It is now sampled once per
+`threshold // 8` cycles, with a confirmation pass before it prints.
+
+## Measure first: where the watchdog's time actually went
+
+`cProfile` on an 8-Tensix Wormhole idle pump, striding off, 4,000 cycles:
+`DeadlockDetector.tick` is **0.430 s of the 0.531 s** the pump takes (81 %),
+and inside it the call counts are all one thing — the per-core soft-reset poll:
+160,000 `deque.clear`, 160,000 `get_nth_bit`, 32,000 `conv_to_uint32` for
+8 tiles × 5 cores × 4,000 cycles. Nothing else in the tick is reached, because
+with every core in reset the signature is never built.
+
+That is the *cheap* half. `timeit` on one observation (min of 5×200), with
+cores in reset and then with BRISC out of reset on every tile:
+
+| Tensix tiles | one scan, all cores in reset | per tile | one scan, cores live | per tile |
+| --- | --- | --- | --- | --- |
+| 1 | 4.2 µs | 4.2 | 25.9 µs | 25.9 |
+| 8 | 17.6 µs | 2.2 | 137.8 µs | 17.2 |
+| 20 | 38.7 µs | 1.9 | 357.9 µs | 17.9 |
+| 80 | 218.5 µs | 2.7 | 1,881.9 µs | 23.5 |
+
+**A live core makes the scan ~10× more expensive**, because it is what turns on
+the other two thirds of the signature: a 61-entry tuple copy per NIU (176 of
+them on an 80-worker Wormhole) and `CoprocessorDoneCheck` per Tensix thread,
+which walks every backend unit. One live tile is enough — the signature is
+built if *any* core anywhere is out of reset. Since one live tile also forces
+the Phase 4 stride off, an 80-worker Wormhole with a single running kernel was
+paying ~1.9 ms of watchdog per simulated cycle.
+
+(For the record, the "it stops being the dominant term once tiles are awake"
+line in the feasibility study was measured on **Blackhole**, which at the time
+never wired the detector at all — both arms of that A/B had no watchdog. On
+Wormhole the opposite holds, and the live-workload table below quantifies it.
+Blackhole wires the watchdog now — it is built in `TT_Device.__init__`, so
+every architecture gets it — which both fixes the missing `[DEADLOCK]`
+diagnostic there and makes that A/B worth re-running.)
+
+## What changed
+
+Three things, all in `deadlock.py` plus one line of the device base class
+(`tt_device.py`; it was `wormhole.py` when this was written):
+
+1. **Sampled, not polled.** `tick` is now one integer compare against
+   `_next_sample_cycle` — 91 ns, measured — and the scan happens once per
+   `max(1, threshold // 8)` cycles (6,250 by default).
+2. **Confirmed before reported.** Sampling alone can alias: a loop whose period
+   matches the sample interval looks frozen at every sample point. A stall that
+   clears the threshold is therefore re-checked on 64 consecutive ticks before
+   anything is printed. A wedged device passes trivially; a core that is
+   actually retiring instructions moves its PC and aborts the confirmation. The
+   confirmation also refills the recent-PC window with consecutive-cycle PCs,
+   so the report reads exactly as it did before.
+3. **Disabled means unwired.** `TT_SIM_DEADLOCK=0` no longer installs the
+   `on_tick` hook, so it costs nothing rather than a call that returns.
+
+The window is now counted in simulated cycles rather than pump ticks. The two
+are the same thing except when the pump strides, which only happens when every
+tile is dormant.
+
+## Result: the idle floor
+
+Two frozen full-tree copies (`before` = HEAD, `after` = HEAD + this change),
+`TT_SIM_PUMP_STRIDE=0` (what one live tile forces anyway), 4 rounds × 5
+repeats, order alternated per round, **min of 20** per cell — µs per cycle:
+
+| Tensix tiles | before, watchdog on | before, off | after, watchdog on | after, off | watchdog cost: before → after |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 6.94 | 4.75 | 3.74 | 4.29 | 2.2 → below noise |
+| 8 | 27.14 | 5.66 | 5.47 | 5.39 | 21.5 → 0.08 |
+| 20 | 62.81 | 7.82 | 7.84 | 7.61 | 55.0 → 0.23 |
+| 80 | 207.3 | 18.08 | 18.59 | 17.49 | 189 → 1.1 |
+
+**The idle pump at 80 workers goes 207 → 18.6 µs/cycle (11×)**, and the
+watchdog stops being visible in it: `after`-with-watchdog is within the
+control's own spread of `after`-without.
+
+**Control group.** A third tree, `diff -rq`-verified byte-identical to
+`before`, run against `before` in the same interleaved shape (4 rounds): the
+two identical arms differ by up to **11.5 %** on the min statistic (n=20,
+watchdog on: 58.2 vs 51.5 µs/cycle) and by up to 9 % between separate runs of
+the same arm on different occasions (n=80 watchdog on: 207.3 then 226.6). Every
+number claimed above is a 5–200× effect, i.e. one to two orders of magnitude
+outside that band.
+
+An in-process A/B (same device object, `on_tick` wired and unwired
+alternately, 6 rounds) puts the residual below the pump's own variance at every
+tile count — the watchdog-on arm measured *faster* than watchdog-off in all
+four, which is the honest way of saying "not measurable". The composed upper
+bound from the microbenchmarks is 0.091 µs/cycle for the gate plus
+218.5 µs / 6,250 = 0.035 µs/cycle for the amortised scan at 80 idle workers
+(0.30 µs/cycle when they are live).
+
+## Result: a real workload
+
+The `one` offline replay guard with N workers materialised and one launched —
+the regime an upstream full-grid run is in, since tt-metal releases BRISC on
+every declared worker. Min of 3 alternating rounds; every run reproduced
+**126/126 READs bit-for-bit** in both arms:
+
+| Tensix tiles | before | after | speedup | replay wall clock |
+| --- | --- | --- | --- | --- |
+| 1 | 152.7 µs/cycle | 79.1 | **1.9×** | 0.86 s → 0.44 s |
+| 8 | 279.3 | 81.2 | **3.4×** | 1.77 s → 0.46 s |
+| 20 | 477.8 | 111.5 | **4.3×** | 2.69 s → 0.64 s |
+| 80 | 1,920.2 | 119.9 | **16.0×** | 10.75 s → 0.67 s |
+
+The `after` column is flat in tile count to within 50 % across an 80× range of
+grid sizes; the `before` column is linear in it. That is the whole point: the
+per-cycle cost of a grid you are not using is now the pump's ~0.24 µs per
+dormant tile clock and nothing else.
+
+## What it costs in detection latency
+
+A stall is reported between `threshold` and
+`threshold + threshold//8 + 64` cycles after the last observable change —
+**50,000 to 56,314 cycles** with the defaults, against exactly 50,000 before.
+Lowering `TT_SIM_DEADLOCK_THRESHOLD` shrinks the interval with it (it is a
+fraction of the threshold, floored at 1), so a user who wants prompt detection
+still gets it; at a threshold of 8 or less the detector polls every cycle again.
+
+Directly measured on the same wedged device (BRISC executing `j .`, threshold
+forced to 800): `before` prints at `cycle=800`, `after` at `cycle=864`, with
+byte-identical report text. Nothing that used to be detected stops being
+detected — the signature, the reset gating and the report are unchanged; only
+*when it is looked at* has changed.
+
+`framework/device/deadlock_test.py` pins all of this down: fires on a wedged
+device, latency inside the stated bound, silent while every core is in reset,
+silent on a loop whose period is exactly the sample interval (the aliasing case
+the confirmation pass exists for), and one scan per interval rather than one
+per cycle.
+
+### Follow-up: the bound holds on a *dormant* device too
+
+Sampling made the watchdog depend on the Phase 4 pump actually visiting a
+cycle, and it does not visit one that every tile clock has declined — a fully
+dormant device is strided over in a single jump per `run()` call. Measured:
+one sample in a 1,000,000-cycle `run`, and a wedged-but-dormant BRISC produced
+**zero** `[DEADLOCK]` lines over 400,000 cycles. That was previously argued
+unobservable, because dormancy implies every baby core is in soft reset, which
+is the one state the watchdog ignores by design — a true statement resting on
+an invariant in `framework/device/tiles.py` rather than in the detector.
+
+`DeadlockDetector.next_sample_cycle` is now handed to `MultiTileClock` as
+`on_tick_wake` and joins the stride computation alongside every tile clock's
+`next_event_cycle`, so a scheduled sample can never be jumped. The **stated
+latency does not change** — `threshold` to `threshold + threshold//8 + 64`,
+and the wedged-dormant device reports at `cycle=864` for a threshold of 800,
+byte-identical to the awake case.
+
+What it costs, on the same dormant-pump-floor benchmark (Blackhole, min of 3,
+1,000,000 cycles):
+
+| Tensix tiles | dormant floor, probe unwired | probe wired | delta |
+| --- | --- | --- | --- |
+| 1 | 0.0002 µs/cycle | 0.0021 | +0.002 |
+| 8 | 0.0013 | 0.0051 | +0.004 |
+| 80 | 0.0084 | 0.0410 | +0.033 |
+
+The 80-worker delta is the amortised signature scan (218.5 µs / 6,250 =
+0.035 µs/cycle) that the table above already charges the watchdog on an
+*awake* idle grid — it is now paid on a dormant one as well, against a ~120
+µs/cycle live floor. A **live** workload pays nothing: the probe is consulted
+only when the pump is about to stride, which requires no Tensix tile to want
+the next cycle, and BRISC spins in the firmware loop from launch to teardown.
+The `one` offline replay measures 1.27 s wired against 1.30 s unwired (min of
+3, 126/126 byte-identical in both arms) — i.e. inside noise, in the wrong
+direction. `TT_SIM_DEADLOCK=0` leaves `on_tick_wake` unwired along with
+`on_tick`.
+
+## Should it still be on by default?
+
+Yes, more clearly than before. The residual is ~0.1 µs/cycle plus an amortised
+scan — under 0.4 µs/cycle on an 80-worker grid whose live floor is ~120
+µs/cycle, i.e. **~0.3 %**, and unmeasurable against run-to-run noise. The
+argument for `TT_SIM_DEADLOCK=0` in the practical-guidance sections of
+[`docs/running-tt-metal-on-the-simulator.md`](running-tt-metal-on-the-simulator.md)
+and the upstream-examples status doc no longer has numbers behind it.
+
+## Gates
+
+`ruff check` / `ruff format` clean; `pytest framework driver` **408 passed** (401
+before, +7 `framework/device/deadlock_test.py`); **22/22** Blackhole replay guards;
+`driver.wormhole.server.offline_replay_test` **126/126 byte-identical** (and
+again at 8, 20 and 80 materialised workers); `pytest driver/wormhole/server/`
+**18 passed**; `six` reports `PCC(golden, device) = 0.9982`, unmoved.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+# where the watchdog's time goes (idle, 8 tiles, striding off)
+TT_SIM_PUMP_STRIDE=0 python3 -c "
+import cProfile, pstats
+from driver.wormhole.server.coords import TENSIX_COORD_MAP, default_tensix_coords
+from framework.device.wormhole import Wormhole
+d = Wormhole(tensix_coords=[TENSIX_COORD_MAP[p] for p in default_tensix_coords(8)])
+cProfile.run('d.clocks[0].run(4000)', '/tmp/idle8.prof')
+pstats.Stats('/tmp/idle8.prof').sort_stats('tottime').print_stats(8)"
+
+# idle floor per tile count: build the device, time clocks[0].run(N), divide.
+# Alternate TT_SIM_DEADLOCK=1/0 and the two trees every round; min of >=20.
+
+# live workload at N workers: wrap offline_replay_test._build_fabric, call
+# device.ensure_tensix_tile(p) for default_tensix_coords(N), time main() minus
+# the build, and divide by device.tt_device.clocks[0].clock_tick_num.
+
+# cost of one observation, and of the per-cycle gate:
+#   timeit DeadlockDetector._sample (after) / .tick (before), and
+#   timeit .tick with _next_sample_cycle set past the horizon.
+```
+
+# What landed: target 5, a last-hit range cache on `MemoryMap`
+
+**Measured 2026-08-06** against `24403ae`, machine as elsewhere in this
+document (12th Gen Core i7-12700H, 16 threads, CPython 3.12, `TT_SIM_THREADED`
+unset). This is ranked target 5 — "`MemoryMap` interval lookup /
+`MemorySpace.read`", quoted at 3–7 % across workloads — and §L's note that the
+win there is **caching the last-hit range, not a JIT** (the polymorphic
+`mem_mapable` dispatch is Numba-hostile).
+
+## The change
+
+Ten lines in `framework/memory/memory_map.py`. `MemoryMap.locate` keeps a
+`_last_hit` tuple `(low, high, addr_range, value)` from the most recent
+successful lookup and answers from it when `low <= addr <= high`, before
+touching the `bisect_right` index. `_invalidate_index` clears it alongside
+`_index`, so the one mutation path (`__setitem__` / `__delitem__`) drops the
+cache too.
+
+Correctness rests on three facts, all checked rather than assumed:
+
+- **Only a successful full lookup populates the cache.** A miss leaves it
+  untouched, so the out-of-mapped-range `IndexError` path in
+  `MemorySpace._locate_memory_space` is bit-for-bit the code it was.
+- **Ranges cannot shadow one another.** `MemoryMap.verify()` rejects any
+  overlap, so the cached range is the *only* range that can cover its own
+  addresses — a hit can never be a stale answer for a range that has since
+  been shadowed.
+- **Nothing remaps after construction.** Instrumenting `__setitem__` /
+  `__delitem__` and splitting by phase: every workload measured shows
+  **50 mutations during device construction and 0 during the pumped run**
+  (`four`, `six`, `two` alike). The invalidation hook is belt-and-braces, not
+  load-bearing.
+
+Thread safety is by construction: each tile builds its own `MemoryMap` in
+`TensixTile.__init__` (and `DRAMTile` / `EthTile`), so a per-instance cache is
+per-tile, and `TT_SIM_THREADED=1` gives one worker per *tile*. No `MemoryMap`
+is shared across worker threads, so no lock is needed and none was added.
+
+## Does the cache actually hit?
+
+Deterministic, machine-load independent — classify every `locate` call:
+
+| workload | `locate` calls | cache hit | full lookup | miss |
+|---|---|---|---|---|
+| `four` | 671,485 | **98.1 %** | 13,073 | 0 |
+| `nine` | 125,229 | 81.9 % | 22,687 | 0 |
+| `two` | 39,897 | 74.4 % | 10,205 | 0 |
+| `six` | 187,962 | 74.0 % | 48,883 | 0 |
+| `softplus` | 112,852 | 69.3 % | 34,622 | 0 |
+
+The premise holds — consecutive accesses do run in the same range — and **no
+workload ever misses**, which is the other half of "exactly transparent".
+
+`locate` itself, replaying each workload's real captured `(map, addr)` stream
+through the real device maps (8 distinct maps, 1–16 ranges each), interleaved
+5 rounds:
+
+| | base | change |
+|---|---|---|
+| real stream, real maps | 488 ns/locate (median) | 400 ns/locate (median) |
+
+Change wins 5/5 rounds, ≈ **−18 % on `locate`**, ~110 ns/call. A one-shot
+un-interleaved version of this same benchmark measured the *opposite* sign;
+it is recorded here as a reminder that nothing on this machine is measurable
+without interleaving.
+
+## The A/B
+
+Two frozen `git archive` exports of `24403ae` differing **only** in
+`framework/memory/memory_map.py` (`diff -r` verified), alternating order every
+round, paired within-round. `%` is the paired median of
+`(change − base) / base`; the CI is on the paired mean.
+
+| workload | rounds | base median (s) | change median (s) | paired median | 95 % CI on mean | change wins |
+|---|---|---|---|---|---|---|
+| `four` (RV-bound, 98 % hit) | 18 | 12.94 / 12.43 | 11.92 / 12.23 | **−6.66 %** | **−5.16 % ± 3.51** | 16/18 |
+| `six` (matmul) | 10 | 8.56 | 8.53 | −2.46 % | −0.71 % ± 5.38 | 6/10 |
+| `two` (NoC/L1 smoke) | 15 | 1.57 | 1.66 | −0.70 % | +0.34 % ± 9.51 | 7/15 |
+| `softplus` (SFPU) | 15 | 3.27 | 3.29 | +3.05 % | +1.99 % ± 6.06 | 6/15 |
+| `idle` control (0 `locate` calls) | 15 | 2.14 | 2.21 | −2.07 % | +0.35 % ± 5.20 | 7/15 |
+| **null control** (base vs *identical copy*) | 9 | 13.70 | 13.58 | −0.88 % | +0.69 % ± 3.28 | 5/9 |
+
+**Verdict: a real but modest win on the one workload where `locate` is hot
+(`four`, ~5 %), and an honest null everywhere else.** Only `four` has a CI
+that excludes zero. The null control — base against a byte-identical copy of
+itself — lands on 5/9 wins and a CI straddling zero, which is what licenses
+reading `four`'s 16/18 as signal rather than harness bias.
+
+Two caveats stated as measured, not smoothed over:
+
+- **The `four` point estimate is soft.** Its two independent 9-round runs gave
+  −8.31 % and −3.48 %; pooling them is the honest summary and the CI
+  (−1.7 % to −8.7 %) is wide. Quote "a few percent on RV-bound workloads", not
+  −5.2 %.
+- **The magnitude exceeds what the mechanism explains, and that is
+  unresolved.** 671,485 calls × ~110 ns saved ≈ 0.07 s, which is ~0.6 % of
+  `four`'s ~12.9 s — an order of magnitude below the measured −5 %. Either the
+  per-call saving is larger in situ than the replay-loop microbenchmark
+  captures, or some of the −5 % is machine drift the null control did not
+  happen to sample. Do not treat the end-to-end figure as mechanism-verified.
+- The `idle` control was *verified* zero, not assumed: instrumenting `locate`
+  during its timed window counts **0 calls**. (It needs
+  `TT_SIM_PUMP_STRIDE=0`; with striding on, the pump skips idle cycles and
+  300 k of them finish in 1.5 ms.)
+
+The ROADMAP's 3–7 % was always the ceiling for
+`convert_addr_to_target_range` + `locate` + `_publish_mem_event` *together*;
+this change addresses only the middle term, and only its hit path. The other
+two are untouched and remain available.
+
+## Gates
+
+`pytest framework/ driver/` **983 passed**; all **26/26** Blackhole replay guards
+pass standalone (each validates its own DRAM result, so identical output is
+proven, not asserted by eye); `ruff check` / `ruff format` clean.
+
+## Reproducing
+
+```bash
+# two frozen trees differing only in memory_map.py
+git archive HEAD | tar -x -C /tmp/ab/base
+git archive HEAD | tar -x -C /tmp/ab/change && cp memory_map.py /tmp/ab/change/framework/memory/
+
+# interleave: odd rounds base-first, even rounds change-first, pair within round
+for r in $(seq 1 9); do ...; done   # >=9 rounds; report the paired median
+
+# always run the null control too — base against a copy of base
+cp -a /tmp/ab/base /tmp/ab/base2    # any signal here is harness bias
+
+# hit rate (deterministic, load-independent): wrap MemoryMap.locate and
+# classify each call as cached / full-lookup / miss.
+```
+
+# What landed: the `TT_SIM_CYCLES_PER_POLL` term — a pump that costs nothing when nothing can happen
+
+**Measured 2026-08-06** against `fd4e806`, machine as elsewhere in this
+document (12th Gen Core i7-12700H, 16 threads, CPython 3.12, `TT_SIM_THREADED`
+unset). This is the ROADMAP's "smarter `TT_SIM_CYCLES_PER_POLL` default" item.
+**The default did not change, and the reason is the first result below.**
+
+## Measure first: the premise was stale
+
+The item's evidence was `programming_examples/vecadd_multi_core` on Wormhole at
+the full 8x10 grid — "17 minutes on the kernel and still in the DRAM readback
+60 minutes later" at the default poll of 100 — and the standing advice
+everywhere was to set `TT_SIM_CYCLES_PER_POLL=10` by hand. That observation
+predates firmware-loop parking. Re-run, same program, same 80 workers, same
+machine, no grid override:
+
+| | wall | result |
+|---|---|---|
+| default poll (100) | **105.6 s** | PASS, "all results match expected values within tolerance" |
+| `TT_SIM_CYCLES_PER_POLL=10` | 82.7 s | PASS |
+
+which looks like a 22 % gap until the two are *instrumented*, at which point
+the gap disappears (81.0 s at 100, 79.7 s at 10 — and instrumentation only
+ever makes a run slower). The instrumentation says why:
+
+| | poll=100 | poll=10 |
+|---|---|---|
+| pump calls | 2,961 | 3,349 |
+| ...of which fully dormant | 2,545 (**0.48 s total**) | 2,509 (0.44 s) |
+| ...of which live | 416 (70.9 s) | 840 (68.5 s) |
+| tile ticks | 3,179,034 | 1,112,208 |
+| **live tile ticks** | **483,351** | **482,320** |
+
+The simulator does the *same real work* either way, to within 0.2 %. The whole
+of the poll knob's effect is how many *dormant* tile visits it buys, and those
+are 0.5 s of an 81 s run. 105.6 vs 82.7 was machine drift, which is the third
+time this document has recorded that lesson. **The hour-long readback was
+killed by firmware-loop parking** (`framework/pe/rv/spin.py`), exactly as the
+2026-08-03 prediction in `docs/upstream-examples-status.md` said it would be:
+a worker spinning on a go-message poll now parks, so the post-kernel grid is
+genuinely dormant and the readback pumps into a device that strides.
+
+What is left at 8x10 is 483 k live tile ticks at ~147 µs each. That is the
+cost of a live Tensix tile, not of the pump, and it is now ROADMAP item 4.
+
+## What changed anyway: the per-*call* cost
+
+Phase 4 striding removed the pump's per-*cycle* cost on a sleeping grid; it
+left the per-*call* one, which is what the wire bridge pays. `run()` ticks the
+window's opening cycle over every registered tile clock and then probes every
+tile for a deadline, so a host DMA readback — thousands of messages into a
+parked grid — cost O(tiles) per message whatever the poll budget. Two changes
+in `framework/device/clock.py`, both cycle-neutral by construction:
+
+- **`MultiTileClock.quiescent_until`** — the stride already computes "earliest
+  cycle anything needs attention"; it is now kept rather than discarded, and a
+  later `run` that ends before it skips the window whole: no ticks, no probes,
+  same simulated time, same `dormant_cycles` credit. Nothing ticked means
+  nothing changed, so the horizon survives its own use.
+- **The dormant tick is inlined.** The tick pass still walks every tile in
+  registration order — order is observable, since a tile ticked early can wake
+  one ticked later, which then runs in the same cycle — but a tile with
+  nothing awake and no due deadline does exactly one thing inside
+  `clock_tick`, credit a dormant cycle, so the pump does that itself instead
+  of paying for the call.
+
+`TileClock.wake()` invalidates the horizon, so the six sites that assigned
+`clock.awake = True` directly now call it, and `clock_test.py` scans the tree
+for any other assignment — turning the plan doc's "wake-hook completeness"
+risk from a claim into a test.
+
+## Cycle-neutrality, checked rather than argued
+
+Every guard on both architectures, run under a shim that records the pump's
+final `clock_tick_num`, the number of *live* tile ticks, `stride_skipped_cycles`
+and summed `dormant_cycles` — with the watchdog at its default **and** with
+`TT_SIM_DEADLOCK=0`, since the watchdog's sampling cadence is what bounds a
+stride:
+
+```
+diff base.txt head.txt  ->  no differences, 4 runs of 44 guards
+```
+
+**No guard's simulated cycle total moved, and neither did its tick
+accounting.** That is stronger than "the values still match": the two trees
+tick the same components on the same cycles. It also proves something about
+the first change — `stride_skipped_cycles` is identical, so
+`quiescent_until`'s fast path fires **zero times on any in-tree guard**. It
+cannot: every wire message addresses a tile and therefore wakes it, and a woken
+tile genuinely needs the cycle. It is kept because it makes "the pump does
+nothing when nothing can advance" true by construction rather than by
+measurement, and because it is what makes *raising* the knob free; it is not
+where the guard-visible saving comes from.
+
+## The A/B
+
+Two frozen trees: `git archive fd4e806` as base, this worktree as head,
+alternating order every round, paired within round.
+
+Pump microbenchmarks — per `run(100)` call on Blackhole, `TT_SIM_DEADLOCK=0`,
+7 rounds, medians (µs):
+
+| tiles | shape | base | head | factor | base spread / head spread |
+|---|---|---|---|---|---|
+| 1 | quiescent | 4.7 | 1.9 | 2.5× | [2.4–7.6] / [1.1–2.2] |
+| 20 | quiescent | 13.0 | 2.5 | 5.2× | [11.6–26.9] / [2.2–4.4] |
+| 80 | quiescent | 58.7 | **6.1** | **9.6×** | [33.2–66.8] / [5.8–11.6] |
+| 1 | readback | 8.8 | 6.4 | 1.4× | [5.2–13.3] / [4.1–6.9] |
+| 20 | readback | 20.4 | 12.9 | 1.6× | [15.6–30.4] / [10.5–26.6] |
+| 80 | readback | 40.8 | **30.5** | 1.3× | [38.1–78.1] / [28.1–56.1] |
+| 1 | kernel | 1774 | 1249 | 1.4× | [1298–2097] / [981–2296] |
+| 20 | kernel | 2185 | 1802 | 1.2× | [1832–3048] / [1438–2502] |
+| 80 | kernel | 4382 | **2398** | **1.8×** | [3417–4657] / [2203–3314] |
+
+*quiescent* = nothing poked; *readback* = one DRAM tile woken then pumped (a
+host DMA page read); *kernel* = one permanently-live Tensix tile among N
+(the host polling a go message). The shape is the point: the quiescent cost is
+now nearly flat in grid width where it was linear, and the marginal cost of a
+materialised-but-sleeping tile per pumped cycle falls ~3×.
+
+End to end, 7 rounds, medians (s):
+
+| workload | base | head | delta | base spread / head spread |
+|---|---|---|---|---|
+| **control** (`pytest framework/util framework/memory`, no pump at all) | 1.14 | 1.19 | +4.4 % | [0.99–1.29] / [1.06–1.40] |
+| `blackhole/pad_multi_core` (2048 interleaved DRAM page reads) | 18.59 | 18.22 | −2.0 % | [16.94–20.67] / [15.08–19.03] |
+| `blackhole/six` (matmul) | 7.01 | 6.94 | −1.0 % | [6.35–9.37] / [6.15–9.97] |
+| `wormhole/examples` | 14.29 | 14.53 | +1.7 % | [13.53–23.38] / [14.15–20.04] |
+| `blackhole/vecadd_sharding` (4 workers) | 3.71 | 3.58 | −3.4 % | [3.14–5.05] / [3.32–4.39] |
+
+**Honest reading: nothing here is signal.** The verified-zero control moved
++4.4 %, which is larger than three of the four real deltas, so the noise floor
+on this machine swallows the whole effect. That is expected and is the point
+of the first section: at 4–8 materialised tiles the per-message-per-tile term
+is single-digit microseconds against seconds of real work. The change pays at
+grid width, which the microbenchmarks isolate and which only a live wide-grid
+run exercises:
+
+| live workload | rounds | base median (s) | head median (s) | delta | head wins |
+|---|---|---|---|---|---|
+| `vecadd_multi_core`, Wormhole **8x10 = 80 workers**, default poll | 6 | 81.75 | 80.28 | −1.8 % | 3/6 |
+| control, same rounds | 6 | 1.19 | 1.24 | +4.5 % | 2/6 |
+
+**Also a null, and that is the honest headline.** Each arm threw exactly one
+105 s outlier out of six — which is the same drift that produced the 105.6 vs
+82.7 "22 % gap" at the top of this round, now caught symmetrically by
+interleaving. At 80 workers the pump is ~1 s of an 80 s run whichever tree you
+use; the other 71 s is 483 k ticks of live Tensix tiles.
+
+So: the change is a **structural** fix, not a wall-clock one. It removes the
+last term that scaled with grid width × poll budget — provably, in the
+microbenchmarks, and with every guard's cycle accounting byte-identical — and
+what it exposes underneath is that the pump was no longer the problem.
+
+## Gates
+
+`pytest framework/ driver/` **1074 passed** (1071 + 3 new) with the model off and
+again with `TT_SIM_COST_MODEL=1`; **30/30** Blackhole replay guards standalone;
+`driver/tests/cost_model_gate.py --jobs 4` **PASS** over 44 discovered guards
+with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×, `offline`
+4×, identical to base); `ruff check` / `ruff format` clean.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+git archive fd4e806 | tar -x -C /tmp/ab/base     # frozen base
+
+# the premise check — the exact configuration the roadmap item cited
+cd "$TT_METAL_RUNTIME_ROOT/build/programming_examples"
+WH80=$(python3 -c "print(','.join(f'{x}-{y}' for y in [1,2,3,4,5,7,8,9,10,11] \
+                             for x in [1,2,3,4,6,7,8,9]))")
+TT_METAL_SIMULATOR=~/wolfpine/driver/wormhole TT_METAL_SLOW_DISPATCH_MODE=1 \
+TT_SIM_TENSIX_COORDS=$WH80 ./metal_example_vecadd_multi_core   # no grid override
+
+# where its time goes: a sitecustomize.py on PYTHONPATH that wraps
+# MultiTileClock.run (timing each call, bucketing by whether the window strided
+# to its end) and TileClock.clock_tick (counting live vs dormant visits).
+
+# cycle neutrality: same shim, dump clock_tick_num / live ticks /
+# stride_skipped_cycles / summed dormant_cycles per guard, diff base vs head.
+# Run it twice, with the watchdog on and with TT_SIM_DEADLOCK=0.
+
+# pump microbenchmark: build a Blackhole with N Tensix tiles, run(300) to
+# settle, then time run(100) in three shapes — untouched, with one DRAM tile
+# read first, and with one tile's wake_probe pinned to cycle+1. Alternate
+# trees every round. Poke tiles with clock.wake(), never clock.awake = True,
+# or the benchmark measures the fast path instead of the workload.
+```
+
+---
+
+# What landed: a cheaper live Tensix tile — the RV front end's dispatch overhead
+
+**Measured 2026-08-07** against `0933ebc`, machine as elsewhere in this
+document (12th Gen Core i7-12700H, 16 threads, CPython 3.12, `TT_SIM_THREADED`
+unset). This is ROADMAP Tier 2 item 2, "a cheaper live Tensix tile".
+
+## The premise held, which is worth recording because the last four did not
+
+The item's numbers — **~150 µs per ticked Tensix tile, and 71 s of an 81 s
+8x10 `vecadd_multi_core` run** — were re-measured first, on the same program
+and the same 80 workers, with a shim wrapping `MultiTileClock.run` and
+`TileClock.clock_tick` (timing the tick only for clocks the pump flagged
+heavy):
+
+| | base `0933ebc` |
+| --- | --- |
+| process wall | 83.2 s |
+| pump (`MultiTileClock.run`) | 73.0 s |
+| **inside live Tensix tile ticks** | **69.8 s (84 %)** |
+| live Tensix tile ticks | 477,571 |
+| **µs per live Tensix tile tick** | **146.2** |
+
+So: unchanged. Everything below is about the 84 %.
+
+## Where a live tile tick actually goes
+
+cProfile inside the server process itself (a `sitecustomize.py` on `PYTHONPATH`
+with an `atexit` dump — py-spy cannot attach here, `ptrace_scope` forbids it),
+same 80-worker run. Shares are of `TileClock.clock_tick`'s 230.4 s cumulative;
+the multiplier onto real time is ~0.34, since cProfile roughly triples this
+workload:
+
+| | cProfile s | share of a tile tick |
+| --- | --- | --- |
+| **baby RISC-V cores** (`BabyRISCV.clock_tick` ×5) | 122.7 | **53 %** |
+| — normal execution (`RV32I.clock_tick`) | 82.4 | 36 % |
+| — a *parked* core re-running its poll loop | 20.7 | 9 % |
+| — SEEK/RECORD/VERIFY attempts | 5.8 | 2.5 % |
+| — soft-reset poll (`_read_soft_reset` ×5) | 6.3 | 2.7 % |
+| **Tensix coprocessor** (19 clockables) | 92.2 | **40 %** |
+| — `handle_elwadd` → 128 scalar FPU ops each | 29.5 | 13 % |
+| — `handle_pacr` → 512 two-byte L1 writes each | 21.8 | 9 % |
+| — unpacker `handle_unpacr` | 3.9 | 1.7 % |
+| — per-tick dispatch and everything else | ~37 | 16 % |
+| `TileClock.clock_tick` itself (27 clockables per tick) | 13.8 | 6 % |
+| NoC routers, dormancy probe | 1.8 | 0.8 % |
+
+**There is no single hotspot.** The largest identifiable item is 13 % and the
+cost is genuinely spread over an interpreter and a datapath. Within the RV
+half, though, a large fraction is *dispatch overhead* rather than simulated
+work, and that is what this round takes out. Per `RV32I.clock_tick`
+(1.76 M of them):
+
+| | cProfile s | note |
+| --- | --- | --- |
+| instruction fetch through `MemorySpace.read` | 20.6 | trace-event check, interval lookup, snoop check, offset conversion, then 4 bytes |
+| `RV_ISA.get_int` field extraction | 6.0 | 5.29 M classmethod calls for a shift and a mask |
+| `extract_immediate` | 4.6 | dispatch on a *format string*, then `sign_extend` |
+| `MemorySpace._publish_mem_event` (all callers) | 6.4 | `get_bus()` + `is_enabled()` per read *and* per write, 3.05 M times, with nothing subscribed |
+
+## What changed
+
+Four changes, no new behaviour, in `framework/memory/memory.py`,
+`framework/pe/rv/rv32.py` and `framework/pe/rv/isa/i_isa.py`:
+
+- **An instruction-fetch fast path.** `RV32I` caches
+  `(low, last, leaf, base)` for the plain-RAM span the PC sits in — the same
+  trick `BabyRISCV._read_soft_reset` already uses for the one *other* access
+  every core makes on every cycle — and reads the word straight out of the
+  leaf. `resolve_plain_ram_span` (new, in `memory.py`, the span-returning
+  sibling of `spin.py`'s `_resolve_plain_ram`) does the resolving; it refuses
+  MMIO, unmapped addresses, spans that cross a mapping boundary and any level
+  with snoop addresses. The hot path re-checks the event bus and the snoop list
+  on **every** fetch, so enabling tracing mid-run puts every core back on the
+  full dispatch within one instruction and a `MemEvent` is never dropped.
+- **`MemorySpace` holds the event bus** instead of calling `get_bus()` inside
+  every read and write, and checks `bus.enabled` inline before entering
+  `_publish_mem_event`. `write` also stopped computing its `hasattr`/`len`
+  event size when nothing is listening. Two `len(...) > 0` snoop tests became
+  truthiness tests on the list.
+- **The `RV_ISA.get_int` calls in `i_isa.py` are inlined** to
+  `(instr >> n) & mask` — 30 sites, mechanically, mask computed from the same
+  bit range.
+- **The immediate decoders are plain module functions** (`_imm_i` … `_imm_j`)
+  instead of a string-dispatched classmethod calling another classmethod.
+  `extract_immediate` remains as the named API and delegates through a dict, so
+  its tests are untouched. Also, `isa.run` is bound once per core at
+  construction rather than rebuilt per ISA per instruction.
+
+Together these remove **1.6 M Python calls from a 9.6 M-call guard** (−17 % on
+`vecadd_sharding`).
+
+## Cycle-neutrality, checked rather than argued
+
+Every one of the 44 discovered guards on both architectures, run under a shim
+recording the pump's final `clock_tick_num`, its `stride_skipped_cycles`, the
+summed `dormant_cycles`, every tile clock's tick number, and the number of
+*live* tile ticks — with the cost model **off** and again with
+`TT_SIM_COST_MODEL=1`:
+
+```
+diff base.txt head.txt        ->  no differences, model off
+diff base_cm.txt head_cm.txt  ->  no differences, model on
+```
+
+(Under the model, `blackhole/offline` and `blackhole/two` produce no accounting
+in *either* tree — they are the budget-dependent guards the cost-model gate
+documents, and they fail identically on both sides.) The live 80-worker
+Wormhole run reports `live_tensix 477571` on both trees, in all four
+instrumented runs, so the wire path agrees with the offline guards.
+
+## The A/B
+
+Two frozen trees plus a **verified-zero control** — `git archive 0933ebc`
+extracted twice, `base` and `ctrl` — with `head` this worktree; order
+alternated every round, paired within round. The machine was *not* quiet for
+part of this (a browser renderer at >100 % and a day-old `metalium_host`), and
+the control says so, which is the point of having one.
+
+End-to-end guard wall time, 12 rounds, medians:
+
+| workload | base | ctrl | head |
+| --- | --- | --- | --- |
+| **control** (`pytest framework/util framework/memory`, no pump) | 1.263 s | +2.1 % | +2.0 % |
+| `blackhole/four` | 2.058 s | +0.1 % | **−12.4 %** |
+| `blackhole/nine` | 2.400 s | +0.1 % | **−10.4 %** |
+| `blackhole/vecadd_sharding` | 4.249 s | +0.2 % | **−11.2 %** |
+| `blackhole/six` (matmul) | 8.071 s | −2.4 % | **−10.5 %** |
+
+In-process **pump CPU time** (`time.process_time` around `MultiTileClock.run`,
+so process start-up, imports and trace parsing are excluded and the tick count
+is provably identical between arms), 20 rounds, medians, on a much busier
+machine:
+
+| workload | live tile ticks | base | ctrl | head |
+| --- | --- | --- | --- | --- |
+| `blackhole/four` | 8,911 | 1.105 s | −6.5 % | **−20.2 %** |
+| `blackhole/nine` | 15,902 | 1.482 s | +3.3 % | **−14.0 %** |
+| `blackhole/vecadd_sharding` | 29,921 | 3.060 s | −4.6 % | **−14.1 %** |
+| `blackhole/six` | 15,577 | 6.613 s | +0.4 % | −3.8 % |
+| `wormhole/offline` | 5,786 | 0.532 s | −3.4 % | **−17.6 %** |
+
+**`six` is the honest outlier and it is the one that explains the change.** It
+is the matmul: 497 µs per live tile tick against ~105 µs for the others,
+because `handle_elwadd` / `MVMUL` / `handle_pacr` dominate it and the RV front
+end does not. A change to the interpreter cannot help a workload that is not in
+the interpreter, and it does not.
+
+The measurement that settles it is the item's own, because its denominator is
+fixed by cycle-identity — 477,571 live Tensix tile ticks, both trees, every
+run. Two interleaved pairs of the full 8x10 `vecadd_multi_core`:
+
+| pair | base µs/live-tick | head µs/live-tick | delta |
+| --- | --- | --- | --- |
+| 1 (base first) | 155.3 | 135.2 | −12.9 % |
+| 2 (head first) | 145.8 | 130.6 | −10.4 % |
+
+i.e. **146 µs → 131 µs**, and the time spent inside live Tensix tile ticks goes
+from 69.7–74.2 s to 62.4–64.6 s. End-to-end wall on that run is a null at four
+rounds (base 84.2–95.7 s, head 71.7–97.0 s, head wins 2/4) — the same
+tt-metal-side drift this document has now recorded four times, which is why the
+in-process, denominator-fixed measurement is the one quoted.
+
+## What is left, and why the rest is not this item's work
+
+After this round the live tile tick is roughly **45 % RV interpretation, 45 %
+Tensix datapath, 6 % tile-clock dispatch**. Three things were measured and
+deliberately *not* done:
+
+- **Eliding a parked core's tick.** A core the firmware-loop recogniser has
+  parked still executes its poll loop on every cycle the tile is awake for some
+  other reason — 9 % of the tick at 80 workers, 19 % on `vecadd_sharding`.
+  `spin.py` already has the machinery to fast-forward a parked span by
+  restoring the recorded per-phase register snapshot, and the correctness
+  argument (a verified fixed point over memory that provably did not change)
+  extends to a single cycle. But eliding needs the watch re-read on every tick,
+  because `TensixTile.next_wake_cycle`'s fast reject skips the parked cores'
+  `wake_check` whenever any *other* core is running — and the watch is up to
+  `MAX_WATCH_RANGES` spans including the loop's own code, so re-reading it
+  costs a large fraction of what the tick costs. Estimated payoff ~2× on a path
+  where the cost model's scoreboard would have to be time-translated every
+  cycle. Not worth the fidelity surface for ~4 % of the run.
+- **`handle_elwadd`'s 128 scalar FPU ops and `handle_pacr`'s 512 two-byte L1
+  writes** — 13 % and 9 % of the tick, and by far the largest single items
+  left. Both are per-element Python loops over a face that numpy could do in
+  one call. That is a rewrite of the FPU and packer datapaths (bf16 rounding,
+  fidelity phases, Dst formats, edge masks), i.e. a fidelity change, and it
+  belongs with the JIT/vectorisation item rather than here.
+- **Per-component gating inside a live tile** (pump Phase 3) is declined in
+  `docs/plans/event-driven-pump.md` and stays declined; 27 clockables are
+  ticked per tile cycle and the whole dispatch is 6 %.
+
+## Gates
+
+`pytest framework/ driver/` **1074 passed** with the model off and again with
+`TT_SIM_COST_MODEL=1`; **30/30** Blackhole replay guards standalone;
+`driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS** over 44 discovered
+guards with **no poll-budget multiplier change** (`dramtop` 1×, `two` 2×,
+`offline` 4×); `ruff check` / `ruff format --check` clean.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+git archive 0933ebc | tar -x -C /tmp/ab/base
+git archive 0933ebc | tar -x -C /tmp/ab/ctrl      # the verified-zero control
+
+# the premise check, and the item's own metric. A sitecustomize.py on
+# PYTHONPATH wraps MultiTileClock.run and TileClock.clock_tick, times the tick
+# only for clocks registered heavy=True, and dumps at exit.
+cd "$TT_METAL_RUNTIME_ROOT/build/programming_examples"
+WH80=$(python3 -c "print(','.join(f'{x}-{y}' for y in [1,2,3,4,5,7,8,9,10,11] \
+                             for x in [1,2,3,4,6,7,8,9]))")
+TT_METAL_SIMULATOR=<tree>/driver/wormhole TT_METAL_SLOW_DISPATCH_MODE=1 \
+TT_SIM_TENSIX_COORDS=$WH80 ./metal_example_vecadd_multi_core
+
+# where the tick goes: cProfile from *inside* the server (py-spy cannot attach,
+# ptrace_scope forbids it) — a sitecustomize.py that enables a Profile at
+# import and dumps to "$OUT.$(pid)" from atexit. Suffix by pid, or the shell's
+# own later `python3 -c` overwrites the dump.
+
+# cycle neutrality: per guard, dump clock_tick_num / stride_skipped_cycles /
+# summed dormant_cycles / per-tile tick numbers / live tile ticks, for every
+# driver/*/server/*_replay_test.py, and diff base against head. Twice, with
+# TT_SIM_COST_MODEL unset and set.
+
+# the A/B: alternate base/ctrl/head every round, pair within round, and report
+# the control's own deviation beside the change's. Prefer in-process pump CPU
+# time (time.process_time around MultiTileClock.run) to end-to-end wall — the
+# tick count is identical between arms by construction, so it is a
+# like-for-like cost per unit of simulator work with the host, the build and
+# the trace parse taken out.
+```
+
+# What landed: the one place Numba is the right tool — the exact FPU kernel
+
+**Measured 2026-08-07** against `cc0a72e`, machine as elsewhere in this
+document (12th Gen Core i7-12700H, 16 threads, CPython 3.12.13,
+`TT_SIM_THREADED` unset unless stated). This is ROADMAP Tier 3 item 7, "Numba
+and the threading revival".
+
+## The item ranked three candidates. Measuring them re-ranks them completely
+
+The item's ranked target is the pump's event heap; a later profile argued for
+the RV interpreter instead. Both were measured first, undistorted, with a
+`perf_counter` shim rather than cProfile (wrapping only a handful of functions,
+so the ~0.2 us it adds lands on functions costing tens to hundreds of us):
+
+| | `blackhole/six` (matmul) | `blackhole/vecadd_sharding` |
+| --- | --- | --- |
+| process wall | 7.87 s | 3.80 s |
+| **pump overhead** (`MultiTileClock.run` − Σ tile ticks) | **0.070 s (0.9 %)** | **0.059 s (1.6 %)** |
+| RV interpretation (`BabyRISCV.clock_tick` ×5) | 1.44 s (18 %) | 1.64 s (43 %) |
+| `perform_mvmul` | **4.41 s (56 %)** | — |
+| — of which the two `_fpu_*_batch` calls | **2.71 s (34 %)** | — |
+| `handle_elwadd` | — | 0.21 s (5.5 %) |
+| `handle_pacr` | 0.23 s (3 %) | 0.24 s (6.3 %) |
+
+**The item's ranked target is the smallest thing on the list by a factor of
+forty.** The heap is 0.9–1.6 % of a run; the 6 % the item quotes is the whole
+of `TileClock.clock_tick`'s own dispatch over 27 clockables, which is a
+different thing and is declined in `docs/plans/event-driven-pump.md` anyway.
+No JIT can be worth a dependency for 1 %.
+
+**The largest single item in the tree is one nobody had ranked**: the exact FPU
+datapath, and specifically the two already-*numpy* methods
+`_fpu_group_sums_batch` / `_fpu_accumulate_batch`. They are a third of a matmul
+guard. They are slow *because* they are numpy: one MVMUL is a 16-lane reduction
+over at most 16 SrcB rows by 16 Dst columns — 2048 elements — and roughly fifty
+numpy operations each allocate and traverse a fresh 16 KB temporary to do
+2048 elements of integer arithmetic. Microbenchmarked at the shapes `six`
+actually issues (srcA `(16,1,16)`, srcB `(16,8,1)`, Dst `(8,16)`):
+
+```
+group_sums_batch   232 us      accumulate_batch   302 us      -> 534 us per MVMUL
+```
+
+That is 260 ns per output element for ~50 integer ops. The arithmetic is not
+the cost; the temporaries are. This is the one shape in the tree that Numba is
+actually *for*.
+
+## Is `RV32I.clock_tick` a JIT target? No — but not for the reason given
+
+The item says "a polymorphic `clock_tick` over 240 objects is not a JIT
+target"; the later profile countered that `RV32I.clock_tick` plus the `i_isa`
+handlers now are one. **Both are wrong in their reasoning and the conclusion
+still holds.** It is not polymorphism, and it is not call overhead — an
+`@njit` boundary crossing measures **~450 ns**, against ~11 us for one
+`BabyRISCV.clock_tick`, so a per-instruction JIT would lose only ~4 % to the
+boundary.
+
+The blocker is that the interpreter's hot path is *inseparable from Python
+object graphs*. Loads and stores go through `MemorySpace`/`MemoryMap` dispatch;
+registers are `Register` objects over `bytes`; `.ttinsn` pushes onto the Tensix
+queue; the cost model and the event bus hang off the same path. `nopython` mode
+can see none of it. Making it compilable means re-expressing the memory map,
+the register file and the tile's state as flat arrays — which is not an
+optimisation but a different simulator, and one whose whole selling point
+("poke at simulator state from a driver script") is gone. The item already
+lists `MemoryMap` dispatch as Numba-hostile; the RV interpreter is Numba-hostile
+*through* it. That is the durable reason, and it does not expire when the
+interpreter gets faster.
+
+## What changed
+
+Two new files and a seam, all optional:
+
+- **`framework/pe/tensix/backends/fpu_jit_kernel.py`** — `mvmul_fused`, one
+  `@njit(cache=True, nogil=True)` loop nest that is a line-by-line
+  transliteration of the two batched methods with the numpy operations replaced
+  by scalar arithmetic over the same indices. Fusing them also removes the
+  `(2, rows, columns)` group-sum arrays entirely; every intermediate stays in a
+  register and Dst is written once. **534 us -> 46 us, 13.3x.**
+- **`framework/pe/tensix/backends/fpu_jit.py`** — the guard. Importing the kernel
+  *is* the numba dependency, which is why it is a separate module: `fpu_jit`
+  imports it lazily inside a `try`, and returns `None` for ever on any failure.
+  `perform_mvmul_exact` then runs the numpy pair exactly as before.
+- **`matrix.py`** keeps both paths side by side; int64 is forced at the
+  boundary, because the kernel compiles for whatever width it is handed and
+  every bound in the two docstrings assumes 64.
+
+**Numba is not a dependency and the default tree does not use it.** Compiling
+costs ~3.7 s cold and ~0.5 s per process from numba's on-disk cache, which is
+pure loss on a workload with a handful of MVMULs — so the compile is deferred
+until 512 have run, and a run that issues none never imports numba at all.
+`TT_SIM_NUMBA=1`/`=0` forces or forbids it.
+
+## Bit-exactness, which is the whole contract
+
+The kernel is an accelerator, never a second source of truth.
+`fpu_accumulate_test.py` already pinned the numpy pair against the scalar port
+of ttsim's C; it now fuzzes the compiled kernel against the numpy pair over
+**300 random cases** covering both fidelity-phase bits, both Dst widths, both
+settings of the Wormhole -1 renormalisation quirk, broadcast and per-row SrcB,
+every row count 1..16, and exponent distributions with and without zeros. All
+exact. The chain therefore reaches ttsim.
+
+Differentially, `optests/diff.sh reduce` (GAPOOL, i.e. the same
+`perform_mvmul_exact` and the same fused kernel) **matches ttsim** with the jit
+forced on. The matmul optests could not be run: `matmulblock` and `matmulidx`
+fail to compile against the current tt-metal with `'SrcOrder' has not been
+declared` / `'matmul_block_init' was not declared in this scope` — **verified
+pre-existing**, identical on a frozen `cc0a72e` tree, and worth fixing
+separately since it removes MVMUL from the differential net.
+
+## Cycle-neutrality, checked rather than argued
+
+All **44 discovered guards** on both architectures, under a shim recording the
+pump's final `clock_tick_num`, its `stride_skipped_cycles`, every tile clock's
+tick number, the summed `dormant_cycles`, the live tile-tick count, and a
+blake2b checksum over the per-dispatch `(cycle, instruction, thread, backend)`
+stream — so a reordering that leaves the totals alone still shows. Run for
+`cc0a72e` and for this tree with the jit off, at the default threshold, and
+forced on, each with the cost model off and on:
+
+```
+base vs head(jit off)         ->  no differences      (and again, model on)
+base vs head(default)         ->  no differences      (and again, model on)
+base vs head(jit forced on)   ->  no differences      (and again, model on)
+```
+
+The shim's own determinism was checked first, against a byte-identical second
+copy of `cc0a72e` — which caught a real bug in it (the checksum had included
+`id(self)`, a memory address) before any conclusion rested on it. Under the
+model, `blackhole/offline` and `blackhole/two` fail in *both* trees, which is
+the documented budget-dependent pair.
+
+## The A/B
+
+Four arms: `base` and `ctrl` are byte-identical frozen `cc0a72e` trees (`ctrl`
+is the verified-zero control), `head_off` is this tree with the jit disabled,
+`head_on` with it forced on. Order alternated every round, paired within round,
+in-process pump CPU time (`time.process_time` around `MultiTileClock.run`), on
+a box polled to load1 < 0.5.
+
+`blackhole/six` (matmul), 16 rounds, medians:
+
+| arm | median | spread | vs base |
+| --- | --- | --- | --- |
+| base | 5.270 s | 31.9 % | — |
+| **ctrl** | 5.195 s | 18.8 % | **−1.43 %** |
+| head_off | 5.271 s | 30.3 % | +0.02 % |
+| **head_on** | **4.012 s** | 31.8 % | **−23.88 %** |
+
+`blackhole/vecadd_sharding` (no MVMUL), 14 rounds — the null that proves the
+lazy import never fires:
+
+| arm | median | vs base |
+| --- | --- | --- |
+| base | 2.182 s | — |
+| ctrl | 2.124 s | −2.66 % |
+| head_off | 2.196 s | +0.60 % |
+| head_on | 2.176 s | **−0.29 %** |
+
+An earlier 10-round run of the same matmul A/B put the control at **+10.0 %**
+and was discarded unreported, which is what a control is for. End-to-end wall
+on `six` for scale: 5.98–6.60 s with the jit off, 4.79–5.00 s warm, and
+**8.41 s on the very first run on a machine**, where the cold compile is paid.
+
+## The item's own test: threading, and why it is now further from passing
+
+> re-run the 4-Tensix `four/`-derived benchmark with `TT_SIM_THREADED=1`;
+> target wall clock **under** sequential.
+
+`blackhole/vecadd_sharding` is the in-tree 4-Tensix guard. 10 interleaved
+rounds, end-to-end wall, medians:
+
+| | sequential | threaded | |
+| --- | --- | --- | --- |
+| jit off | 3.013 s | 16.765 s | **5.56x slower** |
+| jit on | 3.086 s | 16.655 s | **5.40x slower** |
+
+**Fails, and by more than the 1.56–2.4x the roadmap records.** The reason is
+structural and is new since that number was taken — threading defeats the
+event-driven pump. Same guard, same fingerprint shim:
+
+```
+sequential: clock_tick_num=14300  stride_skipped=5887   live_tile_ticks=29921
+threaded:   clock_tick_num=14300  stride_skipped=0      live_tile_ticks=29921
+```
+
+The threaded pump cannot stride *at all*: it executes every one of the 14,300
+cycles behind a 12-thread barrier where the sequential pump skips 5,887 of them
+(41 %) outright. Identical `live_tile_ticks` and `summed_dormant` confirm the
+same work is done either way. **Every improvement to the sequential pump makes
+threading look worse**, which is why this regression has grown rather than
+shrunk, and any revival has to answer "how does a threaded pump stride" before
+anything else.
+
+`nogil` itself works, and it is still not enough. Running the fused kernel from
+N threads (it holds no Python objects, so it drops the GIL for its whole run):
+
+| threads | 1 | 2 | 4 | 8 |
+| --- | --- | --- | --- | --- |
+| `njit(nogil=True)` fused kernel | 1.00x | **1.68x** | 0.80x | 0.74x |
+| numpy pair (default path) | 1.00x | 0.55x | 0.23x | 0.21x |
+
+So nogil buys ~1.7x on this one kernel at two threads and then collapses, the
+boundary crossing being the serialisation point; the numpy pair actively
+anti-scales. Against a 5.4x pump regression, on a workload where ~70 % of
+matmul time is one unit on one tile, there is no arithmetic that turns this
+into a win. **No free-threaded interpreter is needed to reach that conclusion**
+— the ceiling is the pump and the workload, not the GIL.
+
+## Gates
+
+`pytest framework/ driver/` **1113 passed** with the model off and again with
+`TT_SIM_COST_MODEL=1`; **1112 passed, 1 skipped** for both of those with numba
+made *unimportable* by a `meta_path` blocker (the skip is the jit fuzz);
+**30/30** Blackhole replay guards standalone, with and without numba;
+`driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS**, exit 0, over 44
+guards, both with and without numba, with no poll-budget multiplier change
+(`dramtop` 1x, `two` 2x, `offline` 4x); `ruff check` / `ruff format --check`
+clean.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+git archive cc0a72e | tar -x -C /tmp/ab/base
+git archive cc0a72e | tar -x -C /tmp/ab/ctrl      # the verified-zero control
+
+# candidate ceilings: a sitecustomize.py wrapping MultiTileClock.run,
+# TileClock.clock_tick, BabyRISCV.clock_tick, perform_mvmul, the two
+# _fpu_*_batch methods, handle_elwadd and handle_pacr with perf_counter, and
+# dumping totals at exit. Prefer this to cProfile here -- cProfile's ~1.4x on
+# this workload lands unevenly on numpy-heavy vs call-heavy code and would
+# have mis-ranked the FPU kernel against the interpreter.
+
+# the njit boundary cost that settles the RV-interpreter question: time an
+# @njit(lambda a,b: a+b) call against a pure-Python one-ALU-op body.
+
+# cycle neutrality: per guard, dump clock_tick_num / stride_skipped_cycles /
+# summed dormant_cycles / per-tile tick numbers / live tile ticks / a blake2b
+# over (cycle, instruction, thread, backend-ordinal) per issueInstruction.
+# Assign the backend ordinal by first-seen order -- id() is an address and
+# makes the checksum non-deterministic. Verify the shim against two copies of
+# the SAME commit before trusting any diff it produces.
+
+# the A/B: four arms (base, ctrl, head jit-off, head jit-on), alternate order
+# every round, pair within round, in-process pump CPU time. Discard the round
+# set outright if ctrl moves more than a few percent -- it did once here.
+
+# threading: TT_SIM_THREADED=1 vs unset on driver/blackhole/server/
+# vecadd_sharding_replay_test (the 4-Tensix guard), end-to-end wall, and read
+# stride_skipped_cycles in both to see where the time goes.
+```
+
+---
+
+# Declined on measurement: the Tensix per-element datapath
+
+**Measured 2026-08-08** against `97635b2`, machine as elsewhere in this document
+(12th Gen Core i7-12700H, 16 threads, CPython 3.12.13, numpy 2.4.4, numba 0.66.0
+installed, `TT_SIM_THREADED` unset). This was ROADMAP Tier 1 item 1, scheduled on
+the claim that `handle_elwadd` and `handle_pacr` are "**~22 % of a tile tick**
+between them" and want a numpy rewrite of the FPU and packer datapaths.
+
+**The premise does not hold, and the item is closed.** Across 27 workloads the
+two functions are a **median 5.8 %** of pump time (mean 5.3 %, max 14.8 %), they
+are **0 % on six workloads**, and `handle_elwadd` is **never called at all in 18
+of the 27**. Nothing was changed; this section is the evidence, recorded so the
+item is not re-derived from the 22 % figure in three months.
+
+Two prior profiles disagreed about these same functions — 13 %/9 % from the
+RISC-V front-end instalment, 3 % combined from the Numba/FPU instalment above.
+**Both are locally correct on the workloads each ran. The disagreement is
+workload selection, not methodology**, and §"Why the two prior figures differ"
+below records that in particular *cProfile did not mis-rank these two*.
+
+## Method
+
+A `perf_counter_ns` wrapper is monkeypatched onto `MatrixUnit.handle_elwadd`,
+`PackerUnit.handle_pacr` and `Device.run` before the guard module is imported,
+accumulating inclusive nanoseconds and a call count per function. The Tensix
+backend dispatches through `getattr(self, self.opcode_to_method_map[name])`
+(`backends/backend_base.py`), so patching the class attribute is sufficient. The
+shim adds ~0.2 us per call to functions that cost 600–2300 us, i.e. under
+0.05 % — negligible, and it is charged to both arms of every comparison anyway.
+
+**The denominator is time inside `Device.run` — the pump — and that is the right
+one**, because it is the *ceiling on any wall-clock win*. Removing a function
+entirely cannot save more than its inclusive share of the pump. Pump is 86–99 %
+of each guard's process wall clock, the remainder being trace parse and host
+message replay, so the choice barely moves the figures but it is the honest
+bound. Per-*live-tile-tick* denominators (as used by the RISC-V front-end
+instalment) are a different quantity: they divide out idle tiles, so they read
+higher than the wall-clock share a change could actually deliver.
+
+**Cross-checked against cProfile on `vecadd_sharding`, and the two methods agree
+to 0.3 percentage points:**
+
+| | `handle_elwadd` | `handle_pacr` | combined |
+| --- | --- | --- | --- |
+| `perf_counter` shim | 6.74 % | 7.90 % | **14.64 %** |
+| cProfile (`cumtime` / pump `cumtime`) | 0.770 s / 10.33 s = 7.46 % | 0.708 s / 10.33 s = 6.86 % | **14.32 %** |
+
+## The 27-workload table
+
+Every Blackhole replay guard that runs a compute kernel, one run each, inclusive
+time as a percentage of pump. `—` means the function was never called. Run-to-run
+spread is ~4 % of each figure (see the noise floor below), so treat the last
+digit as noise.
+
+| workload | `handle_elwadd` | `handle_pacr` | combined |
+| --- | --- | --- | --- |
+| `four_fp` | 6.22 | 8.60 | **14.82** |
+| `vecadd_sharding` | 6.74 | 7.90 | **14.64** |
+| `transpose` | 5.32 | 4.92 | 10.24 |
+| `tilize` | — | 8.73 | 8.73 |
+| `reduceneg` | 1.02 | 7.49 | 8.51 |
+| `reduce` | 1.05 | 7.18 | 8.23 |
+| `matmulidx` | — | 7.86 | 7.86 |
+| `four` | 2.86 | 4.77 | 7.63 |
+| `optest` | — | 7.22 | 7.22 |
+| `nine` | 2.31 | 4.46 | 6.77 |
+| `untilize` | — | 6.51 | 6.51 |
+| `five` | — | 6.36 | 6.36 |
+| `twolaunch` | — | 6.26 | 6.26 |
+| `matmulblock` | — | 5.80 | 5.80 |
+| `five_fp` | — | 5.53 | 5.53 |
+| `pipestall` | 1.62 | 3.89 | 5.51 |
+| `sfpumath` | 1.74 | 2.00 | 3.74 |
+| `sfpuchain` | — | 3.63 | 3.63 |
+| `where` | — | 2.90 | 2.90 |
+| `six` | — | 2.87 | 2.87 |
+| `softplus` | — | 0.60 | 0.60 |
+| `three` | — | — | **0** |
+| `eight` | — | — | **0** |
+| `two` | — | — | **0** |
+| `pad_multi_core` | — | — | **0** |
+| `shard_data_rm` | — | — | **0** |
+| `noc_tile_transfer` | — | — | **0** |
+
+**Median 5.80 %, mean 5.35 %, max 14.82 %.** `handle_elwadd` runs in 9 of 27 and
+never exceeds 6.74 %; `handle_pacr` runs in 21 of 27. (`dramtop`, `loopback` and
+`offline` are the three guards not in the table.)
+
+The per-workload spread *is* the finding. A single blended number is what caused
+the original disagreement, and any future claim about these functions should be
+stated per workload or not at all.
+
+## Why the two prior figures differ
+
+Both prior profiles are reproducible; they ran different workloads.
+
+- The Numba/FPU instalment reported **3 % combined on `blackhole/six`**. Correct
+  — I measure 2.87 %, and the reason is structural: **`six` issues no ELWADD at
+  all.** Its 0.21 s / 5.5 % `handle_elwadd` figure was on `vecadd_sharding`,
+  where I measure 6.74 %.
+- The RISC-V front-end instalment reported **13 % / 9 %**. That is above
+  everything reproducible here; the closest workload is `four_fp` at 6.22 / 8.60.
+  A per-live-tile-tick denominator explains part of the gap (it divides out the
+  idle tiles that a wall-clock share must include), and workload choice the rest.
+
+**cProfile did not mis-rank these two functions.** The instalment above cautions
+against cProfile here, and that caution is sound *for its own comparison* —
+ranking the numpy-heavy FPU batch kernel against the call-heavy RV interpreter,
+where a ~1.4x interpreter-weighted overhead genuinely distorts. It does not
+generalise to `handle_elwadd` and `handle_pacr`, which are both call-heavy scalar
+loops and therefore distorted the same way: cProfile and the shim agree to
+0.3 pp, as tabulated above. Do not discard cProfile for these paths on the
+strength of the earlier note.
+
+## Only about half of `handle_pacr` is addressable by numpy at all
+
+The roadmap described `handle_pacr` as "512 two-byte L1 writes", implying the
+whole function is a per-datum loop. It is not. cProfile callee breakdown on
+`vecadd_sharding` (256 PACRs, 16384 datums), as a share of the function:
+
+| callee | calls | share of `handle_pacr` | per-datum? |
+| --- | --- | --- | --- |
+| `generate_output_address` | 256 | **16 %** | no — per instruction |
+| `edge_masks_for_pacr` | 256 | **13 %** | no — per instruction |
+| `generate_input_address` | 256 | **11 %** | no — per instruction |
+| `MemoryMap.write` (the L1 stores) | 16384 | 30 % | yes |
+| `formatConversion` | 16384 | 6.5 % | yes |
+| `getDst` | 16384 | 0.7 % | yes |
+| own `tottime` (the loop itself) | — | 16 % | mixed |
+
+**About 40 % of the function is per-instruction config-register plumbing that
+vectorising the datum loop cannot touch.** `handle_elwadd`, by contrast, really
+is per-element dominated — `elementwise_fp_other` is 84 % of it, split between
+`get_elementwise_fp_src_type` (39 %) and `store_elementwise_fp_result` (37 %) —
+so it is the vectorisable one, and also the one carrying the bf16-rounding,
+fidelity-phase and Dst-format semantics that make a rewrite risky.
+
+Netting that out: the addressable share is roughly **10 % of pump on the best
+workload and ~2.5 % on the median one**, before accounting for the numpy call
+overhead that a 128-element array cannot amortise.
+
+## The noise floor: what this box can honestly demonstrate
+
+Ten rounds of unmodified `vecadd_sharding` — the most favourable workload in the
+table — each a fresh subprocess, end-to-end wall clock:
+
+```
+3.378 3.475 3.278 3.214 3.360 3.396 3.178 3.256 3.103 3.074  (seconds)
+```
+
+**mean 3.271 s, sd 0.132 s, CV 4.0 %, min-to-max spread 12.3 %.**
+
+So a 2–7 % effect — which is what a *perfect* vectorisation of both functions
+would deliver — sits at or below what this machine can separate from noise
+without a very large number of interleaved rounds. That is the practical half of
+the argument for declining: even a successful rewrite could not be honestly
+demonstrated on most of the table. It is the fourth time this document has had to
+make the point, and it is why the A/B recipes here insist on frozen worktrees, a
+verified-zero control arm and round counts in the report.
+
+## Oracle coverage: the full-tile ELWADD path has none
+
+This outlives the decision, and is the part to read if you ever *do* touch these
+paths.
+
+`optests/` differentially tests Wolfpine against ttsim, which owns bit-exact
+functional correctness. Coverage of the two paths is very asymmetric:
+
+- **`PACR` is covered by 16 of the 17 optests** (all but `dramtop`, which runs no
+  compute kernel) — essentially anything that calls `pack_tile` emits it.
+- **`ELWADD` has no direct coverage.** No optest issues a plain `add_tiles`,
+  `eltwise_binary` or `mul_tiles`. ELWADD reaches the simulator only obliquely:
+  `transpose` via `binary_dest_reuse_tiles<ELWADD, DEST_TO_SRCA>`,
+  `transpose`/`sfpumath` via `copy_tile` (which lowers to ELWADD only when
+  `fp32_dest_acc_en` is set), and `reduce`/`reduceneg` through the REDUCE_ROW
+  transpose path.
+
+**The full-tile eltwise-binary datapath — what `vecadd_sharding` and `four`
+exercise, and precisely what a numpy FPU rewrite would most change — has no
+differential oracle.** Rewriting bf16 rounding, fidelity phases and Dst formats
+on an unoracled path, for a median 2.5 % addressable share, is the substantive
+half of the argument for declining. If the item is ever reopened, **write an
+`add_tiles` optest first**; it is the cheap prerequisite and it has value on its
+own.
+
+Verified 2026-08-08, all PASS against ttsim: `matmulblock`, `matmulidx`,
+`transpose`, `reduce`, `reduceneg`, `sfpumath`, `packspill`, `untilize`,
+`tilize`.
+
+## The `SrcOrder` "compile break" is an invocation error, not a code break
+
+Recorded because it was believed to have removed MVMUL from the differential net,
+and it had not. `matmulblock` and `matmulidx` were reported as no longer
+compiling, with `error: 'SrcOrder' has not been declared`.
+
+**Root cause: `optests/diff.sh` JITs the device kernels against whatever
+`TT_METAL_HOME` points at.** The script does
+
+```sh
+export TT_METAL_RUNTIME_ROOT="${TT_METAL_RUNTIME_ROOT:-$TT_METAL_HOME}"
+```
+
+so `TT_METAL_HOME` silently drives the *kernel* build as well as the host build.
+The failing runs pointed at an older tt-metal checkout, which is pinned
+at **v0.70.1**, while the venv's `TT_METAL_RUNTIME_ROOT` is the **v0.74.0** tree.
+`SrcOrder` is the *newer* API — v0.74 declares it in
+`tt_metal/hw/inc/api/compute/compute_kernel_hw_startup.h`; v0.70.1 has no such
+declaration. The failure is at JIT time, not CMake time: the build log is clean
+and the error surfaces from `trisck.cc`.
+
+Pointed at the 0.74 tree, both build and pass:
+
+```
+PASS  matmulblock: Wolfpine matches ttsim (6144 elements)
+PASS  matmulidx:   Wolfpine matches ttsim (2560 elements)
+```
+
+**MVMUL differential coverage was never lost.** Cost to "fix": set the variable
+correctly. If you ever need these optests to build against v0.70.1 as well, it is
+a mechanical six-line backport across the two compute kernels — `matmul_init` →
+`mm_init_short`, `matmul_block_init` → `mm_block_init_short`, and
+`compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out)` →
+`compute_kernel_hw_startup(in1, in0, out)`, which is what v0.74's `Reverse`
+branch expands to. Not `mm_init` / `mm_block_init`: those take an extra output-CB
+argument and fold in the hardware configure step.
+
+A one-line guard in `diff.sh` that fails loudly when the resolved
+`TT_METAL_RUNTIME_ROOT` lacks `SrcOrder` would stop this being re-diagnosed.
+
+## Left on the table: `edge_masks_for_pacr`
+
+Not done, because nothing was changed here and it wants its own A/B, but it is
+the best fidelity-free win in this area and it is cheap to state:
+`edge_masks_for_pacr` costs **371 us per PACR — 13 % of `handle_pacr`** — to
+perform 20 `getConfigValue` lookups (16 `TILE_ROW_SET_MAPPING_*`, four
+`PCK_EDGE_OFFSET_SEC*_mask`) whose result depends only on `(stateID, packer)`.
+Memoising it touches no arithmetic and no datum. The work is entirely in making
+invalidation correct — the entry has to be dropped whenever any of those config
+registers is written, which means hooking the config write path rather than the
+packer. Worth ~1 % of pump on packer-heavy workloads, so it needs the full
+interleaved treatment to demonstrate, and it should not be attempted as a
+by-the-way change.
+
+## Gates (nothing changed, so these are a pin, not a check)
+
+`ruff check` / `ruff format --check` clean; `pytest framework/ driver/` **1120
+passed** with the cost model off and again with `TT_SIM_COST_MODEL=1`; **1119
+passed, 1 skipped** with numba made unimportable by a `meta_path` blocker (the
+skip is the jit fuzz); **30/30** Blackhole replay guards standalone;
+`driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS**, exit 0, over 44
+guards, with the poll-budget multipliers unchanged (`dramtop` 1x, `two` 2x,
+`offline` 4x); nine optests PASS against ttsim. Cycle identity is trivial — the
+tracked diff is empty.
+
+This is a measurement record, not a cost-model instalment: no timing changed, so
+there is no `docs/plans/cost-model.md` entry and no provenance to record.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+
+# the per-workload table. A shim module that wraps MatrixUnit.handle_elwadd,
+# PackerUnit.handle_pacr and Device.run with perf_counter_ns *before* importing
+# the guard, then calls its main() and prints ns and call counts. Report the
+# share of Device.run, not of process wall — it is the ceiling on any win, and
+# it is not the same quantity as a per-live-tile-tick share.
+python3 -m driver.blackhole.server.<name>_replay_test   # under that shim
+
+# the cProfile cross-check, which agrees to 0.3 pp on these two functions:
+# cProfile.Profile() around the same main(), then compare each function's
+# cumtime against device.py:run's cumtime. pstats.print_callees("handle_pacr")
+# is what shows that ~40 % of it is per-instruction address/edge-mask setup
+# rather than the per-datum loop.
+
+# the noise floor: 10 fresh subprocesses of one guard, end-to-end wall, report
+# mean / sd / CV / min-to-max. On this box: CV 4.0 %, spread 12.3 %. Anything
+# smaller than that needs frozen worktrees, a null control and many rounds.
+
+# oracle coverage: grep the optest compute kernels for add_tiles /
+# eltwise_binary / mul_tiles before assuming ELWADD is covered — it is not.
+TT_METAL_HOME=<the 0.74 tree> TTSIM_ORACLE=<ttsim>/oracle-bh ./optests/diff.sh matmulblock
+# TT_METAL_HOME drives the *kernel* JIT via TT_METAL_RUNTIME_ROOT. Pointing it
+# at a 0.70.1 tree is what produces the phantom "'SrcOrder' has not been
+# declared" break; check the resolved tree before diagnosing a code fault.
+```
+
+# The MVMUL gather/scatter (ROADMAP item 1), 2026-08-08 — accepted, half of it
+
+The roadmap's largest wall-clock item. Its premise was that `perform_mvmul` costs
+**745 us per call of which the fused Numba kernel is only ~46 us**, leaving ~94 %
+in "the Dst/SrcA/SrcB rectangle gather and the surrounding format conversions".
+The first half of that is an artefact and the second half is right for the wrong
+reason, so the interior profile is worth having in full.
+
+## What the 745 us actually was
+
+A `perf_counter_ns` shim on each segment of `perform_mvmul_exact`, on
+`matmulblock` (1536 MVMULs), Blackhole, cost model off, quiet box:
+
+| segment | us/call, numpy only | us/call, Numba engaged |
+|---|---|---|
+| prologue (config reads, RWC, base rows, fidelity phase) | 46.2 | 43.8 |
+| SrcA gather + convert | 47.4 | 45.1 |
+| SrcB gather + convert | 31.3 | 31.2 |
+| Dst gather + convert | 59.6 | 56.7 |
+| **`_fpu_group_sums_batch`** | **282.7** | — |
+| **`_fpu_accumulate_batch`** | **262.9** | — |
+| **fused Numba kernel, steady state** | — | **56.4** |
+| store convert + write | 58.3 | 57.9 |
+| epilogue (bank flip, addrmod) | 60.0 | 59.9 |
+| **total** | **859.8** | **353** |
+
+**Neither prior figure was right, and the 745 us was an artefact.** Numba's
+kernel is `cache=True`, and the *first* call after the 512-MVMUL threshold pays a
+**672 ms** on-disk cache load (2.95 s if the cache is cold, which a fresh
+worktree always is). Averaged over the calls that is 437 us/call on its own and
+**26 % of `matmulblock`'s whole pump** — which is where "745 us of which 46 is
+the kernel" came from. Divide it out and the honest numbers are the table above:
+860 us per call with numpy alone, 353 us steady-state with Numba, and the 46 us
+kernel figure reproduces at 56 us.
+
+Two corollaries worth recording. First, **Numba is roughly break-even on
+`matmulblock`** — 2557 ms of pump with it against 2533 ms without, because 1024
+calls x 468 us saved barely covers the 672 ms cache load. It only clearly wins
+from `six` (4096 calls) upward. Second, the roadmap's "94 % is gather and
+conversions" is not true of either configuration: gather + conversions +
+prologue + epilogue is **297 us, 35 % of the numpy-only call** — though it is 84 %
+of the Numba-engaged one, which is presumably how the claim arose.
+
+## The measurement that decided the shape of the fix
+
+A numpy call on this path costs **~3.5 us whether it touches 256 elements or
+4096**. Op *count* is the entire cost; array shape is not. That was measured
+directly (`a & 0xFF` is 3.80 us on a 16x16 int64 block and 3.55 us on a
+16x16x16 one) and it invalidates three obvious ideas, all of which were tried
+and reverted:
+
+- hoisting per-operand work off the broadcast product array in
+  `_fpu_group_sums_batch` — same op count, no change;
+- narrowing the intermediates to int32 — no change (`a & 0xFF` on int32 measured
+  *slower*, 6.01 us);
+- replacing `1 << shift` with a gather from a 32-entry table — **2.5x slower**
+  at 2048 elements (12.3 us against 4.9 us).
+
+`_fpu_group_sums_batch` is 46 numpy calls and a faithful version does not seem to
+fit in fewer, so **it was left exactly as it was**; a comment in the method now
+records why, so the next person does not spend the afternoon again. The remaining
+9x on it belongs to the Numba kernel, which pays no per-call overhead at all, and
+to nothing numpy can do.
+
+Where the same lens *does* pay is anywhere one call can replace eight.
+
+## What was changed
+
+**1. Table-driven format conversions** (`DataFormatConversions.block*`). Every
+storage-layout conversion is a bit permutation of a narrow datum — a Src datum is
+19 bits, a Dst16b one 16, and the FP32 ones read nothing below bit 16 that
+survives — so the whole mapping fits in a table and a block converts in one
+gather instead of six to nine calls. On a 16x16 block: `BF16InSrcToFP32`
+27.7 -> 1.0 us, `FP32ToDstFormatBF16` 31.0 -> 2.7 us, `FP32InDstToFP32`
+34.9 -> ~7 us.
+
+The tables are built by the arithmetic form itself over its whole input space, so
+they cannot encode a different function, and `conversion_batch_test` walks each
+one against the scalar form regardless. Two subtleties:
+
+- **The build has to be cheap, not merely amortised.** Evaluating the arithmetic
+  form over `arange(2**19)` walks a 4 MB intermediate once per operation in the
+  expression, and at one page fault per 4 KB that is **58 ms** — which a guard
+  with 36 MVMULs in it would never earn back. Building instead as an outer OR of
+  two half-width tables touches the full-size array once: **8.8 ms**. That is
+  valid exactly because these functions are bit permutations, so they distribute
+  over an OR of disjoint fields; `FP32ToDstFormatBF16` is the one that is not
+  (the denormal flush reads the exponent to decide what to do with the mantissa)
+  and it opts out. A BF16/Dst16b workload's three tables now cost **17.3 ms**
+  one-off against 70.8 ms for the naive build — break-even at ~157 MVMULs.
+- **Masking the index is not defensive.** `TF32InSrcToTF32`'s masks are
+  0x40000 / 0x3FF00 / 0xFF, so `x & 0x7FFFF` is the identity as far as the
+  arithmetic is concerned; the mask discards exactly the bits it already ignored,
+  and there is a test that says so.
+
+**2. `_fpu_accumulate_batch`, re-expressed with fewer calls** — 164 -> 119 us,
+−27 %, bit-identical. The win is removing four nested `where`s: the three
+alignment cases (no shift, a rounding shift, a shift large enough that the term
+vanishes) collapse into one table-indexed expression, because a group sum under
+2**28 plus 2**30 shifted right by 31 *is* zero. Likewise the renormalisation's
+shift-up and shift-down arms become one expression, and the saturation drops the
+mantissa instead of rebuilding the word.
+
+**3. `getDst16bRows` / `getDst32bRows` fast path.** The zero-flag select is
+skipped when every row in the rectangle is valid, which is all but a rectangle
+straddling a ZEROACC. 21.2 -> 16.7 us and 34.6 -> 31.4 us.
+
+## The A/B
+
+Two frozen trees differing only in the five files, ABBA order within each round,
+fresh subprocess per measurement, end-to-end wall, **10 rounds = 20 samples per
+arm**. `vecadd_sharding` (zero MVMULs) is the null control, in the same
+interleave.
+
+| workload | MVMULs | default env | `TT_SIM_NUMBA=0` |
+|---|---|---|---|
+| `six` | 4096 | **−7.10 %** | **−10.54 %** |
+| `matmulblock` | 1536 | **−3.42 %** | **−6.57 %** |
+| `reduce` | 36 | −0.07 % | +0.89 % |
+| `vecadd_sharding` (control) | 0 | −1.12 % | −0.31 % |
+
+Per-arm CV was 4.0–6.8 %, i.e. at this box's measured noise floor, which is why
+this needed ten rounds; the direction was consistent in every single round for
+both matmul workloads. Net of the control, `six` is −6.0 pp / −10.2 pp and
+`matmulblock` −2.3 pp / −6.3 pp. Pump-relative the effect is larger than wall —
+`matmulblock`'s pump goes 2533 -> 2124 ms (**−16 %**) with Numba off, per-call
+860 -> 711 us — because a guard's wall carries ~1.3 s of interpreter startup that
+no simulator change can touch.
+
+**Report the concentration honestly.** This is worth 6–10 % on matmul-class
+workloads and **nothing at all on 23 of the 30 Blackhole guards**, which issue no
+MVMUL and never build a table. `reduce`'s +0.89 % is the one place the change
+costs: 36 MVMULs cannot repay a 17.3 ms table build. It is below the noise floor
+and it buys the 6–10 %, but it is a real sign, and it is the reason the build was
+worth taking from 70.8 ms to 17.3 ms rather than shrugging at it.
+
+## Correctness
+
+The differential oracle is the real net and it holds: **nine optests PASS**
+against ttsim — `matmulblock`, `matmulidx`, `matmultranspose`, `matmuluntilize`,
+`tilizematmul`, `transpose`, `reduce`, `reduceneg`, `untilize` — with
+`TT_METAL_HOME` pinned to the **v0.74.0** tree (verified: `version.txt` says
+v0.74.0 and `api/compute/matmul.h` declares `SrcOrder`; the 0.70.1 tree is what
+produces the phantom "'SrcOrder' has not been declared" break). **No Wolfpine /
+ttsim disagreement was found anywhere.**
+
+Above that, three new pins in `fpu_accumulate_test.py` and six in
+`conversion_batch_test.py`:
+
+- every `block*` conversion swept against its arithmetic form over its **entire**
+  input space (2**19 for Src, 2**16 for Dst16b, every equivalence class for the
+  FP32 ones), plus a test that the index mask changes nothing and one that the
+  tables are shared and frozen;
+- the accumulate **boundaries** swept rather than sampled: every shift from 0 to
+  34 in both directions against extreme mantissas (0, 1, 2, 2**13 either side,
+  2**28−1), both signs, six Dst words spanning zero / denormal / normal / max /
+  −inf, x both Dst widths x both arches — 17 640 cases per combination, all
+  bit-identical to the scalar reference;
+- the whole per-instruction chain from Src/Dst **storage words** in: both operand
+  styles (BF16, TF32) x both Dst widths x both arches x all four fidelity phases
+  x rectangles of 1, 2, 3 and 16 rows x broadcast and per-row SrcB, with a
+  quarter of trials forcing every lane to exponent 0x00 or 0xFF (zero, Inf, NaN)
+  and half the Dst to zero, so whole-group underflow, saturation and exact
+  cancellation are all hit.
+
+## Cycle identity
+
+Not a timing change, and proven rather than asserted: a shim checksums the whole
+per-dispatch stream — `(simulated cycle, instruction name, target unit, issuing
+thread)` for every instruction reaching `TensixBackend.issueInstruction`, in
+order — plus the dispatch count and the last cycle. Digests are **byte-identical
+between the two arms with the cost model both on and off**, on `matmulblock`
+(3532 dispatches, last cycle 13600; 4602 and 17600 under the model), `six`,
+`matmulidx`, `twolaunch`, `untilize`, `reduce`, `reduceneg`, `transpose`,
+`tilize` and `two`. (`two` run standalone under the model fails identically on
+*both* arms — it is one of the three budget-dependent guards the gate gives a 2x
+poll multiplier, so that is the documented pre-existing shape, not a regression.)
+Totals alone would not have caught a reordering, which is why the stream and not
+just the cycle count is hashed.
+
+## Gates
+
+`ruff check` / `ruff format --check` clean; `pytest framework/ driver/` **1137
+passed** with the cost model off and again with `TT_SIM_COST_MODEL=1` (1120 at
+`97635b2` plus 17 new); **1136 passed, 1 skipped** with numba blocked by a
+`meta_path` finder, in both model states; **30/30** Blackhole replay guards
+standalone, with and without numba; `driver/tests/cost_model_gate.py --jobs 4`
+**RESULT: PASS**, exit 0, over 44 guards, with and without numba, poll-budget
+multipliers unchanged.
+
+This is not a cost-model instalment: no charged cost changed, so there is no
+`docs/plans/cost-model.md` entry and no provenance to record.
+
+## Left on the table
+
+- **The 672 ms Numba cache load** is now the single largest one-off in a matmul
+  guard — bigger than anything this instalment saved on `matmulblock`. It is
+  numba's own on-disk cache deserialisation, not compilation, and it is why the
+  jit is only break-even below `six`. Worth understanding before the threshold
+  (512) is tuned.
+- **`_fpu_group_sums_batch`'s remaining 9x** is a per-numpy-call-overhead gap, so
+  it is Numba's or nothing. A Numba-only path is explicitly out of scope for a
+  no-new-dependency change.
+- **The unpacker's `_unpack_block`** converts *into* the Src/Dst layouts with the
+  same arithmetic forms and would take the same tables. Untouched here, and it
+  wants its own A/B.
+- **The 104 us/call of prologue + epilogue** is config-register plumbing —
+  `getThreadConfigValue`, `get_base_row_ranges`, `applyAddrMod` — and is the same
+  shape as the `edge_masks_for_pacr` memoisation above: the work is all in making
+  invalidation correct, and it should not be attempted as a by-the-way change.
+
+## Reproducing
+
+```bash
+export PYTHONPATH=~/wolfpine
+
+# the interior profile: a shim that replaces MatrixUnit.perform_mvmul with a
+# copy instrumented between segments, plus MultiTileClock.run, then calls the
+# guard's main(). Time the *first* fused call separately or the numba cache
+# load lands in the per-call average and inflates it by 437 us.
+python3 -m driver.blackhole.server.matmulblock_replay_test   # under that shim
+TT_SIM_NUMBA=0 ...                                           # the numpy-only arm
+
+# the op-cost lens, which is what decides whether an idea is worth trying: time
+# one numpy call at 256 and at 4096 elements. If they are within 10 % of each
+# other, only removing calls will help, and moving work onto a smaller array
+# will not.
+
+# cycle identity: hook the wait gate's clock_tick for the cycle number and
+# TensixBackend.issueInstruction for the dispatch, blake2b the stream, and
+# compare digests across arms x {model on, off}.
+
+# the A/B: two frozen trees, ABBA within a round, fresh subprocess, >= 10 rounds,
+# and a zero-MVMUL control (vecadd_sharding) in the same interleave. Warm each
+# arm first -- numba's on-disk cache lives beside the source, so it is per-tree
+# and a cold one is a 0.7 s handicap on whichever arm ran first.
+
+TT_METAL_HOME=/path/to/tt-metal-0.74 \
+TTSIM_ORACLE=~/projects/riscv/ttsim/oracle-bh ./optests/diff.sh matmulblock
+# check `version.txt` says v0.74.0 before reading anything into a compile break.
+```
+
+# What did not land: the Numba warm-up is a floor, and 512 is the right threshold
+
+**Measured 2026-08-08** against `97635b2`, machine as elsewhere in this
+document (12th Gen Core i7-12700H, 16 threads, CPython 3.12.13, numba 0.66.0 /
+llvmlite 0.48.0, `TT_SIM_THREADED` unset). This closes ROADMAP item 5, "the
+MVMUL gather/scatter residue", whose whole remaining content was the "672 ms
+numba on-disk cache load, worth ~20 % on `matmulblock`". **It is not worth
+~20 %, it is not a cache load, and it cannot be made cheaper.** No code
+changed; the two places that recorded it wrongly did.
+
+## The premise, re-measured
+
+Reproduced on a fresh worktree, fresh process, numpy already imported:
+
+| stage | cold | warm |
+| --- | --- | --- |
+| `import numba` | 438 ms | 446 ms |
+| import the kernel module (`@njit` decoration) | 13 ms | 7 ms |
+| first call — compile, or load from cache | **3352 ms** | **381 ms** |
+| **total** | **3803 ms** | **834 ms** |
+
+So the two prior figures were each measuring a different part of the same
+thing and neither said which. The docstring's "~0.5 s from cache" was the
+**first-call** row alone (381 ms). The later **672 ms** was `import numba` plus
+the first call *together*, measured on the newer table-driven-conversion tree —
+i.e. the same quantity this table calls 834 ms. Both were low, and both were
+labelled "cache load", which is the one thing it mostly is not.
+
+## Where the 381 ms actually goes — the diagnosis the label hid
+
+`cProfile` on the first call, warm cache:
+
+```
+1.120  dispatcher.py:342(_compile_for_args)
+1.095    caching.py:713(load_overload)
+1.074      base.py:261(refresh)              <- 96 % of it
+0.777        cpu.py:97(load_additional_registries)
+0.756          importlib _handle_fromlist
+0.398        typing/context.py:232(refresh)
+0.267          typing/context.py:482(_load_builtins)   2259 install_registry calls
+0.181            numba/cpython/charseq.py:1(<module>)
+0.153            numba/cpython/unicode.py:1(<module>)
+```
+
+**96 % of the "cache load" is `refresh()`** — numba importing its own
+`numba.cpython.*` / `numba.np.*` modules and installing ~250 typing and
+lowering registries. That is target-context initialisation numba defers to the
+first compile *or cache load*, and it has nothing to do with this kernel.
+Reading the `.nbc` is the ~30 ms residue.
+
+Three consequences, each checked rather than assumed:
+
+- **Kernel size is not a lever.** A one-line `njit(cache=True)` summation loop
+  measures 570 ms warm and 654 ms cold-compiled in the same harness — the same
+  fixed cost. There is nothing to win by shrinking or re-signaturing
+  `mvmul_fused`, or by cutting specialisations: a real `matmulblock` run
+  compiles **exactly one** signature and takes **one cache hit, zero misses**.
+- **`cache=True` is clearly right.** 3352 ms to compile cold against 381 ms to
+  load. Dropping it to avoid the cache machinery would cost 9x.
+- **No narrower import is cheaper.** `import numba` 369 ms, `from numba import
+  njit` 451 ms, `from numba.core.decorators import njit` 404 ms, `import
+  numba.core.registry` 319 ms, `import numba.core.dispatcher` 422 ms — all one
+  population. Reaching into `numba.core.*` would buy noise and cost a
+  dependency on internals.
+
+The floor is therefore ~800 ms, and the only routes below it are an
+ahead-of-time build or a second dependency. Those are the two things CLAUDE.md
+and the roadmap exist to refuse.
+
+## The one idea that was left: hide it on a thread. It is much worse.
+
+If the 800 ms cannot be removed it can in principle be *overlapped* — cross the
+threshold, start a daemon thread that imports and forces the specialisation,
+and keep taking the numpy path until it publishes. Bit-exactness is what makes
+that legal: the two paths agree, so the crossover point is a free variable.
+
+Built, and measured against blocking on 1536 MVMULs through the real numpy
+pair, three arms interleaved per round, nine rounds:
+
+| arm | median | vs blocking |
+| --- | --- | --- |
+| numpy only (never engage) | 1014 ms | −2 % |
+| **block** at 128 (today's shape) | **991 ms** | — |
+| **async** warm-up at 128 | **1404 ms** | **+42 %** |
+
+Checksums identical across all 27 runs, so the arms did the same arithmetic.
+The async arm switched at call 332–424 rather than the ~180 the CPU budget
+implies: **the main thread ran ~6x slower for the duration of the warm-up.**
+This is a GIL convoy, not a fair split. The numpy path releases and re-acquires
+the GIL thousands of times a second in ~3.5 µs calls; against a compile thread
+that holds it for whole 5 ms switch intervals, every release costs the main
+thread a full interval to get back in. Backgrounding the warm-up spends
+strictly more wall clock than paying it up front. Reverted.
+
+(This is not an argument against `nogil` on the kernel itself — running
+compiled code on a thread is exactly what `nogil` makes safe. It is an
+argument against *compiling* on one.)
+
+## So: is 512 the right threshold?
+
+This is the last question the item leaves open, and it now has an answer.
+Engaging costs ~800 ms and saves ~507 µs per subsequent MVMUL, so a workload of
+M MVMULs wins iff **M > threshold + 1580**. The in-tree population is sparse
+and bimodal — an MVMUL census over the Blackhole guards gives `six` 4096,
+`matmulblock` 1536, `matmulidx` 384, `reduce`/`reduceneg` 36, and **0** for
+every other guard, including all the SFPU ones.
+
+Interleaved sweeps, medians, control `two` (0 MVMULs, verified by census):
+
+| guard | MVMULs | off | t=128 | t=512 | t=1024 |
+| --- | --- | --- | --- | --- | --- |
+| `matmulidx` | 384 | 2540 ms | **3482 ms** | 2693 ms | 2587 ms |
+| `matmulblock` | 1536 | 4178 ms | 4182 ms | 4302 ms | 4563 ms |
+| `six` | 4096 | **7115 ms** | 5841 ms | 5987 ms | 6165 ms |
+
+**`six` is what the accelerator is for**: 1128 ms, −16 % against numpy, and the
+`off` arm was the slowest in 9 of 10 rounds. That alone justifies the feature.
+
+**Lowering the threshold is a clear loss.** At 128, `matmulidx` engages for
+only 256 further calls and pays the whole 800 ms: **+789 ms, +29 %, and the
+slowest of the four arms in 12 of 12 rounds.** It buys `six` 146 ms and
+`matmulblock` 120 ms, both inside noise. **Raising it is also a loss**: at
+1024 `matmulblock` pays the same 800 ms spread over 512 calls instead of 1024,
++260 ms.
+
+The internal control is the reason to believe this. On `matmulidx` the arms
+`off`, `t=512` and `t=1024` are all *the same code path* — the guard never
+reaches 512 MVMULs — and they came out 2540 / 2693 / 2587 ms, agreeing within
+noise, while `t=128` sat 789 ms clear of all three. A harness that separates
+three identical arms from one different one is measuring the switch.
+
+**512 stays.** It is a measured compromise, not a placeholder, and the
+roadmap's "would drop the break-even from ~1500 MVMULs to ~150" was conditional
+on removing a cost that cannot be removed.
+
+## What this means for `matmulblock` specifically
+
+The roadmap's "worth ~20 % on `matmulblock`" does not survive. `matmulblock`
+issues 1536 MVMULs and engages at 512, so it gets 1024 compiled calls against a
+800 ms bill — it is **below** break-even, which is exactly why the jit measured
+2557 ms with against 2533 ms without. The honest statement is that
+`matmulblock` is the workload where the accelerator is a small net *loss*, and
+no threshold fixes that: every arm that engages is slower than `off`
+(4178 / 4182 / 4302 / 4563 ms for off / 128 / 512 / 1024). The effect is a
+fixed one-off, so it shrinks as a fraction of longer runs and grows as a
+fraction of shorter ones — which is the whole reason a count threshold, rather
+than a rate, is the right control.
+
+## Cycle-identity
+
+The kernel is an accelerator, so nothing it does may move a simulated cycle.
+Checked rather than argued: `TT_SIM_TRACE` on `blackhole/matmulblock`, hashing
+the whole event stream keyed on `(cycle, instruction, unit, thread)` —
+151,578 events, 147,797 keyed — across numba off / threshold-engaged / forced
+on:
+
+```
+model off  digest 626c6001d0490788b39cd3cca93dae72  max_cycle 13698   (all three)
+model on   digest be5782d4d35df9a7771ee849ca2938a5  max_cycle 17695   (both)
+```
+
+Byte-identical within each row, including for a run that switched
+implementations *mid-workload* at MVMUL 475 of 1536.
+
+## Gates
+
+`pytest framework/ driver/` **1120 passed** with the model off and again with
+`TT_SIM_COST_MODEL=1`; **1119 passed, 1 skipped** with numba made unimportable
+by a `meta_path` blocker; **30/30** Blackhole replay guards standalone;
+`driver/tests/cost_model_gate.py --jobs 4` **RESULT: PASS**, exit 0, 44 guards,
+no poll-budget multiplier change (`dramtop` 1x, `two` 2x, `offline` 4x);
+`ruff check` / `ruff format --check` clean.
+
+## Reproducing
+
+```bash
+# the breakdown: time import numba, the @njit decoration, and the first call
+# separately, in a fresh process, twice -- the first run compiles cold and
+# writes __pycache__/*.nbc, the second is the warm number that matters.
+
+# the diagnosis: cProfile the FIRST call only, warm, and sort by cumulative.
+# If base.py:refresh dominates, the cost is numba's target init, not the file.
+
+# the floor: do the same for @njit(cache=True) on a one-line summation loop.
+# Equal warm loads means kernel size is not a lever.
+
+# the threshold sweep: interleave off / 128 / 512 / 1024 WITHIN each round on
+# one tree (env arms, not code arms), 12 rounds, plus a 0-MVMUL control guard.
+# Pick a guard whose MVMUL count sits between two arms -- matmulidx (384) makes
+# off/512/1024 identical code paths, which is the internal control that says
+# the harness works. Count MVMULs first by wrapping get_fused_mvmul.
+
+# the async experiment, if anyone re-proposes it: three arms in ONE script over
+# the real numpy pair, checksum the result so the arms are provably equivalent,
+# and report the switch call index -- that index, not the total, is what
+# exposes the convoy.
+```

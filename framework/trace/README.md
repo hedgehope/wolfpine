@@ -345,7 +345,7 @@ Three design points that matter to anyone extending this:
   generated report, so the document cannot drift from the writer.
 
 The user-facing walkthrough is
-[`driver/wormhole/docs/profiling.md` §0](../../driver/wormhole/docs/profiling.md).
+[`docs/profiling.md` §3](../../docs/profiling.md#3-the-ranked-report--tt_sim_profile).
 <!-- END: ranked bottleneck report -->
 
 ### Source-level attribution (LCOV)
