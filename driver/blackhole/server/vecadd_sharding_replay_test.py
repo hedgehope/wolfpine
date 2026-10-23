@@ -26,10 +26,15 @@ buffer       L1 address  role
 **The golden is computed, not frozen.** The inputs are in the trace (the host
 writes them over the wire), so the guard reads ``a`` and ``b`` back out of each
 worker's L1 and requires ``c`` to be their sum — bit for bit, all 16384
-elements over the four workers. The device's FP32 accumulate is *truncated*,
-not rounded, on the pack down to bfloat16, which is what makes an exact
-comparison possible at all; a rounding change would show up here and should be
-re-validated against ttsim rather than papered over. (The live host checks the
+elements over the four workers — as the FPU's ELWADD forms it into a 16-bit Dst
+(``fp32_dest_acc_en`` is off): the smaller operand's 11-bit mantissa is aligned
+to the larger's exponent with a round-half-up, the two are added, and the sum is
+rounded half-up into bfloat16. That is *two* roundings, so it is neither a
+truncation nor a single round of the exact sum (0.1533203125 + 8.125 gives
+8.3125, not 8.25). :func:`_elwadd_bf16` restates the rule independently of
+``framework/pe/tensix/backends/matrix.py``; ``optests/diff.sh elwmul`` pins the
+same op bit-exact against ttsim. A rounding change would show up here and should
+be re-validated against ttsim rather than papered over. (The live host checks the
 same thing to a slack 0.2 absolute tolerance and prints "All results match
 expected values within tolerance".)
 
@@ -91,10 +96,22 @@ def _bf16(raw):
     return widened.view(np.float32)
 
 
-def _to_bf16(values):
-    """Narrow float32 back to bfloat16 the way the packer does: truncate."""
-    bits = np.ascontiguousarray(values, dtype=np.float32).view(np.uint32)
-    return ((bits >> 16) << 16).view(np.float32)
+def _elwadd_bf16(a, b):
+    """``a + b`` as ELWADD forms it into a 16-bit Dst (see the module docstring).
+
+    Exact in float64 throughout: the operands are bfloat16 and the aligned sum
+    has 12 significant bits. Assumes normal, non-zero operands and a non-zero
+    sum, which the host's U(0, 10) inputs guarantee (``main`` checks the zeros).
+    """
+    a, b = a.astype(np.float64), b.astype(np.float64)
+    swap = np.abs(a) < np.abs(b)
+    big, small = np.where(swap, b, a), np.where(swap, a, b)
+    ulp11 = np.exp2(np.floor(np.log2(np.abs(big))) - 10)
+    small = np.sign(small) * np.floor(np.abs(small) / ulp11 + 0.5) * ulp11
+    total = big + small
+    ulp_bf16 = np.exp2(np.floor(np.log2(np.abs(total))) - 7)
+    rounded = np.sign(total) * np.floor(np.abs(total) / ulp_bf16 + 0.5) * ulp_bf16
+    return rounded.astype(np.float32)
 
 
 def main():
@@ -154,7 +171,7 @@ def main():
                 f"fully populated ({int((a == 0).sum())} zeros in a, "
                 f"{int((b == 0).sum())} in b) — the host's L1 writes did not land"
             )
-        expected = _to_bf16(a + b)
+        expected = _elwadd_bf16(a, b)
         wrong = np.flatnonzero(c != expected)
         if wrong.size:
             i = int(wrong[0])
