@@ -128,7 +128,7 @@ def test_duplicate_names_are_rejected():
         parse_design(raw)
 
 
-def test_stub_blocks_are_schema_accepted():
+def test_dma_block_maps_one_register_bank_per_channel():
     raw = _with_block(
         {
             "name": "dma0",
@@ -139,8 +139,8 @@ def test_stub_blocks_are_schema_accepted():
         }
     )
     soc = build(parse_design(raw))
-    with pytest.raises(NotImplementedError, match="stub"):
-        soc.memory.read(0x3000000, 4)
+    assert soc.blocks["dma0"].size == 0x80
+    assert soc.memory.read(0x3000000 + 0x40 + 0x38, 8) == bytes(8)
 
 
 def test_parse_int():

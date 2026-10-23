@@ -6,6 +6,9 @@
  *   naiad_cycles() / naiad_instret()            Zicsr counters when the design has
  *                                               Zicsr, else the CLINT's mtime
  *   naiad_perf_read(offset)                     the perfcounters block, if present
+ *   naiad_counter(EVENT)                        a counter-hub event, through its Zihpm
+ *                                               counter if the design binds one, else
+ *                                               the perfcounters block
  *
  * Include after nothing else: it pulls in the design's generated naiad.h (put the
  * generated directory on the include path). The same tohost/fromhost protocol is
@@ -131,6 +134,58 @@ static inline uint64_t naiad_instret(void) {
 #else
     return 0;
 #endif
+}
+
+/* Zihpm: hpmcounter<n> (0xC00 + n). csrr takes the CSR number as an immediate,
+ * so a run-time n goes through a switch of constant reads; with a constant n
+ * (the NAIAD_HPM_* defines) it folds to one csrr at -O1 and above. */
+#if defined(NAIAD_HAS_HPM) && defined(__riscv_zicsr) && __riscv_xlen == 64
+#define NAIAD_HPM_CASE(n)                                                                          \
+    case n:                                                                                        \
+        __asm__ volatile("csrr %0, %1" : "=r"(v) : "i"(0xC00 + (n)));                              \
+        return v
+static inline __attribute__((always_inline)) uint64_t naiad_hpm_read(int n) {
+    uint64_t v;
+    switch (n) {
+        NAIAD_HPM_CASE(3); NAIAD_HPM_CASE(4); NAIAD_HPM_CASE(5); NAIAD_HPM_CASE(6);
+        NAIAD_HPM_CASE(7); NAIAD_HPM_CASE(8); NAIAD_HPM_CASE(9); NAIAD_HPM_CASE(10);
+        NAIAD_HPM_CASE(11); NAIAD_HPM_CASE(12); NAIAD_HPM_CASE(13); NAIAD_HPM_CASE(14);
+        NAIAD_HPM_CASE(15); NAIAD_HPM_CASE(16); NAIAD_HPM_CASE(17); NAIAD_HPM_CASE(18);
+        NAIAD_HPM_CASE(19); NAIAD_HPM_CASE(20); NAIAD_HPM_CASE(21); NAIAD_HPM_CASE(22);
+        NAIAD_HPM_CASE(23); NAIAD_HPM_CASE(24); NAIAD_HPM_CASE(25); NAIAD_HPM_CASE(26);
+        NAIAD_HPM_CASE(27); NAIAD_HPM_CASE(28); NAIAD_HPM_CASE(29); NAIAD_HPM_CASE(30);
+        NAIAD_HPM_CASE(31);
+    default:
+        return 0;
+    }
+}
+#undef NAIAD_HPM_CASE
+#endif
+
+/* naiad_counter(EVENT): the value of a counter-hub event, where EVENT is the
+ * event's name as an identifier (matrix.macs -> MATRIX_MACS, hart0.instret.fp
+ * -> HART0_INSTRET_FP). naiad.h defines NAIAD_COUNTER_<EVENT> as "hpm, offset"
+ * for every event the design binds to a Zihpm counter or lists in its first
+ * perfcounters block; the Zihpm counter wins, since it is one instruction and
+ * moves no bus bytes. An event the design does neither for does not compile. */
+#define naiad_counter(event) naiad_counter_read(NAIAD_COUNTER_##event)
+
+static inline __attribute__((always_inline)) uint64_t naiad_counter_read(int hpm, long offset) {
+#if defined(NAIAD_HAS_HPM) && defined(__riscv_zicsr) && __riscv_xlen == 64
+    if (hpm) {
+        return naiad_hpm_read(hpm);
+    }
+#else
+    (void)hpm;
+#endif
+#ifdef NAIAD_PERF_ADDR
+    if (offset >= 0) {
+        return naiad_perf_read((uintptr_t)offset);
+    }
+#else
+    (void)offset;
+#endif
+    return 0;
 }
 
 /* naiad_libc.c: the freestanding shim (compilers emit calls to the mem* functions). */

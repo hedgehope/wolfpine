@@ -128,6 +128,31 @@ class MatrixSpec:
     features: tuple[str, ...] = ()
     #: ``tile_mac``'s bit-exact mode: round the accumulator every ``k_chunk`` of K.
     k_chunk: int | None = None
+    #: ``tile_mac``'s summation strategy: ``ieee``, or ``tensix_bh``/``tensix_wh``
+    #: (the Tensix FPU bit for bit, at ``fidelity`` LoFi/HiFi2/HiFi3/HiFi4).
+    numerics: str = "ieee"
+    fidelity: str | None = None
+
+
+@dataclass(frozen=True)
+class CountersSpec:
+    """The design's ``counters:`` section: Zihpm bindings and on-demand event families.
+
+    ``hpm`` is ``((n, event), ...)``: ``mhpmcounter<n>`` reads hub event ``event``
+    (see ``framework.naiad.counters``). The binding is fixed by the design, not
+    chosen at run time through ``mhpmevent``, so ``naiad.h`` can give each event
+    its CSR number as a constant (``csrr`` needs an immediate) and a kernel reads
+    a counter with one instruction and no setup. Event names are checked against
+    the built SoC's hub, since the hub discovers them from the IP.
+    """
+
+    hpm: tuple[tuple[int, str], ...] = ()
+    #: On-demand families to count even when nothing binds them (for the report).
+    enable: tuple[str, ...] = ()
+
+    @property
+    def events(self):
+        return [event for _, event in self.hpm]
 
 
 @dataclass
@@ -138,6 +163,9 @@ class Design:
     program: ProgramSpec = field(default_factory=ProgramSpec)
     path: str | None = None
     matrix: MatrixSpec | None = None
+    counters: CountersSpec = field(default_factory=CountersSpec)
+    #: The cycle model (``framework.naiad.timing.TimingSpec``); None runs untimed.
+    timing: object = None
 
     def block(self, name):
         for b in self.blocks:
@@ -219,7 +247,7 @@ def _parse_matrix(raw):
     if raw is None:
         return None
     keys = {"mode", "m", "n", "k", "tiles", "accs", "formats", "features", "k_chunk"}
-    _check_keys(raw, keys, "matrix")
+    _check_keys(raw, keys | {"numerics", "fidelity"}, "matrix")
     mode = str(raw.get("mode", "ame")).lower()
     if mode not in MATRIX_MODES:
         raise DesignError(
@@ -295,6 +323,7 @@ def _parse_matrix(raw):
         k_chunk = parse_int(k_chunk, "matrix.k_chunk")
         if k_chunk < 1:
             raise DesignError(f"matrix.k_chunk must be >= 1, got {k_chunk}")
+    numerics, fidelity = _parse_matrix_numerics(raw, lists, k_chunk)
     return MatrixSpec(
         mode=mode,
         **dims,
@@ -303,7 +332,90 @@ def _parse_matrix(raw):
         acc_formats=lists["acc"],
         features=features,
         k_chunk=k_chunk,
+        numerics=numerics,
+        fidelity=fidelity,
     )
+
+
+def _parse_matrix_numerics(raw, lists, k_chunk):
+    """``matrix.numerics`` / ``matrix.fidelity``: a Tensix mode only with the formats it models exactly."""
+    from framework.matrix.tensix_numerics import (
+        MVMUL_K,
+        TENSIX_NUMERICS,
+        check_formats,
+        fidelity_phases,
+    )
+
+    numerics = str(raw.get("numerics", "ieee")).lower()
+    fidelity = raw.get("fidelity")
+    if numerics == "ieee":
+        if fidelity is not None:
+            raise DesignError("matrix.fidelity applies only to tensix numerics")
+        return numerics, None
+    if numerics not in TENSIX_NUMERICS:
+        raise DesignError(
+            f"matrix.numerics must be one of {['ieee', *TENSIX_NUMERICS]}, got {numerics!r}"
+        )
+    try:
+        for in_fmt in lists["in"]:
+            for acc_fmt in lists["acc"]:
+                check_formats(numerics, in_fmt, acc_fmt)
+        if fidelity is not None:
+            fidelity = str(fidelity)
+            fidelity_phases(fidelity)
+    except ValueError as e:
+        raise DesignError(f"matrix: {e}") from None
+    if k_chunk not in (None, MVMUL_K):
+        raise DesignError(
+            f"matrix.k_chunk is fixed at {MVMUL_K} (one MVMUL) under {numerics} numerics, got {k_chunk}"
+        )
+    return numerics, fidelity
+
+
+def _parse_counters(raw, cores):
+    """The ``counters:`` section: ``hpm: {n: event}`` and ``enable: [family, ...]``."""
+    from framework.naiad.counters import FAMILIES
+    from framework.pe.rv.isa.zicsr64_isa import HPM_COUNTERS
+
+    if raw is None:
+        return CountersSpec()
+    _check_keys(raw, {"hpm", "enable"}, "counters")
+    hpm_raw = raw.get("hpm") or {}
+    if not isinstance(hpm_raw, dict):
+        raise DesignError("counters.hpm: expected a mapping of counter number -> event")
+    hpm = {}
+    for key, event in hpm_raw.items():
+        n = parse_int(key, "counters.hpm key")
+        if n not in HPM_COUNTERS:
+            raise DesignError(
+                f"counters.hpm: no counter {key!r}; Zihpm counters are 3-31"
+            )
+        if n in hpm:
+            raise DesignError(f"counters.hpm: counter {n} is bound twice")
+        if not isinstance(event, str) or not event:
+            raise DesignError(
+                f"counters.hpm.{n}: expected an event name, got {event!r}"
+            )
+        hpm[n] = event
+    events = list(hpm.values())
+    dupes = sorted({e for e in events if events.count(e) > 1})
+    if dupes:
+        raise DesignError(
+            f"counters.hpm: event(s) {dupes} bound to more than one counter (naiad.h names one per event)"
+        )
+    if hpm and (
+        cores.xlen != 64 or "zicsr" not in cores.isa or "zihpm" not in cores.isa
+    ):
+        raise DesignError(
+            "counters.hpm needs an RV64 core with zicsr and zihpm in cores.isa (the Zihpm CSRs live in CSRFile64)"
+        )
+    enable = tuple(str(f).lower() for f in raw.get("enable") or ())
+    unknown = [f for f in enable if f not in (*FAMILIES, "all")]
+    if unknown:
+        raise DesignError(
+            f"counters.enable: unknown {unknown}; known: {[*FAMILIES, 'all']}"
+        )
+    return CountersSpec(hpm=tuple(sorted(hpm.items())), enable=enable)
 
 
 def _parse_block(raw, index):
@@ -397,7 +509,18 @@ def validate(design):
 def parse_design(raw, path=None):
     """Build and validate a :class:`Design` from an already-loaded mapping."""
     _check_keys(
-        raw, {"name", "description", "cores", "blocks", "program", "matrix"}, "design"
+        raw,
+        {
+            "name",
+            "description",
+            "cores",
+            "blocks",
+            "program",
+            "matrix",
+            "counters",
+            "timing",
+        },
+        "design",
     )
     blocks_raw = raw.get("blocks")
     if not isinstance(blocks_raw, list) or not blocks_raw:
@@ -411,20 +534,40 @@ def parse_design(raw, path=None):
         ),
     )
     default_name = Path(path).stem if path else "naiad"
+    cores = _parse_cores(raw.get("cores"))
     design = Design(
         name=str(raw.get("name", default_name)),
-        cores=_parse_cores(raw.get("cores")),
+        cores=cores,
         blocks=[_parse_block(b, i) for i, b in enumerate(blocks_raw)],
         program=program,
         path=None if path is None else str(path),
         matrix=_parse_matrix(raw.get("matrix")),
+        counters=_parse_counters(raw.get("counters"), cores),
     )
+    from framework.naiad.timing import parse_timing
+
+    design.timing = parse_timing(raw.get("timing"), design)
     return validate(design)
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``SafeLoader`` that refuses a mapping with a repeated key (PyYAML keeps the last)."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in keys:
+                raise DesignError(
+                    f"line {key_node.start_mark.line + 1}: key {key!r} appears twice"
+                )
+            keys.add(key)
+        return super().construct_mapping(node, deep)
 
 
 def load_design(path):
     with open(path) as f:
-        raw = yaml.safe_load(f)
+        raw = yaml.load(f, Loader=_UniqueKeyLoader)
     if raw is None:
         raise DesignError(f"'{path}' is empty")
     return parse_design(raw, path)

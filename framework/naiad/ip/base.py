@@ -58,8 +58,18 @@ class IPBlock(MemMapable):
         return []
 
     def counters(self):
-        """Counters this block contributes to the run report."""
+        """Counters this block contributes to the counter hub (``<block>.<key>``).
+
+        The keys must be the same on every call: the hub registers them once.
+        """
         return {}
+
+    def required_events(self):
+        """Counter-hub events this block reads; checked against the hub at build time."""
+        return ()
+
+    def bind_counters(self, hub):
+        """Called once the SoC's :class:`~framework.naiad.counters.CounterHub` exists."""
 
     # -- MemMapable --------------------------------------------------------
 

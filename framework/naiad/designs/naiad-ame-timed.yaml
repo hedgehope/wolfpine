@@ -1,0 +1,89 @@
+# naiad-ame-timed: naiad-ame with the cycle model on, calibrated against the
+# Tensix as this repo models it.
+#
+# The shape mirrors one Tensix tile: the program, its data and its stack live in
+# a 1.5 MiB on-chip L1 (Blackhole's), the matrix unit is fed from L1 the way the
+# FPU is fed by the unpackers and drained by the packers, and DRAM sits behind
+# a NoC-sized latency. Sources are the cost tables in
+# framework/pe/tensix/tensix_instruction_costs.yaml (TIC) and
+# framework/perf/unit_costs.yaml (UC); each number below says which entry.
+# Where the Tensix has no counterpart the value is marked "not calibrated".
+#
+# Fixed by construction, so not parameters here: one instruction issues per
+# cycle (UC riscv.issue: "intended to execute one RV32IM instruction per
+# cycle"), instruction fetch is free, and there is no L0 data cache (every L1
+# load pays the L0-miss latency; a cache block fronting l1 would model the L0).
+name: naiad-ame-timed
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, zicsr, zicntr]
+  reset_pc: 0x1000
+program:
+  memory: l1
+  stack_size: 64KiB
+matrix:
+  mode: ame
+  m: 16
+  n: 16
+  k: 16
+  tiles: 8
+  accs: 4
+  formats: {in: [fp32, int8], acc: [fp32, int32]}
+  features: [transpose, shift, epilogue, semiring]
+timing:
+  scalar:
+    alu: 1            # UC riscv.integer_unit.default 1 ("latency 1 and throughput 1")
+    mul: 2            # UC blackhole integer_unit: one cycle in EX1 + one in EX2, pipelined (silicon dep chain 1.985)
+    div: 6            # UC divide_general {6, max 33}: the floor of the range
+    div_pipelined: false
+    load: 2           # UC riscv.load_latency.minimum 2 (core-local data RAM)
+    store: 1
+    branch_taken: 0   # UC blackhole: correctly predicted branch 0.999 cycles; no predictor here, so taken = predicted
+    csr: 1
+    fp_add: 2         # UC blackhole: FP arithmetic is one cycle in EX1 + one in EX2
+    fp_mul: 2
+    fp_fma: 2
+    # fp_div / fp_sqrt: the baby cores' F subset has neither; the defaults stand (not calibrated).
+  memory:
+    l1:
+      latency: 6      # + load 2 = 8: UC blackhole load_latency.l1_dcache_miss >= 8
+      bandwidth: null # UC l1: 16 banks x 16 access ports, 128 bits each a cycle; contention is not modelled
+    dram:
+      latency: 126    # UC noc.dram.access_latency (Blackhole read, DRAM minus L1)
+      bandwidth: 24   # UC dram.channel_serialisation: 24 GB/s per GDDR6 channel at 1 GHz
+  matrix:
+    # One MVMUL is 8 rows of SrcB by a 16x16 SrcA: 8*16*16 = 2048 MACs a cycle at
+    # LoFi (TIC MATH.fidelity_phases.mul_adds_per_cycle_lofi 4096 = 2048 MACs;
+    # mvmuls_per_tile 16, silicon +1.6 cycles per phase step). A 16x16x16 mma is
+    # 4096 MACs: 2 cycles per pass.
+    macs_per_cycle: 2048
+    # Passes per mma = fidelity phases (TIC cycles_per_tile LoFi 16 .. HiFi4 64).
+    # The phase count per format is tt-metal's usual choice, not a sourced rule:
+    # HiFi4 for fp32 (8 cycles per mma), LoFi for int8 (not calibrated: the
+    # tables carry no integer fidelity).
+    format_passes: {fp32: 4, int8: 1}
+    pipeline_depth: 5      # TIC MATH.MVMUL latency 5
+    acc_forwarding: true   # fidelity phases accumulate into the same Dst rows at 1 IPC (TIC corroboration)
+    overlap: true          # the math thread runs decoupled from the unpack/pack threads
+    tile_load_bandwidth: 64  # TIC UNPACK throttle_modes.x4 64 B/cycle (joint_bandwidth 80 is for two unpackers)
+    tile_load_latency: 2     # TIC UNPACR: "at least two cycles calculating the address"
+    tile_store_bandwidth: 64 # TIC PACK l1_bandwidth: 4 packers x one 128-bit write per cycle
+    tile_store_latency: 1    # TIC PACR occupancy 1 (issue; the drain is unsourced)
+    azero: 1                 # TIC MATH ZEROACC 1
+    tshift: 2                # TIC MATH SHIFTXB 2
+    mcfg: 1
+    epilogue: 2              # SFPU arithmetic latency 2, per instruction (not calibrated per element)
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_mem_to_acc_bytes, matrix_acc_to_mem_bytes, matrix_mma, matrix_macs]
+  - {name: l1, type: scratchpad, base: 0x10000000, window: 2MiB, params: {size: 0x180000}}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

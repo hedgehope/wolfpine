@@ -76,6 +76,47 @@ def _matrix_defines(spec):
     return lines
 
 
+def _counter_defines(design):
+    """Counter events a kernel can read with ``naiad_counter(EVENT)`` (``naiad_platform.h``).
+
+    ``NAIAD_HPM_<EVENT>`` is the Zihpm counter a design binds the event to, and
+    ``NAIAD_PERFOFF_<EVENT>`` its offset in the first perfcounters block (the
+    one ``NAIAD_PERF_ADDR`` names). ``NAIAD_COUNTER_<EVENT>`` packs both as
+    ``hpm, offset`` (0 / -1 when absent) for every event either one names.
+    """
+    hpm = {event: n for n, event in design.counters.hpm}
+    perf = design.blocks_of_type("perfcounters")
+    offsets = {}
+    if perf:
+        names = IP_REGISTRY["perfcounters"](perf[0]).required_events()
+        offsets = {name: 8 * i for i, name in enumerate(names)}
+    if not hpm and not offsets:
+        return []
+    lines = [
+        "",
+        "/* counter events: read with naiad_counter(EVENT) from naiad_platform.h */",
+    ]
+    if hpm:
+        lines.append("#define NAIAD_HAS_HPM 1")
+    # Keyed by identifier, so a legacy flat name (matrix_macs) and its dotted
+    # form (matrix.macs) share one set of defines.
+    events = {}
+    for event in [*hpm, *offsets]:
+        events.setdefault(_ident(event), []).append(event)
+    for ident, names in events.items():
+        n = next((hpm[e] for e in names if e in hpm), None)
+        off = next((offsets[e] for e in names if e in offsets), None)
+        lines.append(f"/* {' / '.join(dict.fromkeys(names))} */")
+        if n is not None:
+            lines.append(f"#define NAIAD_HPM_{ident} {n}")
+        if off is not None:
+            lines.append(f"#define NAIAD_PERFOFF_{ident} {off:#x}")
+        lines.append(
+            f"#define NAIAD_COUNTER_{ident} {0 if n is None else n}, {-1 if off is None else hex(off)}"
+        )
+    return lines
+
+
 def gen_header(design):
     cores = design.cores
     lines = [_banner(design, "/*"), "#ifndef NAIAD_H", "#define NAIAD_H", ""]
@@ -96,6 +137,7 @@ def gen_header(design):
         ("clint", "CLINT"),
         ("perfcounters", "PERF"),
         ("htif", "HTIF"),
+        ("dma", "DMA"),
     ):
         found = design.blocks_of_type(type_name)
         if found:
@@ -111,6 +153,7 @@ def gen_header(design):
             lines.append(f"#define {name} {value}")
     if design.matrix is not None:
         lines += _matrix_defines(design.matrix)
+    lines += _counter_defines(design)
     lines += ["", "#endif /* NAIAD_H */", ""]
     return "\n".join(lines)
 

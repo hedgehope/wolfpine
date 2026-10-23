@@ -130,7 +130,7 @@ class HTIF(IPBlock):
         raise HTIFError(f"unsupported proxied syscall {num}")
 
     def counters(self):
-        return {"htif_chars": len(self.console)}
+        return {"chars": len(self.console)}
 
     # Never mapped, so never dispatched to; the words live in program memory.
     def read(self, addr, size):

@@ -329,6 +329,10 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "a wrapper that adds the cycle and PCs to whatever a Naiad core "
             "raised; the wrapped error is the one with meaning"
         ),
+        "CounterError": (
+            "a counter-hub lookup of an event the design does not have; the "
+            "builder turns it into a NaiadBuildError before any program runs"
+        ),
         "HTIFError": (
             "an HTIF command or proxied syscall Naiad does not implement; the "
             "covered set will grow, so it is not a stable guarantee"

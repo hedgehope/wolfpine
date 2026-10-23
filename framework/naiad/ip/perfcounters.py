@@ -1,18 +1,17 @@
 """Performance counters as MMIO: counter ``i`` reads at offset ``8 * i``.
 
-The block exposes, read-only, a chosen subset of the SoC's counter dict (see
-``NaiadSoC.counter``), so a program without Zicsr can still time itself and a
-program with it can see counters no CSR names.
+The block exposes, read-only, the counter-hub events its ``counters`` param
+lists (``framework.naiad.counters``), so a program without Zicsr can still time
+itself and a program with it can read events no Zihpm counter is bound to. Any
+hub event may be listed; the names are checked against the built SoC's hub, so
+an event a new IP block contributes needs no change here.
 """
 
-from framework.matrix.unit import COUNTER_NAMES as _MATRIX_COUNTERS
+import re
+
 from framework.naiad.ip.base import RegisterBlock
 
-#: Names a design may list; ``NaiadSoC.counter`` answers each. The ``matrix_*``
-#: ones are summed over the harts' matrix units (zero without one).
-KNOWN_COUNTERS = ("cycle", "instret", "mtime", "htif_chars") + tuple(
-    f"matrix_{name}" for name in _MATRIX_COUNTERS
-)
+_M64 = (1 << 64) - 1
 
 
 class PerfCounters(RegisterBlock):
@@ -30,21 +29,32 @@ class PerfCounters(RegisterBlock):
     @classmethod
     def validate_params(cls, spec, error):
         names = cls._names(spec.params)
-        unknown = [n for n in names if n not in KNOWN_COUNTERS]
-        if unknown:
-            raise error(
-                f"block '{spec.name}': unknown counter(s) {unknown}; known: {list(KNOWN_COUNTERS)}"
-            )
+        bad = [n for n in names if not isinstance(n, str) or not n]
+        if bad:
+            raise error(f"block '{spec.name}': counters must be event names, got {bad}")
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise error(f"block '{spec.name}': counter(s) {dupes} listed twice")
 
     def __init__(self, spec):
         super().__init__(spec)
         self.names = self._names(spec.params)
+        self._readers = ()
+
+    def required_events(self):
+        return self.names
+
+    def bind_counters(self, hub):
+        self._readers = tuple(hub.reader(name) for name in self.names)
 
     def read_reg(self, offset):
         index = offset // 8
-        if index >= len(self.names):
+        if index >= len(self._readers):
             return 0
-        return self.soc.counter(self.names[index]) & ((1 << 64) - 1)
+        return self._readers[index]() & _M64
 
     def header_defines(self):
-        return [(name.upper(), 8 * i) for i, name in enumerate(self.names)]
+        return [
+            (re.sub(r"[^A-Za-z0-9]", "_", name).upper(), 8 * i)
+            for i, name in enumerate(self.names)
+        ]

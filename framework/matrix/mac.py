@@ -16,6 +16,15 @@ piece is summed in the compute dtype in K order (a defined order, independent
 of BLAS), and the accumulator is rounded to ``acc_fmt`` after every piece --
 which is what a datapath that writes a narrow accumulator back each pass does.
 Without it the whole product is one BLAS call and one final rounding.
+
+``numerics`` picks the summation strategy, i.e. what one K chunk's sum and its
+round into the accumulator *are*. ``"ieee"`` (the default) is everything above.
+Other strategies are registered in :data:`NUMERICS` (see
+:func:`register_numerics`) and replace the whole plus-times reduction; the
+built-in ones are ``"tensix_bh"`` / ``"tensix_wh"``, the Tensix FPU's
+fixed-point datapath bit for bit (``tensix_numerics.py``), where a chunk is one
+16-deep MVMUL per fidelity phase and ``fidelity`` (``"LoFi"`` ... ``"HiFi4"``)
+and ``phase_k`` are its options.
 """
 
 import numpy as np
@@ -37,7 +46,50 @@ def _check_shapes(C, A, B):
     return M, K, N
 
 
-def tile_mac(C, A, B, in_fmt, acc_fmt, *, k_chunk=None, semiring="plus_times"):
+def _tensix(numerics):
+    def strategy(C, A, B, in_fmt, acc_fmt, *, k_chunk=None, **options):
+        # Imported on use: it pulls in the Tensix backend, which plain IEEE
+        # users of framework.matrix should not pay for.
+        from framework.matrix.tensix_numerics import MVMUL_K, tensix_tile_mac
+
+        if k_chunk not in (None, MVMUL_K):
+            raise ValueError(
+                f"{numerics} numerics sums K in MVMULs of {MVMUL_K}; k_chunk={k_chunk!r} cannot apply"
+            )
+        return tensix_tile_mac(C, A, B, in_fmt, acc_fmt, numerics=numerics, **options)
+
+    return strategy
+
+
+#: Summation strategies by name. ``"ieee"`` is :func:`tile_mac`'s own path;
+#: every other entry is ``fn(C, A, B, in_fmt, acc_fmt, *, k_chunk, **options)``
+#: returning what ``tile_mac`` would, with shapes already checked.
+NUMERICS = {
+    "ieee": None,
+    "tensix_bh": _tensix("tensix_bh"),
+    "tensix_wh": _tensix("tensix_wh"),
+}
+
+
+def register_numerics(name, fn):
+    """Add (or replace) a summation strategy usable as ``tile_mac(..., numerics=name)``."""
+    if name == "ieee":
+        raise ValueError("'ieee' is tile_mac's built-in path and cannot be replaced")
+    NUMERICS[name] = fn
+
+
+def tile_mac(
+    C,
+    A,
+    B,
+    in_fmt,
+    acc_fmt,
+    *,
+    k_chunk=None,
+    semiring="plus_times",
+    numerics="ieee",
+    **options,
+):
     """Return ``C ⊕ (A ⊗ B)`` for (M, K) ``A``, (K, N) ``B`` and (M, N) ``C``.
 
     ``C=None`` is the zero accumulator (the semiring's identity for tropical
@@ -45,6 +97,9 @@ def tile_mac(C, A, B, in_fmt, acc_fmt, *, k_chunk=None, semiring="plus_times"):
     int32 out, with two's-complement wraparound -- the sum is formed in int64
     and wrapped once, which is the same as wrapping after every add. The
     result is an array of ``acc_fmt``'s storage dtype.
+
+    ``numerics`` names a summation strategy from :data:`NUMERICS`; ``options``
+    (e.g. ``fidelity=``) go to it, and are an error under ``"ieee"``.
     """
     in_f, acc_f = get_format(in_fmt), get_format(acc_fmt)
     A, B = np.asarray(A), np.asarray(B)
@@ -57,6 +112,16 @@ def tile_mac(C, A, B, in_fmt, acc_fmt, *, k_chunk=None, semiring="plus_times"):
         raise ValueError(
             f"cannot mix float and int formats: {in_f.name} in, {acc_f.name} accumulate"
         )
+    if numerics not in NUMERICS:
+        raise ValueError(
+            f"unknown numerics {numerics!r}; expected one of {list(NUMERICS)}"
+        )
+    if NUMERICS[numerics] is not None:
+        if semiring != "plus_times":
+            raise ValueError(f"{numerics} numerics is plus_times only, not {semiring}")
+        return NUMERICS[numerics](C, A, B, in_f, acc_f, k_chunk=k_chunk, **options)
+    if options:
+        raise ValueError(f"ieee numerics takes no options, got {sorted(options)}")
 
     if not in_f.is_float:
         cdt = np.int64

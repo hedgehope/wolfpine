@@ -24,6 +24,13 @@ What is modelled
 * ``mhartid`` / ``mvendorid`` / ``marchid`` / ``mimpid`` / ``mconfigptr``
   (read-only), and ``misa`` (WARL, writes ignored), reporting MXL = 2 and the
   letters of the extensions the core was built with.
+* Zihpm: ``mhpmcounter3..31`` (0xB03-0xB1F), their read-only shadows
+  ``hpmcounter3..31`` (0xC03-0xC1F) and ``mhpmevent3..31`` (0x323-0x33F). A
+  counter is bound to an event by the platform (:meth:`CSRFile64.bind_hpm`,
+  from a Naiad design's ``counters.hpm``), not by software: ``mhpmeventN`` is
+  WARL and reads back ``N`` when counter ``N`` is bound, 0 when not. A bound
+  counter reads the event's live value, with the same offset rule as
+  ``mcycle``; an unbound one is hardwired to zero, as the spec allows.
 * ``fflags`` / ``frm`` / ``fcsr`` as views of the FP register file's ``fcsr``
   entry, for a core built with ``fp_registers=True``.
 * ``mstatus``, ``mtvec``, ``mie``, ``mip``, ``mscratch``, ``mepc``, ``mcause``,
@@ -60,6 +67,11 @@ CSR_INSTRET = 0xC02
 CSR_MISA = 0x301
 CSR_MEPC = 0x341
 CSR_MHARTID = 0xF14
+CSR_MHPMCOUNTER3 = 0xB03
+CSR_HPMCOUNTER3 = 0xC03
+CSR_MHPMEVENT3 = 0x323
+#: The Zihpm counter numbers.
+HPM_COUNTERS = range(3, 32)
 
 CSR_NAMES = {
     0x001: "fflags",
@@ -87,6 +99,11 @@ CSR_NAMES = {
     0xF14: "mhartid",
     0xF15: "mconfigptr",
 }
+for _n in HPM_COUNTERS:
+    CSR_NAMES[0xB00 + _n] = f"mhpmcounter{_n}"
+    CSR_NAMES[0xC00 + _n] = f"hpmcounter{_n}"
+    CSR_NAMES[0x320 + _n] = f"mhpmevent{_n}"
+del _n
 
 #: Plain read-what-you-wrote machine CSRs (reset to zero).
 _STORAGE = frozenset(
@@ -132,6 +149,21 @@ class CSRFile64:
         self.retired = 0
         self._cycle_base = 0
         self._instret_base = 0
+        #: Zihpm: counter number -> zero-argument reader of its event.
+        self.hpm = {}
+        self._hpm_base = {}
+
+    def bind_hpm(self, n, reader):
+        """Bind ``mhpmcounter<n>`` (3-31) to ``reader``, a zero-argument callable."""
+        if n not in HPM_COUNTERS:
+            raise ValueError(f"no Zihpm counter {n}; they are numbered 3-31")
+        self.hpm[n] = reader
+
+    def _hpm_read(self, n):
+        reader = self.hpm.get(n)
+        if reader is None:
+            return 0
+        return (reader() + self._hpm_base.get(n, 0)) & _M64
 
     def read(self, addr, pc=None):
         if addr == CSR_CYCLE or addr == CSR_MCYCLE:
@@ -149,6 +181,11 @@ class CSRFile64:
             return self.misa
         if addr in _ZERO_IDS:
             return 0
+        low = addr & 0x1F
+        if low >= 3 and (addr & ~0x1F) in (0xB00, 0xC00):
+            return self._hpm_read(low)
+        if low >= 3 and (addr & ~0x1F) == 0x320:
+            return low if low in self.hpm else 0
         if addr == CSR_FCSR:
             return self._fcsr(pc).read_uint() & 0xFF
         if addr == CSR_FFLAGS:
@@ -182,6 +219,13 @@ class CSRFile64:
             self._instret_base = (value - self.retired) & _M64
         elif addr == CSR_MISA:
             pass  # WARL: the extension set is fixed at construction
+        elif 0xB03 <= addr <= 0xB1F:
+            n = addr & 0x1F
+            reader = self.hpm.get(n)
+            if reader is not None:
+                self._hpm_base[n] = (value - reader()) & _M64
+        elif 0x323 <= addr <= 0x33F:
+            pass  # WARL: the event is fixed by the platform
         elif addr == CSR_FCSR:
             self._fcsr(pc).write((value & 0xFF).to_bytes(4, "little"))
         elif addr == CSR_FFLAGS:
@@ -212,6 +256,7 @@ class CSRFile64:
         self.retired = 0
         self._cycle_base = 0
         self._instret_base = 0
+        self._hpm_base = {}
 
 
 _OP_NAMES = {1: "csrrw", 2: "csrrs", 3: "csrrc", 5: "csrrwi", 6: "csrrsi", 7: "csrrci"}

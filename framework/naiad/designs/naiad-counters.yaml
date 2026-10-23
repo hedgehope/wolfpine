@@ -1,0 +1,50 @@
+# naiad-counters: naiad-ame plus F/D, a scratchpad, and Zihpm counter bindings.
+#
+# Each counters.hpm entry binds mhpmcounter<n> (and its hpmcounter<n> shadow)
+# to a counter-hub event (framework/naiad/counters.py); naiad.h names the
+# binding NAIAD_HPM_<EVENT>, and naiad_counter(EVENT) reads it. Events the
+# perfcounters block lists but no counter binds are read through MMIO instead.
+# Binding an instret.<class> or bus.<block>.* event turns that family on.
+name: naiad-counters
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, zicsr, zicntr, zihpm]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+matrix:
+  mode: ame
+  m: 16
+  n: 16
+  k: 16
+  tiles: 8
+  accs: 4
+  formats: {in: [fp32, int8], acc: [fp32, int32]}
+counters:
+  hpm:
+    3: instret.scalar
+    4: instret.fp
+    5: instret.matrix
+    6: instret.vector
+    7: matrix.mma
+    8: matrix.macs
+    9: matrix.mem_to_tile_bytes
+    10: matrix.acc_to_mem_bytes
+    11: bus.dram.read_bytes
+    12: bus.dram.write_bytes
+    13: bus.scratch.write_bytes
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif.chars, matrix.mma, matrix.tile_to_mem_bytes,
+                 bus.scratch.read_bytes]
+  - {name: scratch, type: scratchpad, base: 0x08000000, window: 0x10000}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

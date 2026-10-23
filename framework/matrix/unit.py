@@ -74,6 +74,8 @@ class MatrixUnit:
         acc_formats,
         features=(),
         k_chunk=None,
+        numerics="ieee",
+        fidelity=None,
         xlen=64,
         decoder=DECODER,
     ):
@@ -92,6 +94,29 @@ class MatrixUnit:
             )
         self.features = frozenset(features)
         self.k_chunk = k_chunk
+        # The summation strategy every mma uses (``tile_mac``'s ``numerics``);
+        # a Tensix one is checked here against every format the unit lists, so
+        # an unmodelled pairing fails at build time, not on the first mma.
+        self.numerics = numerics
+        self.mac_options = {} if fidelity is None else {"fidelity": fidelity}
+        if numerics != "ieee":
+            from framework.matrix.tensix_numerics import (
+                TENSIX_NUMERICS,
+                check_formats,
+                fidelity_phases,
+            )
+
+            if numerics not in TENSIX_NUMERICS:
+                raise ValueError(
+                    f"unknown matrix numerics {numerics!r}; expected ieee or one of {list(TENSIX_NUMERICS)}"
+                )
+            for in_f in self.in_formats.values():
+                for acc_f in self.acc_formats.values():
+                    check_formats(numerics, in_f, acc_f)
+            if fidelity is not None:
+                fidelity_phases(fidelity)
+        elif fidelity is not None:
+            raise ValueError("fidelity applies only to tensix numerics")
         self.xlen = xlen
         self.xmask = (1 << xlen) - 1
 
@@ -244,11 +269,24 @@ class MatrixUnit:
                 instr,
                 f"mma cannot pair {in_fmt.name} inputs with a {acc_fmt.name} accumulator",
             )
+        if semiring != "plus_times" and self.numerics != "ieee":
+            raise self.illegal(
+                instr,
+                f"{semiring} mma has no {self.numerics} datapath (plus_times only)",
+            )
         C = self.acc_view(d, acc_fmt)
         A = self.tile_view(a, "a", in_fmt)
         B = self.tile_view(b, "b", in_fmt)
         C[...] = tile_mac(
-            C, A, B, in_fmt, acc_fmt, k_chunk=self.k_chunk, semiring=semiring
+            C,
+            A,
+            B,
+            in_fmt,
+            acc_fmt,
+            k_chunk=self.k_chunk,
+            semiring=semiring,
+            numerics=self.numerics,
+            **self.mac_options,
         )
         self.stats["mma"] += 1
         self.stats["macs"] += self.m * self.n * self.k

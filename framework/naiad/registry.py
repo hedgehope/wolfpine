@@ -11,11 +11,12 @@ The classes here are the RV32 executors; an RV64 core brings its own (see
 """
 
 from framework.naiad.ip.bootrom import BootROM
+from framework.naiad.ip.cache import Cache
 from framework.naiad.ip.clint import CLINT
+from framework.naiad.ip.dma import DMAEngine
 from framework.naiad.ip.htif import HTIF
 from framework.naiad.ip.memories import DRAMBlock, ScratchpadBlock
 from framework.naiad.ip.perfcounters import PerfCounters
-from framework.naiad.ip.stubs import CacheStub, DMAStub
 from framework.pe.rv.isa.a_isa import RV_ZAAMO_ISA
 from framework.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
 from framework.pe.rv.isa.m_isa import RV_M_ISA
@@ -28,8 +29,8 @@ IP_REGISTRY = {
     "clint": CLINT,
     "htif": HTIF,
     "perfcounters": PerfCounters,
-    "dma": DMAStub,
-    "cache": CacheStub,
+    "dma": DMAEngine,
+    "cache": Cache,
 }
 
 NAIAD_ISA_REGISTRY = {

@@ -12,11 +12,12 @@ from framework.device.clock import Clock
 from framework.device.device import Device, DeviceMemory
 from framework.device.reset import Reset
 from framework.matrix.ame_isa import attach as attach_matrix_unit
-from framework.matrix.unit import COUNTER_NAMES as MATRIX_COUNTERS
 from framework.matrix.unit import MatrixUnit
 from framework.memory.memory import MemorySpace
 from framework.memory.memory_map import AddressRange, MemoryMap
+from framework.naiad.counters import CounterError, CounterHub, requested_families
 from framework.naiad.registry import IP_REGISTRY, NAIAD_ISA_REGISTRY
+from framework.naiad.timing import install as install_timing
 from framework.pe.rv.isa.zicsr64_isa import CSRFile64
 from framework.pe.rv.isa.zicsr_isa import CSRFile
 from framework.pe.rv.rv32 import RV32I, RV32IM
@@ -141,6 +142,8 @@ def make_matrix_unit(spec, xlen):
             acc_formats=spec.acc_formats,
             features=spec.features,
             k_chunk=spec.k_chunk,
+            numerics=spec.numerics,
+            fidelity=spec.fidelity,
             xlen=xlen,
         )
     except ImportError as e:
@@ -163,7 +166,7 @@ class RunResult:
 
 
 class NaiadSoC:
-    def __init__(self, design):
+    def __init__(self, design, count_all=False):
         self.design = design
         cores_spec = design.cores
         if cores_spec.count != 1:
@@ -194,7 +197,9 @@ class NaiadSoC:
             for core in self.cores:
                 unit = make_matrix_unit(design.matrix, cores_spec.xlen)
                 self.matrix_units.append(attach_matrix_unit(core, unit))
-        self.clock = NaiadClock(self.cores)
+        # Blocks with a clock_tick (the DMA engine) tick after the cores.
+        clocked = [b for b in self.blocks.values() if hasattr(b, "clock_tick")]
+        self.clock = NaiadClock([*self.cores, *clocked])
         clints = [b for b in self.blocks.values() if b.spec.type == "clint"]
         for core in self.cores:
             core.csrs.clock_owner = self.clock
@@ -208,6 +213,36 @@ class NaiadSoC:
         self.image = None
         for block in self.blocks.values():
             block.attach(self)
+        # The cycle model, before the counter hub so the hub finds each
+        # ``rv_cost``. No ``timing:`` section leaves every core untimed.
+        if design.timing is not None:
+            install_timing(self)
+        self._wire_counters(count_all)
+
+    def _wire_counters(self, count_all):
+        """Build the counter hub, then bind the Zihpm CSRs and every block that reads it.
+
+        Last in construction, so the hub sees every unit and block already
+        attached. The on-demand families are installed only when something
+        names one of their events, ``counters.enable`` lists them, or ``count_all``.
+        """
+        spec = self.design.counters
+        wanted = [*spec.events]
+        for block in self.blocks.values():
+            wanted += block.required_events()
+        families = requested_families(wanted) | set(spec.enable)
+        if count_all:
+            families.add("all")
+        self.counter_hub = hub = CounterHub.discover(self, families)
+        try:
+            for n, event in spec.hpm:
+                reader = hub.reader(event)
+                for core in self.cores:
+                    core.csrs.bind_hpm(n, reader)
+            for block in self.blocks.values():
+                block.bind_counters(hub)
+        except CounterError as e:
+            raise NaiadBuildError(f"design '{self.design.name}': {e}") from None
 
     # -- lookup ------------------------------------------------------------
 
@@ -235,6 +270,7 @@ class NaiadSoC:
     def reset(self):
         self.halted = False
         self.device.reset()
+        self.counter_hub.reset()
 
     def halt(self):
         self.halted = True
@@ -269,34 +305,18 @@ class NaiadSoC:
     # -- counters ----------------------------------------------------------
 
     def counter(self, name):
-        if name == "cycle":
-            return self.clock.current_cycle
-        if name == "instret":
-            return sum(c.csrs.retired for c in self.cores)
-        if name == "mtime":
-            clints = self.blocks_of_type("clint")
-            return clints[0].mtime() if clints else 0
-        if name == "htif_chars":
-            htif = self.htif
-            return 0 if htif is None else len(htif.console)
-        if name.startswith("matrix_") and name[7:] in MATRIX_COUNTERS:
-            return sum(u.stats[name[7:]] for u in self.matrix_units)
-        raise KeyError(f"unknown counter '{name}'")
+        """The live value of counter-hub event ``name`` (see ``framework.naiad.counters``)."""
+        return self.counter_hub.read(name)
 
     def counters(self):
-        out = {"cycles": self.clock.clock_tick_num, "instret": self.counter("instret")}
-        for core in self.cores:
-            out[f"hart{core.core_id}.instret"] = core.csrs.retired
-            unit = getattr(core, "matrix", None)
-            if unit is not None:
-                out.update(
-                    {f"hart{core.core_id}.matrix.{k}": v for k, v in unit.stats.items()}
-                )
-        for block in self.blocks.values():
-            out.update({f"{block.name}.{k}": v for k, v in block.counters().items()})
-        return out
+        """Every counter-hub event and its value, in report order."""
+        return self.counter_hub.snapshot()
 
 
-def build(design):
-    """Build a :class:`NaiadSoC` from a validated :class:`~framework.naiad.design.Design`."""
-    return NaiadSoC(design)
+def build(design, count_all=False):
+    """Build a :class:`NaiadSoC` from a validated :class:`~framework.naiad.design.Design`.
+
+    ``count_all`` installs every on-demand counter family (instruction classes,
+    per-block bus bytes) whether or not the design names one.
+    """
+    return NaiadSoC(design, count_all)

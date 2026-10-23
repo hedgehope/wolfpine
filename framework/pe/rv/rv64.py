@@ -21,7 +21,7 @@ from framework.pe.rv.rv32 import RV32I
 
 #: Extension name -> ISA class(es), lower-case. ``i`` is the base ISA and
 #: resolves to nothing (it is always present); ``a`` is Zaamo + Zalrsc, and
-#: ``zicntr`` lives in the Zicsr CSR file, so it resolves to the same class.
+#: ``zicntr`` and ``zihpm`` live in the Zicsr CSR file, so they resolve to the same class.
 #: ``d`` and ``zfbfmin`` need ``f`` as well; the Naiad design validator says so.
 RV64_ISA_REGISTRY = {
     "i": (),
@@ -36,6 +36,7 @@ RV64_ISA_REGISTRY = {
     "zfbfmin": (RV64_ZFBFMIN_ISA,),
     "zicsr": (RV64_ZICSR_ISA,),
     "zicntr": (RV64_ZICSR_ISA,),
+    "zihpm": (RV64_ZICSR_ISA,),
 }
 
 

@@ -4,9 +4,15 @@ The program's console (HTIF putchar / ``SYS_write``) streams to stdout as it
 runs; the report (cycles, counters, ``--dump`` hexdumps) goes to stderr, so
 stdout is exactly what the program printed. The process exits with the
 program's exit code, or 124 if ``--max-cycles`` ran out first.
+
+The report lists every counter-hub event (``framework.naiad.counters``);
+``--counters-json PATH`` also writes them, with the run's outcome, as JSON for
+the experiment harness, and ``--count-all`` turns on the on-demand families
+(instruction classes, per-block bus bytes) the design does not ask for.
 """
 
 import argparse
+import json
 import sys
 
 from framework.naiad.builder import NaiadBuildError, NaiadRunError, build
@@ -20,10 +26,14 @@ DEFAULT_MAX_CYCLES = 50_000_000
 
 
 def run_program(
-    design_path, elf_path, max_cycles=DEFAULT_MAX_CYCLES, console_stream=None
+    design_path,
+    elf_path,
+    max_cycles=DEFAULT_MAX_CYCLES,
+    console_stream=None,
+    count_all=False,
 ):
     """Build ``design_path``, load ``elf_path`` and run it; returns ``(soc, RunResult)``."""
-    soc = build(load_design(design_path))
+    soc = build(load_design(design_path), count_all=count_all)
     if soc.htif is not None:
         soc.htif.console_stream = console_stream
     soc.load(elf_path)
@@ -40,6 +50,19 @@ def _parse_dump(soc, text):
     else:
         addr = int(where, 0)
     return addr, int(length, 0)
+
+
+def counters_json(soc, result, design_path, elf_path):
+    """The run's outcome and every counter, as the dict ``--counters-json`` writes."""
+    return {
+        "design": soc.design.name,
+        "design_path": str(design_path),
+        "elf": str(elf_path),
+        "exit_code": result.exit_code,
+        "timed_out": result.timed_out,
+        "cycles": result.cycles,
+        "counters": result.counters,
+    }
 
 
 def hexdump(memory, addr, length, out):
@@ -70,12 +93,26 @@ def main(argv=None):
         metavar="ADDR:LEN",
         help="hexdump memory after the run (ADDR may be a symbol)",
     )
+    parser.add_argument(
+        "--counters-json",
+        metavar="PATH",
+        help="write the run's outcome and every counter event to PATH as JSON",
+    )
+    parser.add_argument(
+        "--count-all",
+        action="store_true",
+        help="also count the on-demand events (instruction classes, bus bytes per block)",
+    )
     args = parser.parse_args(argv)
 
     report = sys.stderr
     try:
         soc, result = run_program(
-            args.design, args.elf, args.max_cycles, console_stream=sys.stdout
+            args.design,
+            args.elf,
+            args.max_cycles,
+            console_stream=sys.stdout,
+            count_all=args.count_all,
         )
     except (
         DesignError,
@@ -103,6 +140,16 @@ def main(argv=None):
         )
     for name, value in result.counters.items():
         print(f"naiad:   {name} = {value}", file=report)
+    if args.counters_json:
+        try:
+            with open(args.counters_json, "w") as f:
+                json.dump(
+                    counters_json(soc, result, args.design, args.elf), f, indent=2
+                )
+                f.write("\n")
+        except OSError as e:
+            print(f"naiad: error: --counters-json: {e}", file=report)
+            return EXIT_ERROR
     for text in args.dump:
         try:
             addr, length = _parse_dump(soc, text)

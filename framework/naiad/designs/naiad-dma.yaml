@@ -1,0 +1,34 @@
+# naiad-dma: naiad-base-rv64's memory map plus a scratchpad and a DMA engine,
+# the Tensix-like hierarchy (software moves tiles between DRAM and a local SRAM).
+#
+#   0x0000_1000  boot ROM
+#   0x0200_0000  CLINT
+#   0x0201_0000  perf counters
+#   0x1001_0000  DMA engine     (one channel, 8 bytes/cycle, 16-cycle setup)
+#   0x2000_0000  scratchpad     (256 KiB mapped in a 16 MiB window)
+#   0x8000_0000  DRAM, 1 GiB
+name: naiad-dma
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, zicsr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params: {counters: [cycle, instret, mtime, htif_chars]}
+  - name: dma
+    type: dma
+    base: 0x10010000
+    window: 0x1000
+    params: {channels: 1, bytes_per_cycle: 8, setup_latency: 16, stride_align: 8}
+  - {name: scratchpad, type: scratchpad, base: 0x20000000, window: 16MiB, params: {size: 0x40000}}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

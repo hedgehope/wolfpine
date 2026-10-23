@@ -7,11 +7,12 @@ the bf16/fp8 formats and is imported on first use.
 
 from framework.matrix.accuracy import compare, evaluate_formats
 from framework.matrix.formats import FORMATS, Format, format_of_dtype, get_format
-from framework.matrix.mac import fma_round_once, tile_mac
+from framework.matrix.mac import NUMERICS, fma_round_once, register_numerics, tile_mac
 from framework.matrix.semiring import SEMIRINGS, tropical_product
 
 __all__ = [
     "FORMATS",
+    "NUMERICS",
     "SEMIRINGS",
     "Format",
     "compare",
@@ -19,6 +20,7 @@ __all__ = [
     "fma_round_once",
     "format_of_dtype",
     "get_format",
+    "register_numerics",
     "tile_mac",
     "tropical_product",
 ]
