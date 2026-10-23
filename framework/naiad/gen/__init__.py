@@ -206,6 +206,12 @@ SECTIONS
     __bss_end = .;
   }} > RAM
 
+  /* Host-written kernel I/O (NAIAD_IO): not zeroed by crt0, so arrays the host
+     writes after loading the ELF (framework.naiad.kernel_io) survive start-up. */
+  .noinit (NOLOAD) : ALIGN(64) {{
+    *(.noinit .noinit.*)
+  }} > RAM
+
   . = ALIGN(16);
   _end = .;
   __heap_start = .;

@@ -40,6 +40,15 @@ $(GEN)/naiad.mk: $(DESIGN_PATH) $(GEN_SOURCES)
 
 $(GEN)/naiad.h $(GEN)/linker.ld $(GEN)/crt0.S: $(GEN)/naiad.mk ;
 
+# The GEMM micro-kernel + blocked driver emitted for this design's matrix unit
+# (framework/naiad/emit/gemm.py). A design without a usable unit gets a header that
+# #errors when included, so only kernels that use it fail. GEMM_EMIT_FLAGS passes
+# --block BMxBN / --single-buffer / --pairs through (use a fresh BUILD when changing it).
+EMIT_SOURCES := $(wildcard $(REPO_ROOT)/framework/naiad/emit/*.py)
+GEMM_EMIT_FLAGS ?=
+$(GEN)/naiad_gemm.h: $(GEN)/naiad.mk $(EMIT_SOURCES)
+	$(NAIAD_PY) -m framework.naiad.emit.gemm $(DESIGN_PATH) -o $@ $(GEMM_EMIT_FLAGS) > /dev/null
+
 ARCH_FLAGS := --target=riscv$(NAIAD_XLEN)-unknown-elf -march=$(NAIAD_MARCH) -mabi=$(NAIAD_MABI) -mcmodel=$(NAIAD_CMODEL)
 CFLAGS ?= -O2 -g
 ALL_CFLAGS := $(ARCH_FLAGS) $(CFLAGS) -ffreestanding -fno-builtin -nostdlib -ffunction-sections -fdata-sections \
@@ -51,7 +60,7 @@ OBJECTS := $(patsubst %.c,$(BUILD)/obj/%.o,$(notdir $(SOURCES))) $(BUILD)/obj/cr
 
 vpath %.c $(PROG_DIR) $(PLATFORM)
 
-$(BUILD)/obj/%.o: %.c $(GEN)/naiad.h $(PLATFORM)/naiad_platform.h $(wildcard $(KERNELS_DIR)/include/*.h)
+$(BUILD)/obj/%.o: %.c $(GEN)/naiad.h $(GEN)/naiad_gemm.h $(PLATFORM)/naiad_platform.h $(wildcard $(KERNELS_DIR)/include/*.h)
 	@mkdir -p $(dir $@)
 	$(NAIAD_CC) $(ALL_CFLAGS) -c $< -o $@
 

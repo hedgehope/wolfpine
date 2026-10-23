@@ -1,0 +1,51 @@
+# Tier-1 talk figures: the AME crossover, precision and data-movement studies
+# over every dwarf in kernels/naiad/dwarfs/ (missing or broken ones are skipped).
+#
+#   python -m experiments.naiad.all            # run + plot (also: make -C experiments/naiad figures)
+#   python -m experiments.naiad.all --quick    # smallest sizes, three ratios (CI)
+#
+# Every point derives its design from naiad-dwarfs.yaml by overrides only; no
+# override may move an address. The "vector" baseline is the scalar F/D variant
+# until RVV lands in Phase C: switching is ratio.vector (and baseline.variant).
+name: talk_tier1
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: all
+sizes: mid
+seed: 0
+count_all: true
+baseline: {variant: scalar, formats: [fp32, fp32]}
+ratio: {vector: scalar}
+
+studies:
+  # Speedup against the matrix-to-vector throughput ratio. fp32 takes 4 passes
+  # (format_passes), so 4..2048 MACs/cycle is a fp32 ratio of 1..512 against one
+  # scalar FMA a cycle. The scalar baseline does not depend on the matrix unit,
+  # so it runs once per dwarf (only:).
+  - name: crossover
+    description: speedup vs matrix:vector peak ratio, fp32/fp32, mid size
+    variants: all
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.matrix.macs_per_cycle: [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # Normwise error against the fp64 golden for every format pair each dwarf's
+  # AME variant supports, plus the scalar F/D variant's fp32 and fp64, at the
+  # default timing.
+  - name: precision
+    description: error per format pair, default design
+    variants: all
+    formats: all
+    figures: [accuracy]
+
+  # Bytes per path and redundant arithmetic at the default design.
+  - name: bytes
+    description: bytes per path and redundancy, default design, fp32/fp32
+    variants: all
+    formats: [[fp32, fp32]]
+    figures: [bytes, redundancy]

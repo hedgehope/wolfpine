@@ -24,6 +24,8 @@ dependencies = [
 dev=["ruff", "pytest"]
 # Naiad's matrix-unit numerics (framework/matrix): bf16 and fp8 dtypes
 naiad = ["ml_dtypes"]
+# The Naiad experiment harness (experiments/naiad): sweep figures
+experiments = ["matplotlib", "ml_dtypes"]
 
 [project.scripts]
 wolfpine = "framework.cli:main"

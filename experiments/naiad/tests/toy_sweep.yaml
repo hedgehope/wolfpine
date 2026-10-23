@@ -1,0 +1,21 @@
+# The harness tests' sweep over the toy dwarf (experiments/naiad/tests/toy_dwarf).
+name: toy
+dwarfs: all
+dwarfs_root: experiments/naiad/tests/toy_dwarf
+sizes: smallest
+studies:
+  - name: crossover
+    variants: [ame, scalar]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.matrix.macs_per_cycle: [1, 2, 4, 16, 256]
+    only: {timing.matrix.macs_per_cycle: [ame]}
+    figures: [crossover, redundancy]
+  - name: precision
+    variants: [ame]
+    formats: all
+    figures: [accuracy]
+  - name: bytes
+    variants: [ame, scalar]
+    formats: [[fp32, fp32]]
+    figures: [bytes, redundancy]

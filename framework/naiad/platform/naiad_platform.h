@@ -32,6 +32,11 @@ extern volatile uint64_t fromhost;
 
 #define NAIAD_CLINT_MTIME_OFFSET 0xBFF8u
 
+/* Place a kernel input/output in .noinit, which crt0 does not zero, so the host
+ * can write it after loading the ELF (framework.naiad.kernel_io.run_kernel) and
+ * read it back by symbol. 64-byte aligned, so tiles and DMA rows line up. */
+#define NAIAD_IO __attribute__((section(".noinit"), aligned(64)))
+
 static inline void naiad_htif_send(uint64_t cmd) {
     while (tohost != 0) {
     }
