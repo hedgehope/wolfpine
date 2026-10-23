@@ -6,7 +6,7 @@ from framework.pe.rv.isa.i_isa import RV_I_ISA
 from framework.pe.rv.isa.m_isa import RV_M_ISA
 from framework.pe.rv.isa.tt_isa import RV_TT_ISA
 from framework.trace import EventCategory, InstrEvent, get_bus
-from framework.util.conversion import conv_to_bytes, conv_to_uint32
+from framework.util.conversion import conv_to_uint32
 
 # The 32 integer registers occupy indices 0-31, with pc/nextpc at 32/33. When a
 # core is built with a floating-point unit, the 32 f-registers occupy 34-65 and
@@ -99,6 +99,15 @@ class RV32I(ProcessingElement):
     #: register file's reference to the same object: the ISA executors are
     #: handed the register file, and the retire counter is bumped from here.
     csrs = None
+    #: Width of an x-register (and the PC) in bytes: XLEN / 8. ``RV64I``
+    #: overrides it to 8; everything this class allocates or writes for the
+    #: integer file follows it.
+    XLEN_BYTES = 4
+    #: Width of an f-register in bytes, FLEN / 8, for cores built with
+    #: ``fp_registers=True``. The Blackhole baby cores are F/Zfh (FLEN=32).
+    FLEN_BYTES = 4
+    #: The base integer ISA, always first in :attr:`isas`.
+    BASE_ISA = RV_I_ISA
 
     def __init__(
         self,
@@ -112,7 +121,7 @@ class RV32I(ProcessingElement):
     ):
         if extensions is None:
             extensions = []
-        self.isas = [RV_I_ISA] + extensions
+        self.isas = [self.BASE_ISA] + extensions
         # ``isa.run`` on a class builds a fresh bound-classmethod object every
         # time it is looked up, once per ISA per simulated instruction. The list
         # is fixed at construction (nothing in the tree mutates ``isas``), so
@@ -128,11 +137,14 @@ class RV32I(ProcessingElement):
         self.unit_id: tuple | None = None
 
         # 32 registers plus the PC
+        xlen_bytes = self.XLEN_BYTES
         registers = []
         # Register 0 is read only and hardcoded to zero
-        registers.append(Register(4, conv_to_bytes(0), RegisterAccessMode.R, False))
+        registers.append(
+            Register(xlen_bytes, bytes(xlen_bytes), RegisterAccessMode.R, False)
+        )
         for i in range(33):
-            registers.append(Register(4))
+            registers.append(Register(xlen_bytes))
 
         # Floating-point register file (F/Zfh): 32 f-registers + fcsr, appended
         # at FP_REGISTER_BASE so the FP ISAs find them. Only cores with an FP
@@ -140,7 +152,7 @@ class RV32I(ProcessingElement):
         if fp_registers:
             assert len(registers) == FP_REGISTER_BASE
             for i in range(32):
-                registers.append(Register(4))
+                registers.append(Register(self.FLEN_BYTES))
             registers.append(Register(4))  # fcsr
 
         # A ``framework.pe.rv.cost.RiscvCostState`` once a core opts into the
@@ -224,7 +236,7 @@ class RV32I(ProcessingElement):
         pc = self.pc_register
         nextpc = self.nextpc_register
         pc_val = pc.read_uint()
-        nextpc.write(conv_to_bytes(pc_val + 4))
+        nextpc.write((pc_val + 4).to_bytes(self.XLEN_BYTES, "little"))
         memory = self.visible_memory
         memory.caller_context = (self.unit_id, self.core_label, pc_val)
 
@@ -350,7 +362,7 @@ class RV32I(ProcessingElement):
 
     def initialise_core(self):
         pc = self.register_file["pc"]
-        pc.write(conv_to_bytes(self.get_start_address()))
+        pc.write(self.get_start_address().to_bytes(self.XLEN_BYTES, "little"))
 
         self.unknown_instructions = 0
         if self.rv_cost is not None:

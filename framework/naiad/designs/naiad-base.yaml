@@ -1,0 +1,29 @@
+# Naiad base design: one hart, Spike-compatible memory map.
+#
+#   0x0000_1000  boot ROM      (reset vector -> ELF entry)
+#   0x0200_0000  CLINT         (msip / mtimecmp / mtime)
+#   0x0201_0000  perf counters (MMIO readout, 8 bytes per counter)
+#   0x8000_0000  DRAM, 1 GiB   (sparse; programs link here)
+#   tohost/fromhost            HTIF, located by ELF symbol
+#
+# RV32 for now: the RV64 core is not in yet, so this is the variant that runs.
+# naiad-base-rv64.yaml is the same map with xlen: 64.
+name: naiad-base
+cores:
+  count: 1
+  xlen: 32
+  isa: [i, m, zicsr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params: {counters: [cycle, instret, mtime, htif_chars]}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

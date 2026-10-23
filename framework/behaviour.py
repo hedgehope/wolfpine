@@ -318,6 +318,25 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "a malformed congestion-sweep plan; an offline analysis tool's "
             "input validation, nowhere near the simulated device"
         ),
+        "DesignError": (
+            "a malformed Naiad design file; input validation before any device exists"
+        ),
+        "NaiadBuildError": (
+            "a Naiad design the builder cannot assemble yet (e.g. RV64 before "
+            "its core lands); a configuration gap, not a program's behaviour"
+        ),
+        "NaiadRunError": (
+            "a wrapper that adds the cycle and PCs to whatever a Naiad core "
+            "raised; the wrapped error is the one with meaning"
+        ),
+        "HTIFError": (
+            "an HTIF command or proxied syscall Naiad does not implement; the "
+            "covered set will grow, so it is not a stable guarantee"
+        ),
+        "ELFLoadError": (
+            "an ELF that cannot be loaded (wrong machine, segment outside the "
+            "memory map); input validation before anything runs"
+        ),
     }
 )
 

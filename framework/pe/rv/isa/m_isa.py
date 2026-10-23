@@ -2,6 +2,12 @@ from framework.pe.rv.isa.rv_isa import RV_ISA
 from framework.util.conversion import conv_to_bytes
 
 
+def _div_trunc(a, b):
+    """Signed ``a / b`` rounded towards zero; ``b`` is non-zero."""
+    q = abs(a) // abs(b)
+    return -q if (a < 0) != (b < 0) else q
+
+
 class RV_M_ISA(RV_ISA):
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
@@ -52,31 +58,47 @@ class RV_M_ISA(RV_ISA):
                 rs2_val = register_file[rs2].read_uint()
                 result = (rs1_val * rs2_val) >> 32
                 snoop_str, snoop_op = "mulhu", "*"
+            # Division rounds towards zero and the remainder takes the
+            # dividend's sign (Python's // and % floor instead, so -1000 % 7
+            # would be 1, not -6). Neither traps: dividing by zero gives a
+            # quotient of all ones and a remainder of the dividend, and the
+            # signed overflow INT_MIN / -1 gives INT_MIN remainder 0. Exact
+            # integer arithmetic throughout (this used ``int(a / b)``).
             case 0x4:
                 # div
                 rs1_val = register_file[rs1].read_int()
                 rs2_val = register_file[rs2].read_int()
-                result = int(rs1_val / rs2_val)
+                if rs2_val == 0:
+                    result = -1
+                elif rs1_val == -(1 << 31) and rs2_val == -1:
+                    result = rs1_val
+                else:
+                    result = _div_trunc(rs1_val, rs2_val)
                 signed = True
                 snoop_str, snoop_op = "div", "/"
             case 0x5:
                 # divu
                 rs1_val = register_file[rs1].read_uint()
                 rs2_val = register_file[rs2].read_uint()
-                result = int(rs1_val / rs2_val)
+                result = rs1_val // rs2_val if rs2_val else 0xFFFFFFFF
                 snoop_str, snoop_op = "divu", "/"
             case 0x6:
                 # rem
                 rs1_val = register_file[rs1].read_int()
                 rs2_val = register_file[rs2].read_int()
-                result = rs1_val % rs2_val
+                if rs2_val == 0:
+                    result = rs1_val
+                elif rs1_val == -(1 << 31) and rs2_val == -1:
+                    result = 0
+                else:
+                    result = rs1_val - rs2_val * _div_trunc(rs1_val, rs2_val)
                 signed = True
                 snoop_str, snoop_op = "rem", "%"
             case 0x7:
                 # remu
                 rs1_val = register_file[rs1].read_uint()
                 rs2_val = register_file[rs2].read_uint()
-                result = rs1_val % rs2_val
+                result = rs1_val % rs2_val if rs2_val else rs1_val
                 snoop_str, snoop_op = "remu", "%"
             case _:
                 return False

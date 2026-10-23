@@ -1,0 +1,148 @@
+/*
+ * naiad_platform.h: the few services a freestanding Naiad program needs.
+ *
+ *   naiad_putchar / naiad_puts / naiad_printf   console, over HTIF device 1 cmd 1
+ *   naiad_exit(code)                            HTIF exit, tohost = (code << 1) | 1
+ *   naiad_cycles() / naiad_instret()            Zicsr counters when the design has
+ *                                               Zicsr, else the CLINT's mtime
+ *   naiad_perf_read(offset)                     the perfcounters block, if present
+ *
+ * Include after nothing else: it pulls in the design's generated naiad.h (put the
+ * generated directory on the include path). The same tohost/fromhost protocol is
+ * what Spike speaks, so programs using only this header also run there.
+ */
+#ifndef NAIAD_PLATFORM_H
+#define NAIAD_PLATFORM_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "naiad.h"
+
+#if !defined(__riscv_xlen) || __riscv_xlen != NAIAD_XLEN
+#error "compiler XLEN does not match the design's NAIAD_XLEN (check -march / --target)"
+#endif
+
+/* Defined in the generated crt0.S, in the .tohost section. */
+extern volatile uint64_t tohost;
+extern volatile uint64_t fromhost;
+
+#define NAIAD_CLINT_MTIME_OFFSET 0xBFF8u
+
+static inline void naiad_htif_send(uint64_t cmd) {
+    while (tohost != 0) {
+    }
+#if __riscv_xlen == 32
+    /* High word first: the store to the low word is the doorbell. */
+    volatile uint32_t *word = (volatile uint32_t *)&tohost;
+    word[1] = (uint32_t)(cmd >> 32);
+    word[0] = (uint32_t)cmd;
+#else
+    tohost = cmd;
+#endif
+}
+
+static inline void naiad_putchar(int ch) {
+    naiad_htif_send(((uint64_t)1 << 56) | ((uint64_t)1 << 48) | (uint8_t)ch);
+    while (fromhost == 0) {
+    }
+    fromhost = 0;
+}
+
+static inline void naiad_puts(const char *s) {
+    while (*s) {
+        naiad_putchar(*s++);
+    }
+}
+
+__attribute__((noreturn)) static inline void naiad_exit(int code) {
+    naiad_htif_send(((uint64_t)(uint32_t)code << 1) | 1);
+    for (;;) {
+    }
+}
+
+static inline uint64_t naiad_read64_hilo(volatile uint32_t *lo, volatile uint32_t *hi) {
+    uint32_t h, l;
+    do {
+        h = *hi;
+        l = *lo;
+    } while (h != *hi);
+    return ((uint64_t)h << 32) | l;
+}
+
+#ifdef NAIAD_CLINT_ADDR
+static inline uint64_t naiad_mtime(void) {
+    volatile uint32_t *mtime = (volatile uint32_t *)(uintptr_t)(NAIAD_CLINT_ADDR + NAIAD_CLINT_MTIME_OFFSET);
+#if __riscv_xlen == 32
+    return naiad_read64_hilo(mtime, mtime + 1);
+#else
+    return *(volatile uint64_t *)mtime;
+#endif
+}
+#endif
+
+#ifdef NAIAD_PERF_ADDR
+/* Read the perfcounters block register at byte `offset` (NAIAD_<BLOCK>_<COUNTER>). */
+static inline uint64_t naiad_perf_read(uintptr_t offset) {
+    volatile uint32_t *reg = (volatile uint32_t *)(uintptr_t)(NAIAD_PERF_ADDR + offset);
+#if __riscv_xlen == 32
+    return naiad_read64_hilo(reg, reg + 1);
+#else
+    return *(volatile uint64_t *)reg;
+#endif
+}
+#endif
+
+/* CSRs by number (cycle 0xC00, instret 0xC02, +0x80 for the RV32 high halves). */
+#if defined(__riscv_zicsr)
+#if __riscv_xlen == 32
+#define NAIAD_READ_CSR64(lo, hi)                                                                   \
+    ({                                                                                             \
+        uint32_t h_, l_, h2_;                                                                      \
+        do {                                                                                       \
+            __asm__ volatile("csrr %0, " #hi : "=r"(h_));                                          \
+            __asm__ volatile("csrr %0, " #lo : "=r"(l_));                                          \
+            __asm__ volatile("csrr %0, " #hi : "=r"(h2_));                                         \
+        } while (h_ != h2_);                                                                       \
+        ((uint64_t)h_ << 32) | l_;                                                                 \
+    })
+#else
+#define NAIAD_READ_CSR64(lo, hi)                                                                   \
+    ({                                                                                             \
+        uint64_t v_;                                                                               \
+        __asm__ volatile("csrr %0, " #lo : "=r"(v_));                                              \
+        v_;                                                                                        \
+    })
+#endif
+#endif
+
+static inline uint64_t naiad_cycles(void) {
+#if defined(__riscv_zicsr)
+    return NAIAD_READ_CSR64(0xC00, 0xC80);
+#elif defined(NAIAD_CLINT_ADDR)
+    return naiad_mtime();
+#else
+    return 0;
+#endif
+}
+
+static inline uint64_t naiad_instret(void) {
+#if defined(__riscv_zicsr)
+    return NAIAD_READ_CSR64(0xC02, 0xC82);
+#else
+    return 0;
+#endif
+}
+
+/* naiad_libc.c: the freestanding shim (compilers emit calls to the mem* functions). */
+void *memcpy(void *dst, const void *src, size_t n);
+void *memmove(void *dst, const void *src, size_t n);
+void *memset(void *dst, int c, size_t n);
+int memcmp(const void *a, const void *b, size_t n);
+size_t strlen(const char *s);
+
+/* printf-lite: %d %i %u %x %X %p %s %c %%, with l / ll length and a field width
+ * with optional 0 flag. No floating point. Returns the number of characters. */
+int naiad_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+#endif /* NAIAD_PLATFORM_H */

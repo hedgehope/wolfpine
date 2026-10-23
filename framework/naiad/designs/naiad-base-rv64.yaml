@@ -1,0 +1,20 @@
+# naiad-base with an RV64 hart. Same memory map as naiad-base.yaml.
+name: naiad-base-rv64
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, zicsr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params: {counters: [cycle, instret, mtime, htif_chars]}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}
