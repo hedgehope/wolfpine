@@ -29,7 +29,8 @@ What is modelled
 * ``mstatus``, ``mtvec``, ``mie``, ``mip``, ``mscratch``, ``mepc``, ``mcause``,
   ``mtval``, ``mcounteren``, ``mcountinhibit`` as plain storage. Wolfpine models
   no traps or interrupts, so nothing reads them back but software;
-  ``mcountinhibit`` in particular does not stop the counters.
+  ``mcountinhibit`` in particular does not stop the counters. The one WARL rule
+  kept is ``mepc[1:0]`` reading as zero (IALIGN = 32: Naiad cores have no C).
 
 Refused
 -------
@@ -57,6 +58,7 @@ CSR_CYCLE = 0xC00
 CSR_TIME = 0xC01
 CSR_INSTRET = 0xC02
 CSR_MISA = 0x301
+CSR_MEPC = 0x341
 CSR_MHARTID = 0xF14
 
 CSR_NAMES = {
@@ -171,6 +173,8 @@ class CSRFile64:
                 f"illegal-instruction trap, which Wolfpine does not model."
             )
         if addr in _STORAGE:
+            if addr == CSR_MEPC:
+                value &= ~0x3  # WARL: no C extension, so IALIGN = 32
             self.store[addr] = value
         elif addr == CSR_MCYCLE:
             self._cycle_base = (value - self.cycles) & _M64

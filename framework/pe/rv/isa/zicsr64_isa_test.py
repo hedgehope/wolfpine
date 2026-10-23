@@ -159,3 +159,11 @@ def test_csr_sees_full_64_bit_source():
     set_reg(core, RS1, M64)
     run(csr(RW, MSCRATCH, rd=0), core=core)
     assert core.csrs.read(MSCRATCH) == M64
+
+
+def test_mepc_low_bits_read_as_zero():
+    # WARL: with no C extension IALIGN is 32, so mepc[1:0] are always zero
+    # (riscv-arch-test Zicsr, which uses mepc as its scratch CSR, caught this).
+    MEPC = 0x341
+    core = run([csr(RW, MEPC, rd=0), _csrr(MEPC)], regs={RS1: M64})
+    assert reg(core, RD) == M64 & ~0x3

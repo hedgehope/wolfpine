@@ -1,6 +1,7 @@
 """Naiad design files: YAML -> validated dataclasses.
 
-A design names the cores and the IP blocks, and nothing else. Each block is
+A design names the cores, the IP blocks and, optionally, the matrix unit every
+hart gets (a top-level ``matrix:`` section; see :func:`_parse_matrix`). Each block is
 ``{name, type, base, window, params}``: ``type`` is a key of
 :data:`~framework.naiad.registry.IP_REGISTRY`, ``window`` is the address space
 reserved for the block, and the block's *size* (what is actually mapped, from
@@ -107,6 +108,28 @@ class ProgramSpec:
     stack_size: int = 64 * 1024
 
 
+@dataclass(frozen=True)
+class MatrixSpec:
+    """The matrix unit every hart gets (the design's top-level ``matrix:`` section).
+
+    Formats are canonical ``framework.matrix.formats`` names and fixed at
+    instantiation: an instruction naming any other format is illegal, as is one
+    needing a feature not listed here.
+    """
+
+    mode: str = "ame"
+    m: int = 16
+    n: int = 16
+    k: int = 16
+    tiles: int = 8
+    accs: int = 4
+    in_formats: tuple[str, ...] = ("fp32",)
+    acc_formats: tuple[str, ...] = ("fp32",)
+    features: tuple[str, ...] = ()
+    #: ``tile_mac``'s bit-exact mode: round the accumulator every ``k_chunk`` of K.
+    k_chunk: int | None = None
+
+
 @dataclass
 class Design:
     name: str
@@ -114,6 +137,7 @@ class Design:
     blocks: list[BlockSpec]
     program: ProgramSpec = field(default_factory=ProgramSpec)
     path: str | None = None
+    matrix: MatrixSpec | None = None
 
     def block(self, name):
         for b in self.blocks:
@@ -171,7 +195,115 @@ def _parse_cores(raw):
         )
     if len(set(isa)) != len(isa):
         raise DesignError(f"cores.isa lists an extension twice: {list(isa)}")
+    needs_f = [e for e in ("d", "zfbfmin") if e in isa and "f" not in isa]
+    if needs_f:
+        raise DesignError(f"cores.isa: {needs_f} require 'f', got {list(isa)}")
     return CoreSpec(count=count, xlen=xlen, isa=isa, reset_pc=reset_pc)
+
+
+#: Coupling modes the schema knows; only AME is built so far.
+MATRIX_MODES = ("ame", "ime", "vme")
+_MATRIX_MAX_DIM = 256
+
+
+def _parse_matrix(raw):
+    """The ``matrix:`` section, checked against the encodings table it will be decoded with.
+
+    Top-level rather than under ``cores``: it is a block of its own with its own
+    schema, every hart gets one instance, and keeping it out of ``CoreSpec``
+    leaves the ISA list (and the ``-march`` derived from it) about the core.
+    """
+    from framework.matrix.encodings import TABLE
+    from framework.matrix.formats import get_format
+
+    if raw is None:
+        return None
+    keys = {"mode", "m", "n", "k", "tiles", "accs", "formats", "features", "k_chunk"}
+    _check_keys(raw, keys, "matrix")
+    mode = str(raw.get("mode", "ame")).lower()
+    if mode not in MATRIX_MODES:
+        raise DesignError(
+            f"matrix.mode must be one of {list(MATRIX_MODES)}, got {mode!r}"
+        )
+    if mode != "ame":
+        raise DesignError(
+            f"matrix.mode '{mode}' is not implemented yet (only 'ame' is)"
+        )
+    dims = {}
+    for key, default in (("m", 16), ("n", 16), ("k", 16)):
+        dims[key] = parse_int(raw.get(key, default), f"matrix.{key}")
+        if not 1 <= dims[key] <= _MATRIX_MAX_DIM:
+            raise DesignError(
+                f"matrix.{key} must be in 1-{_MATRIX_MAX_DIM}, got {dims[key]}"
+            )
+    counts = {}
+    for key, kind, default in (("tiles", "tile", 8), ("accs", "acc", 4)):
+        counts[key] = parse_int(raw.get(key, default), f"matrix.{key}")
+        limit = TABLE.max_code(kind) + 1
+        if not 1 <= counts[key] <= limit:
+            raise DesignError(
+                f"matrix.{key} must be in 1-{limit} (the encoding's {kind} field), got {counts[key]}"
+            )
+
+    formats = raw.get("formats") or {}
+    _check_keys(formats, {"in", "acc"}, "matrix.formats")
+    lists = {}
+    for role, kind in (("in", "in_fmt"), ("acc", "acc_fmt")):
+        names = formats.get(role, ["fp32"])
+        if not isinstance(names, list) or not names:
+            raise DesignError(f"matrix.formats.{role} must be a non-empty list")
+        canonical = []
+        for name in names:
+            try:
+                fmt = get_format(str(name).lower())
+            except ValueError as e:
+                raise DesignError(f"matrix.formats.{role}: {e}") from None
+            if fmt.name not in TABLE.formats:
+                raise DesignError(
+                    f"matrix.formats.{role}: {fmt.name} has no code in the encodings table"
+                )
+            if TABLE.formats[fmt.name] > TABLE.max_code(kind):
+                raise DesignError(
+                    f"matrix.formats.{role}: {fmt.name} (code {TABLE.formats[fmt.name]}) does not fit the {kind} field"
+                )
+            canonical.append(fmt.name)
+        if len(set(canonical)) != len(canonical):
+            raise DesignError(
+                f"matrix.formats.{role} lists a format twice: {canonical}"
+            )
+        lists[role] = tuple(canonical)
+    for name in lists["acc"]:
+        if name in ("int8", "fp8_e4m3", "fp8_e5m2"):
+            raise DesignError(
+                f"matrix.formats.acc: {name} is not an accumulator format"
+            )
+    kinds = {get_format(n).is_float for n in lists["acc"]}
+    for name in lists["in"]:
+        if get_format(name).is_float not in kinds:
+            raise DesignError(
+                f"matrix.formats.in: {name} has no accumulator of its kind in {list(lists['acc'])}"
+            )
+
+    features = tuple(str(f).lower() for f in raw.get("features") or ())
+    unknown = [f for f in features if f not in TABLE.features]
+    if unknown:
+        raise DesignError(
+            f"matrix.features: unknown {unknown}; known: {sorted(TABLE.features)}"
+        )
+    k_chunk = raw.get("k_chunk")
+    if k_chunk is not None:
+        k_chunk = parse_int(k_chunk, "matrix.k_chunk")
+        if k_chunk < 1:
+            raise DesignError(f"matrix.k_chunk must be >= 1, got {k_chunk}")
+    return MatrixSpec(
+        mode=mode,
+        **dims,
+        **counts,
+        in_formats=lists["in"],
+        acc_formats=lists["acc"],
+        features=features,
+        k_chunk=k_chunk,
+    )
 
 
 def _parse_block(raw, index):
@@ -264,7 +396,9 @@ def validate(design):
 
 def parse_design(raw, path=None):
     """Build and validate a :class:`Design` from an already-loaded mapping."""
-    _check_keys(raw, {"name", "description", "cores", "blocks", "program"}, "design")
+    _check_keys(
+        raw, {"name", "description", "cores", "blocks", "program", "matrix"}, "design"
+    )
     blocks_raw = raw.get("blocks")
     if not isinstance(blocks_raw, list) or not blocks_raw:
         raise DesignError("design: 'blocks' must be a non-empty list")
@@ -283,6 +417,7 @@ def parse_design(raw, path=None):
         blocks=[_parse_block(b, i) for i, b in enumerate(blocks_raw)],
         program=program,
         path=None if path is None else str(path),
+        matrix=_parse_matrix(raw.get("matrix")),
     )
     return validate(design)
 

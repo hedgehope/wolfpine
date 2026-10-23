@@ -11,6 +11,9 @@ from dataclasses import dataclass, field
 from framework.device.clock import Clock
 from framework.device.device import Device, DeviceMemory
 from framework.device.reset import Reset
+from framework.matrix.ame_isa import attach as attach_matrix_unit
+from framework.matrix.unit import COUNTER_NAMES as MATRIX_COUNTERS
+from framework.matrix.unit import MatrixUnit
 from framework.memory.memory import MemorySpace
 from framework.memory.memory_map import AddressRange, MemoryMap
 from framework.naiad.registry import IP_REGISTRY, NAIAD_ISA_REGISTRY
@@ -97,6 +100,7 @@ def make_core(xlen, isa, reset_pc, memory, core_id):
             extensions=extensions,
             unknown_instr_is_error=True,
             core_id=core_id,
+            fp_registers="f" in isa or "d" in isa,
         )
         # RV64I only builds a CSR file when Zicsr is listed; without it the
         # file still counts cycles and retired instructions for the report.
@@ -122,6 +126,28 @@ def make_core(xlen, isa, reset_pc, memory, core_id):
     core.csrs = CSRFile(core.register_file, core_label=f"hart{core_id}")
     core.register_file.csrs = core.csrs
     return core
+
+
+def make_matrix_unit(spec, xlen):
+    """Build one hart's matrix unit from the design's :class:`~framework.naiad.design.MatrixSpec`."""
+    try:
+        return MatrixUnit(
+            m=spec.m,
+            n=spec.n,
+            k=spec.k,
+            tiles=spec.tiles,
+            accs=spec.accs,
+            in_formats=spec.in_formats,
+            acc_formats=spec.acc_formats,
+            features=spec.features,
+            k_chunk=spec.k_chunk,
+            xlen=xlen,
+        )
+    except ImportError as e:
+        listed = ", ".join(spec.in_formats + spec.acc_formats)
+        raise NaiadBuildError(
+            f"the matrix unit's formats ({listed}) need a missing module: {e}"
+        ) from None
 
 
 @dataclass
@@ -161,13 +187,22 @@ class NaiadSoC:
             )
             for i in range(cores_spec.count)
         ]
+        # The matrix unit is attached after construction, so the core factory
+        # stays about the core: AME goes last in each hart's ISA chain.
+        self.matrix_units = []
+        if design.matrix is not None:
+            for core in self.cores:
+                unit = make_matrix_unit(design.matrix, cores_spec.xlen)
+                self.matrix_units.append(attach_matrix_unit(core, unit))
         self.clock = NaiadClock(self.cores)
         clints = [b for b in self.blocks.values() if b.spec.type == "clint"]
         for core in self.cores:
             core.csrs.clock_owner = self.clock
             if isinstance(core.csrs, CSRFile64) and clints:
                 core.csrs.time_source = clints[0].mtime
-        self.reset_line = Reset([self.clock, *self.cores, *self.blocks.values()])
+        self.reset_line = Reset(
+            [self.clock, *self.cores, *self.blocks.values(), *self.matrix_units]
+        )
         self.device = Device(self.memory, [self.clock], [self.reset_line])
         self.halted = False
         self.image = None
@@ -244,12 +279,19 @@ class NaiadSoC:
         if name == "htif_chars":
             htif = self.htif
             return 0 if htif is None else len(htif.console)
+        if name.startswith("matrix_") and name[7:] in MATRIX_COUNTERS:
+            return sum(u.stats[name[7:]] for u in self.matrix_units)
         raise KeyError(f"unknown counter '{name}'")
 
     def counters(self):
         out = {"cycles": self.clock.clock_tick_num, "instret": self.counter("instret")}
         for core in self.cores:
             out[f"hart{core.core_id}.instret"] = core.csrs.retired
+            unit = getattr(core, "matrix", None)
+            if unit is not None:
+                out.update(
+                    {f"hart{core.core_id}.matrix.{k}": v for k, v in unit.stats.items()}
+                )
         for block in self.blocks.values():
             out.update({f"{block.name}.{k}": v for k, v in block.counters().items()})
         return out

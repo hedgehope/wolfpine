@@ -5,10 +5,14 @@ The block exposes, read-only, a chosen subset of the SoC's counter dict (see
 program with it can see counters no CSR names.
 """
 
+from framework.matrix.unit import COUNTER_NAMES as _MATRIX_COUNTERS
 from framework.naiad.ip.base import RegisterBlock
 
-#: Names a design may list; ``NaiadSoC.counter`` answers each.
-KNOWN_COUNTERS = ("cycle", "instret", "mtime", "htif_chars")
+#: Names a design may list; ``NaiadSoC.counter`` answers each. The ``matrix_*``
+#: ones are summed over the harts' matrix units (zero without one).
+KNOWN_COUNTERS = ("cycle", "instret", "mtime", "htif_chars") + tuple(
+    f"matrix_{name}" for name in _MATRIX_COUNTERS
+)
 
 
 class PerfCounters(RegisterBlock):

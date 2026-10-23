@@ -28,7 +28,17 @@ class RegisterFile:
         """
         if enabled == self.write_recording:
             return
+        # pc / nextpc / fcsr are not instruction destinations in the trace's
+        # sense: a jal writes its rd and then nextpc, an fcvt.w.d its rd and
+        # then fcsr's flags, and recording the second write would hide the first.
+        unrecorded = {
+            self.register_name_mapping[name]
+            for name in ("pc", "nextpc", "fcsr")
+            if name in self.register_name_mapping
+        }
         for idx, reg in enumerate(self.registers):
+            if idx in unrecorded:
+                continue
             if enabled:
                 self._install_write_hook(reg, idx)
             else:

@@ -14,8 +14,10 @@ A ``tohost`` value is ``device << 56 | cmd << 48 | payload``, as in Spike:
   ``SYS_exit`` (93) are proxied, the return value goes back in word 0;
 * device 1, cmd 1: console putchar of ``payload & 0xff``.
 
-Every handled command clears ``tohost`` and acks through ``fromhost`` (non-zero),
-so software waits on ``fromhost`` and then clears it.
+Every handled command clears ``tohost``. A proxied syscall is also acked
+through ``fromhost`` (non-zero), so software waits on ``fromhost`` and then
+clears it; a console write is not acked, exactly as Spike's ``bcd`` device
+does not, so software waits only for ``tohost`` to clear before the next one.
 
 The doorbell is the store that covers ``tohost``'s *low* byte. An RV64 core
 writes the whole word with one ``sd``; an RV32 core writes the high word first
@@ -84,20 +86,19 @@ class HTIF(IPBlock):
         if value == 0:
             return
         device, cmd, payload = value >> 56, (value >> 48) & 0xFF, value & _PAYLOAD_MASK
-        response = 1
+        response = None
         if device == 0 and value & 1:
             self._exit(value >> 1)
         elif device == 0 and cmd == 0:
             response = self._syscall(payload)
         elif device == 1 and cmd == 1:
             self._putchar(payload & 0xFF)
-            response = (1 << 56) | (1 << 48) | 0x100 | (payload & 0xFF)
         else:
             raise HTIFError(
                 f"unsupported HTIF command {hex(value)} (device {device}, cmd {cmd})"
             )
         self._write64(self.tohost, 0)
-        if not self.exited:
+        if response is not None and not self.exited:
             self._write64(self.fromhost, response)
 
     def _exit(self, code):

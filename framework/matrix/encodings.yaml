@@ -1,0 +1,276 @@
+# Naiad matrix-unit encodings: the attached (AME) instructions in custom-0 / custom-1.
+#
+# This table is the single source of truth. framework/matrix/encodings.py builds
+# the decoder from it at import, and the Naiad header generator emits the
+# opcode, funct3, format codes and field shifts below as #defines, which
+# kernels/naiad/include/matrix.h assembles with .insn. An encoding can therefore
+# move without a code change. It is loosely shaped after the RISC-V AME
+# proposals (tile registers, accumulators, format fields), but it is our own.
+#
+# Every instruction is a 32-bit R-type (.insn r opcode, funct3, funct7, rd, rs1,
+# rs2) or I-type (.insn i opcode, funct3, rd, rs1, imm12) word. An operand
+# either names a standard field (rd, rs1, rs2, imm) or gives its bit range
+# [lo, hi] inside funct7 (R-type, bits 25-31) or imm (I-type, bits 20-31).
+# Any bit not covered by the opcode, funct3 or an operand is reserved and must
+# be zero; a word with a reserved bit set is an illegal instruction.
+#
+# Operand kinds:
+#   tile     an input tile register index (a literal in a register field)
+#   acc      an accumulator index (likewise)
+#   gpr      an x-register
+#   in_fmt   an input-format code (see formats); must be one the design lists
+#   acc_fmt  an accumulator-format code; must be one the design lists
+#   flag     a one-bit modifier
+#   config   an mcfg selector (see config)
+#
+# An instruction or flag with a `feature` is optional: it is illegal unless the
+# design lists that feature (a flag only when it is set).
+#
+# Shapes: the unit is M x N x K. An "a" tile is M x K, a "b" tile K x N, an
+# accumulator M x N. Tiles and accumulators hold raw bit patterns; the format
+# field of the instruction that reads them says what the bits mean, exactly as
+# a hardware register file would. Rows are contiguous in memory; rs2 is the
+# byte stride from one row to the next.
+
+opcodes:
+  custom-0: 0x0B
+  custom-1: 0x2B
+
+# Format codes (names from framework/matrix/formats.py). mma's acc_fmt field is
+# three bits wide, so only codes 0-7 can be accumulator formats.
+formats:
+  fp64: 0
+  fp32: 1
+  fp16: 2
+  bf16: 3
+  int32: 4
+  tf32: 5
+  fp8_e4m3: 6
+  fp8_e5m2: 7
+  int8: 8
+
+# Optional features and their bit in mcfg's FEATURES word.
+features:
+  transpose: 0  # transposed tile loads (tload.* with t=1)
+  shift: 1      # tshift
+  epilogue: 2   # ascal / aadds
+  semiring: 3   # mma.minplus / mma.maxplus
+
+# mcfg selectors.
+config:
+  M: 0
+  N: 1
+  K: 2
+  TILES: 3        # number of input tile registers
+  ACCS: 4         # number of accumulators
+  IN_FORMATS: 5   # bit (1 << code) for each implemented input format
+  ACC_FORMATS: 6  # bit (1 << code) for each implemented accumulator format
+  FEATURES: 7     # bit (1 << feature bit) for each implemented feature
+
+instructions:
+  # -- custom-0: data movement -------------------------------------------------
+  tload.a:
+    opcode: custom-0
+    form: r
+    funct3: 0
+    exec: tile_load
+    params: {role: a}
+    operands:
+      td: {field: rd, kind: tile}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      t: {bits: [29, 29], kind: flag, feature: transpose}
+    doc: >
+      Load tile td as an "a" operand: M rows of K fmt elements, row r at
+      x[base] + r * x[stride]. With t=1 memory holds the K x M transpose
+      (K rows of M elements) and td receives its transpose. Bytes of td
+      outside the loaded shape become zero.
+
+  tload.b:
+    opcode: custom-0
+    form: r
+    funct3: 1
+    exec: tile_load
+    params: {role: b}
+    operands:
+      td: {field: rd, kind: tile}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      t: {bits: [29, 29], kind: flag, feature: transpose}
+    doc: >
+      Load tile td as a "b" operand: K rows of N fmt elements (with t=1, N
+      rows of K elements, transposed on the way in). Otherwise as tload.a.
+
+  tstore.a:
+    opcode: custom-0
+    form: r
+    funct3: 2
+    exec: tile_store
+    params: {role: a}
+    operands:
+      ts: {field: rd, kind: tile}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+    doc: >
+      Store tile ts's M x K "a" view, fmt elements, row r to
+      x[base] + r * x[stride].
+
+  tstore.b:
+    opcode: custom-0
+    form: r
+    funct3: 3
+    exec: tile_store
+    params: {role: b}
+    operands:
+      ts: {field: rd, kind: tile}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+    doc: Store tile ts's K x N "b" view, as tstore.a.
+
+  aload:
+    opcode: custom-0
+    form: r
+    funct3: 4
+    exec: acc_load
+    operands:
+      ad: {field: rd, kind: acc}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+    doc: >
+      Load accumulator ad: M rows of N fmt elements, row r at
+      x[base] + r * x[stride].
+
+  astore:
+    opcode: custom-0
+    form: r
+    funct3: 5
+    exec: acc_store
+    operands:
+      as: {field: rd, kind: acc}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+    doc: Store accumulator as (M x N fmt elements), as aload.
+
+  azero:
+    opcode: custom-0
+    form: r
+    funct3: 6
+    exec: acc_zero
+    operands:
+      ad: {field: rd, kind: acc}
+    doc: Set every bit of accumulator ad to zero (0.0 in every float format, 0 in int32).
+
+  tshift:
+    opcode: custom-0
+    form: r
+    funct3: 7
+    exec: tile_shift
+    feature: shift
+    operands:
+      td: {field: rd, kind: tile}
+      ts: {field: rs1, kind: tile}
+      amount: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      cols: {bits: [29, 29], kind: flag}
+      b: {bits: [30, 30], kind: flag}
+    doc: >
+      td = ts shifted by the signed x[amount] along rows (cols=0) or columns
+      (cols=1) of its "a" view (b=0, M x K) or "b" view (b=1, K x N), with fmt
+      elements: td[i] = ts[i - amount], zero where i - amount is out of range.
+      td may be ts.
+
+  # -- custom-1: compute and configuration -------------------------------------
+  mma:
+    opcode: custom-1
+    form: r
+    funct3: 0
+    exec: mma
+    params: {semiring: plus_times}
+    operands:
+      ad: {field: rd, kind: acc}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      in: {bits: [25, 28], kind: in_fmt}
+      acc: {bits: [29, 31], kind: acc_fmt}
+    doc: >
+      acc[ad] = acc[ad] + tile[ta] x tile[tb]: ta's M x K "a" view times tb's
+      K x N "b" view, both read as the in format, accumulated in the acc
+      format (framework.matrix.mac.tile_mac). Float formats pair with float
+      formats; int8/int32 inputs accumulate in int32 with wraparound.
+
+  mma.minplus:
+    opcode: custom-1
+    form: r
+    funct3: 1
+    exec: mma
+    feature: semiring
+    params: {semiring: min_plus}
+    operands:
+      ad: {field: rd, kind: acc}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      in: {bits: [25, 28], kind: in_fmt}
+      acc: {bits: [29, 31], kind: acc_fmt}
+    doc: acc[ad][i, j] = min(acc[ad][i, j], min_k ta[i, k] + tb[k, j]).
+
+  mma.maxplus:
+    opcode: custom-1
+    form: r
+    funct3: 2
+    exec: mma
+    feature: semiring
+    params: {semiring: max_plus}
+    operands:
+      ad: {field: rd, kind: acc}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      in: {bits: [25, 28], kind: in_fmt}
+      acc: {bits: [29, 31], kind: acc_fmt}
+    doc: acc[ad][i, j] = max(acc[ad][i, j], max_k ta[i, k] + tb[k, j]).
+
+  mcfg:
+    opcode: custom-1
+    form: i
+    funct3: 3
+    exec: config_read
+    operands:
+      rd: {field: rd, kind: gpr}
+      sel: {field: imm, kind: config}
+    doc: >
+      x[rd] = the configuration word sel names (see config), so a kernel can
+      be shape- and format-generic. An unknown selector is illegal.
+
+  ascal:
+    opcode: custom-1
+    form: r
+    funct3: 4
+    exec: acc_scalar
+    feature: epilogue
+    params: {op: mul}
+    operands:
+      ad: {field: rd, kind: acc}
+      value: {field: rs1, kind: gpr}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+    doc: >
+      acc[ad] = acc[ad] * s, element-wise, where s is the low bits of
+      x[value] read as one fmt element (e.g. an fp32 bit pattern), rounded
+      once to fmt.
+
+  aadds:
+    opcode: custom-1
+    form: r
+    funct3: 5
+    exec: acc_scalar
+    feature: epilogue
+    params: {op: add}
+    operands:
+      ad: {field: rd, kind: acc}
+      value: {field: rs1, kind: gpr}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+    doc: acc[ad] = acc[ad] + s, element-wise, as ascal.

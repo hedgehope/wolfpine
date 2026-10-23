@@ -12,14 +12,17 @@ design that names its ISA as strings resolves them through
 
 from framework.pe.rv.isa.a64_isa import RV64_ZAAMO_ISA, RV64_ZALRSC_ISA
 from framework.pe.rv.isa.b64_isa import RV64_ZBA_ISA, RV64_ZBB_ISA
+from framework.pe.rv.isa.fd_isa import RV64_D_ISA, RV64_F_ISA
 from framework.pe.rv.isa.i64_isa import RV64_I_ISA
 from framework.pe.rv.isa.m64_isa import RV64_M_ISA
+from framework.pe.rv.isa.zfbfmin_isa import RV64_ZFBFMIN_ISA
 from framework.pe.rv.isa.zicsr64_isa import RV64_ZICSR_ISA, CSRFile64, misa_value
 from framework.pe.rv.rv32 import RV32I
 
 #: Extension name -> ISA class(es), lower-case. ``i`` is the base ISA and
 #: resolves to nothing (it is always present); ``a`` is Zaamo + Zalrsc, and
 #: ``zicntr`` lives in the Zicsr CSR file, so it resolves to the same class.
+#: ``d`` and ``zfbfmin`` need ``f`` as well; the Naiad design validator says so.
 RV64_ISA_REGISTRY = {
     "i": (),
     "m": (RV64_M_ISA,),
@@ -28,6 +31,9 @@ RV64_ISA_REGISTRY = {
     "zalrsc": (RV64_ZALRSC_ISA,),
     "zba": (RV64_ZBA_ISA,),
     "zbb": (RV64_ZBB_ISA,),
+    "f": (RV64_F_ISA,),
+    "d": (RV64_D_ISA,),
+    "zfbfmin": (RV64_ZFBFMIN_ISA,),
     "zicsr": (RV64_ZICSR_ISA,),
     "zicntr": (RV64_ZICSR_ISA,),
 }
@@ -54,7 +60,10 @@ def rv64_extensions(names):
 
 #: The ``misa`` letter each extension class contributes. ``A`` needs both
 #: halves of the A extension.
-_MISA_LETTER = {RV64_I_ISA: "I", RV64_M_ISA: "M"}
+_MISA_LETTER = {RV64_I_ISA: "I", RV64_M_ISA: "M", RV64_F_ISA: "F", RV64_D_ISA: "D"}
+
+#: Extensions that address the f-registers; any of them allocates the file.
+_FP_ISAS = frozenset({RV64_F_ISA, RV64_D_ISA, RV64_ZFBFMIN_ISA})
 
 
 class RV64I(RV32I):
@@ -64,7 +73,7 @@ class RV64I(RV32I):
     first). Including :class:`RV64_ZICSR_ISA` allocates a :class:`CSRFile64`,
     reachable as ``core.csrs``, whose ``mhartid`` is ``core_id``.
     ``fp_registers=True`` allocates 32 eight-byte f-registers plus ``fcsr`` at
-    the same indices RV32 uses, for the D extension to address.
+    the same indices RV32 uses; listing F, D or Zfbfmin implies it.
     """
 
     XLEN_BYTES = 8
@@ -82,6 +91,7 @@ class RV64I(RV32I):
         fp_registers=False,
     ):
         extensions = list(extensions) if extensions is not None else []
+        fp_registers = fp_registers or any(isa in _FP_ISAS for isa in extensions)
         super().__init__(
             start_address,
             memory_spaces,

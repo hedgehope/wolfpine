@@ -55,6 +55,27 @@ def _block_defines(design):
     return out
 
 
+def _matrix_defines(spec):
+    """The matrix unit's shape, formats and features, then the encodings table."""
+    from framework.matrix.encodings import TABLE, header_defines
+
+    lines = [
+        "",
+        f"/* matrix unit: {spec.mode}, one per hart */",
+        "#define NAIAD_HAS_MATRIX 1",
+        f"#define NAIAD_MATRIX_{_ident(spec.mode)} 1",
+        f'#define NAIAD_MATRIX_MODE "{spec.mode}"',
+    ]
+    for name in ("m", "n", "k", "tiles", "accs"):
+        lines.append(f"#define NAIAD_MATRIX_{name.upper()} {getattr(spec, name)}")
+    lines += [f"#define NAIAD_MATRIX_IN_{_ident(f)} 1" for f in spec.in_formats]
+    lines += [f"#define NAIAD_MATRIX_ACC_{_ident(f)} 1" for f in spec.acc_formats]
+    lines += [f"#define NAIAD_MATRIX_FEATURE_{_ident(f)} 1" for f in spec.features]
+    lines += ["", "/* matrix encodings (framework/matrix/encodings.yaml) */"]
+    lines += [f"#define {name} {value:#x}" for name, value in header_defines(TABLE)]
+    return lines
+
+
 def gen_header(design):
     cores = design.cores
     lines = [_banner(design, "/*"), "#ifndef NAIAD_H", "#define NAIAD_H", ""]
@@ -88,6 +109,8 @@ def gen_header(design):
             lines += ["", f"/* {value} */"]
         else:
             lines.append(f"#define {name} {value}")
+    if design.matrix is not None:
+        lines += _matrix_defines(design.matrix)
     lines += ["", "#endif /* NAIAD_H */", ""]
     return "\n".join(lines)
 
@@ -154,11 +177,23 @@ SECTIONS
 def gen_crt0(design):
     xlen = design.cores.xlen
     store, regbytes = ("sd", 8) if xlen == 64 else ("sw", 4)
+    # Wait for the host to consume the previous command (a console byte main may
+    # have just sent) before ringing the doorbell again: Spike polls tohost only
+    # every few thousand instructions, so an unconditional store would overwrite it.
     if xlen == 64:
+        wait_idle = "4:\n  ld    t1, 0(t0)\n  bnez  t1, 4b"
         exit_store = "  sd    a0, 0(t0)"
     else:
+        wait_idle = "4:\n  lw    t1, 0(t0)\n  lw    t2, 4(t0)\n  or    t1, t1, t2\n  bnez  t1, 4b"
         # RV32: high word first, low word last; the low-word store is the HTIF doorbell.
         exit_store = "  sw    zero, 4(t0)\n  sw    a0, 0(t0)"
+    # FP instructions trap while mstatus.FS is Off (Spike, hardware), so an FP
+    # design's crt0 turns the unit on (FS = Initial) before any C code runs.
+    isa = design.cores.isa
+    if ("f" in isa or "d" in isa) and "zicsr" in isa:
+        fp_on = "  /* mstatus.FS = Initial, so FP instructions do not trap. */\n  li    t0, 1 << 13\n  csrs  mstatus, t0\n"
+    else:
+        fp_on = ""
     return f"""{_banner(design, "/*")}
   .section .text.init, "ax", @progbits
   .globl _start
@@ -178,7 +213,7 @@ _start:
   addi  t0, t0, {regbytes}
   j     1b
 2:
-  li    a0, 0
+{fp_on}  li    a0, 0
   li    a1, 0
   call  main
 
@@ -188,6 +223,7 @@ _exit:
   slli  a0, a0, 1
   ori   a0, a0, 1
   la    t0, tohost
+{wait_idle}
 {exit_store}
 3:
   j     3b

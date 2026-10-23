@@ -337,6 +337,23 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "an ELF that cannot be loaded (wrong machine, segment outside the "
             "memory map); input validation before anything runs"
         ),
+        "DifftestError": (
+            "the Naiad-vs-Spike differential runner's setup failure (no Spike "
+            "binary); a host-tool problem, raised before any simulator runs"
+        ),
+        "EncodingTableError": (
+            "a malformed matrix encodings table; input validation at import, "
+            "before any device exists"
+        ),
+        "IllegalMatrixInstruction": (
+            "the Naiad matrix unit's illegal-instruction trap (a format, feature "
+            "or index the design leaves out). What is legal is set per design "
+            "file, so there is no fixed set to promise"
+        ),
+        "MatrixAccessFault": (
+            "a Naiad tile load that reaches unmapped memory; an access fault "
+            "of a research SoC, not a Tenstorrent modelling guarantee"
+        ),
     }
 )
 

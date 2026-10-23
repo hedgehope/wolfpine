@@ -92,9 +92,8 @@ def test_htif_handshake_and_syscall_proxy(tmp_path):
     mem.write(TOHOST, ord("x").to_bytes(4, "little"))
     assert soc.htif.console == bytearray(b"x")
     assert mem.read(TOHOST, 8) == bytes(8)  # tohost cleared for the next command
-    assert (
-        int.from_bytes(mem.read(TOHOST + 0x40, 8), "little") != 0
-    )  # acked through fromhost
+    # A console write is not acked through fromhost (Spike's bcd device does not either).
+    assert mem.read(TOHOST + 0x40, 8) == bytes(8)
 
     # SYS_write(1, buf, 3) through a magic_mem block, then SYS_exit(5).
     magic, buf = 0x80002000, 0x80002100
@@ -149,6 +148,17 @@ def test_generated_files_carry_banner_and_addresses(tmp_path):
     assert "sd    zero, 0(t0)" in crt0
     assert "addi  t0, t0, 8" in crt0
     assert "NAIAD_MABI := lp64" in (rv64 / "naiad.mk").read_text()
+    # The ld/bnez wait before the exit store: Spike consumes tohost lazily.
+    assert "bnez  t1, 4b" in crt0
+    assert "csrs  mstatus" not in crt0
+
+
+def test_fp_design_crt0_turns_the_fpu_on(tmp_path):
+    generate(load_design(DESIGNS_DIR / "naiad-fp-rv64.yaml"), tmp_path)
+    crt0 = (tmp_path / "crt0.S").read_text()
+    # mstatus.FS = Initial before main, or FP code traps on Spike.
+    assert "li    t0, 1 << 13\n  csrs  mstatus, t0" in crt0
+    assert crt0.index("csrs  mstatus") < crt0.index("call  main")
 
 
 # -- end to end: clang -> ELF -> Naiad --------------------------------------

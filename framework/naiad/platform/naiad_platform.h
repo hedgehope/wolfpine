@@ -42,11 +42,10 @@ static inline void naiad_htif_send(uint64_t cmd) {
 #endif
 }
 
+/* Spike's console device does not ack a write through fromhost, so the only
+ * handshake is naiad_htif_send waiting for the previous tohost to be consumed. */
 static inline void naiad_putchar(int ch) {
     naiad_htif_send(((uint64_t)1 << 56) | ((uint64_t)1 << 48) | (uint8_t)ch);
-    while (fromhost == 0) {
-    }
-    fromhost = 0;
 }
 
 static inline void naiad_puts(const char *s) {

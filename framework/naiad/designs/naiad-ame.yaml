@@ -1,0 +1,36 @@
+# naiad-ame: naiad-base-rv64's memory map plus an attached (AME) matrix unit.
+#
+# A 16x16x16 unit with 8 input tiles and 4 accumulators, fp32 and int8 inputs
+# accumulating in fp32 and int32, and every optional feature. No F/D on the
+# core: kernels move fp32 data as bit patterns, and integer-valued data keeps
+# every fp32 result exact. Encodings: framework/matrix/encodings.yaml.
+name: naiad-ame
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, zicsr, zicntr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+matrix:
+  mode: ame
+  m: 16
+  n: 16
+  k: 16
+  tiles: 8
+  accs: 4
+  formats: {in: [fp32, int8], acc: [fp32, int32]}
+  features: [transpose, shift, epilogue, semiring]
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_mem_to_acc_bytes, matrix_acc_to_mem_bytes, matrix_mma, matrix_macs]
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}
