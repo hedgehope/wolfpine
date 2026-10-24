@@ -152,6 +152,10 @@ class MatrixSpec:
     #: (the Tensix FPU bit for bit, at ``fidelity`` LoFi/HiFi2/HiFi3/HiFi4).
     numerics: str = "ieee"
     fidelity: str | None = None
+    #: aload / astore (the ``acc_mem`` feature). Ztt has no memory <-> accumulator path.
+    acc_mem: bool = True
+    #: A draft the unit claims to model (``ztt``: Ztt v0.6), whose ranges are then enforced.
+    profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -294,7 +298,24 @@ MATRIX_MODES = ("ame", "ime", "vme")
 _MATRIX_MAX_DIM = 256
 
 
-def _parse_matrix(raw):
+def _parse_ime_matrix(raw, cores):
+    """``matrix: {mode: ime, ...}``: Zvvm on the cores' vector unit (``framework.matrix.ime.parse_ime``).
+
+    A Zvt (VME) extension on the same hart is refused: Zvt's ``vtle*``/``vtse*``
+    are bit-identical to Zvvm's ``vmtl.v``/``vmts.v`` with an immediate lambda.
+    """
+    from framework.matrix.ime import parse_ime
+
+    zvt = [e for e in cores.isa if e.startswith("zvt")]
+    if zvt:
+        raise DesignError(
+            f"matrix.mode ime cannot share a hart with VME ({zvt}): Zvt's vtle*/vtse* and Zvvm's "
+            f"vmtl.v/vmts.v occupy the same LOAD-FP/STORE-FP encodings (width 111, mew 1, mop 00)"
+        )
+    return parse_ime(raw, cores, DesignError)
+
+
+def _parse_matrix(raw, cores=None):
     """The ``matrix:`` section, checked against the encodings table it will be decoded with.
 
     Top-level rather than under ``cores``: it is a block of its own with its own
@@ -306,8 +327,10 @@ def _parse_matrix(raw):
 
     if raw is None:
         return None
+    if isinstance(raw, dict) and str(raw.get("mode", "ame")).lower() == "ime":
+        return _parse_ime_matrix(raw, cores)
     keys = {"mode", "m", "n", "k", "tiles", "accs", "formats", "features", "k_chunk"}
-    _check_keys(raw, keys | {"numerics", "fidelity"}, "matrix")
+    _check_keys(raw, keys | {"numerics", "fidelity", "acc_mem", "profile"}, "matrix")
     mode = str(raw.get("mode", "ame")).lower()
     if mode not in MATRIX_MODES:
         raise DesignError(
@@ -315,7 +338,7 @@ def _parse_matrix(raw):
         )
     if mode != "ame":
         raise DesignError(
-            f"matrix.mode '{mode}' is not implemented yet (only 'ame' is)"
+            f"matrix.mode '{mode}' is not implemented yet (only 'ame' and 'ime' are)"
         )
     dims = {}
     for key, default in (("m", 16), ("n", 16), ("k", 16)):
@@ -384,7 +407,8 @@ def _parse_matrix(raw):
         if k_chunk < 1:
             raise DesignError(f"matrix.k_chunk must be >= 1, got {k_chunk}")
     numerics, fidelity = _parse_matrix_numerics(raw, lists, k_chunk)
-    return MatrixSpec(
+    acc_mem, profile = _parse_matrix_ame_options(raw, dims, features)
+    spec = MatrixSpec(
         mode=mode,
         **dims,
         **counts,
@@ -394,7 +418,106 @@ def _parse_matrix(raw):
         k_chunk=k_chunk,
         numerics=numerics,
         fidelity=fidelity,
+        acc_mem=acc_mem,
+        profile=profile,
     )
+    if profile == "ztt":
+        _check_ztt_profile(spec)
+    return spec
+
+
+#: Matrix profiles a design may claim (``matrix.profile``).
+MATRIX_PROFILES = ("ztt",)
+#: Ztt v0.6 ranges (riscv-attached-matrix-extension tag v0.6, ``src/parameters.adoc``):
+#: AME_NUM_M_REGS and AME_NUM_ACC_REGS.
+ZTT_TILES = (16, 32)
+ZTT_ACCS = (1, 2, 4, 8, 16)
+#: Our features with a Ztt v0.6 counterpart: transposed loads (mls/mss .tst/.cm),
+#: tshift (mrowshift/mcolshift.ew.x), mmov.m.a/.a.m, mconv.ew, mmul{a,b}tacc.2d,
+#: mreduce*/mprefix*. Not in Ztt: epilogue (ascal/aadds act on accumulators;
+#: Ztt's element-wise ops act on M registers), semiring, shift2 (a proposal),
+#: and acc_mem (Ztt has no memory <-> Acc path).
+ZTT_FEATURES = ("transpose", "shift", "acc_move", "convert", "mma_transpose", "reduce")
+
+
+def _parse_matrix_ame_options(raw, dims, features):
+    """``matrix.acc_mem`` and ``matrix.profile``, and the shapes the newer features need."""
+    acc_mem = raw.get("acc_mem", True)
+    if not isinstance(acc_mem, bool):
+        raise DesignError(f"matrix.acc_mem must be true or false, got {acc_mem!r}")
+    if "acc_mem" in features:
+        raise DesignError(
+            "matrix.features: acc_mem is not listed; it is on unless matrix.acc_mem: false"
+        )
+    profile = raw.get("profile")
+    if profile is not None:
+        profile = str(profile).lower()
+        if profile not in MATRIX_PROFILES:
+            raise DesignError(
+                f"matrix.profile must be one of {list(MATRIX_PROFILES)}, got {profile!r}"
+            )
+    m, n, k = dims["m"], dims["n"], dims["k"]
+    if "shift2" in features and not m == n == k:
+        raise DesignError(
+            f"matrix.features: shift2 needs a square unit (m = n = k), got {m} x {n} x {k}"
+        )
+    if "acc_move" in features and k not in (m, n):
+        raise DesignError(
+            f"matrix.features: acc_move needs an M x N tile view (k = n or k = m), got {m} x {n} x {k}"
+        )
+    if "mma_transpose" in features and (m > max(k, n) or n > max(m, k)):
+        raise DesignError(
+            f"matrix.features: mma_transpose needs m <= max(k, n) and n <= max(m, k), got {m} x {n} x {k}"
+        )
+    return acc_mem, profile
+
+
+def _check_ztt_profile(spec):
+    """``profile: ztt``: the unit must be one Ztt v0.6 allows, within what Naiad models.
+
+    Ztt squares are N x N with N = sqrt(AME_NELEM), AME_NELEM a power of 4, and
+    the accumulator one square. A matmul's K is N times the operand's
+    pack_factor, so it equals N for every format at least AME_UNIT_DATATYPE_SIZE
+    wide; Naiad's unit has one K for every format, so the profile takes
+    AME_UNIT_DATATYPE_SIZE = 16 bits and admits no narrower (packed) input
+    format. Ztt requires a deterministic, accumulator-seeded fold one product at
+    a time, which is ``k_chunk: 1`` (each product rounded to the compute format,
+    then added: unfused). Each Naiad tile holds one square of the widest format,
+    i.e. one Ztt register *group*, so ``tiles`` counts groups.
+    """
+    from framework.matrix.formats import get_format
+
+    bad = []
+    if not spec.m == spec.n == spec.k:
+        bad.append(f"squares must be N x N x N, got {spec.m} x {spec.n} x {spec.k}")
+    elif spec.m & (spec.m - 1):
+        bad.append(f"N must be a power of two (AME_NELEM a power of 4), got {spec.m}")
+    if spec.tiles not in ZTT_TILES:
+        bad.append(
+            f"tiles must be one of {list(ZTT_TILES)} (AME_NUM_M_REGS), got {spec.tiles}"
+        )
+    if spec.accs not in ZTT_ACCS:
+        bad.append(
+            f"accs must be one of {list(ZTT_ACCS)} (AME_NUM_ACC_REGS), got {spec.accs}"
+        )
+    if spec.acc_mem:
+        bad.append("acc_mem must be false (Ztt has no memory <-> accumulator path)")
+    if spec.k_chunk != 1:
+        bad.append(
+            f"k_chunk must be 1 (Ztt's one-product-at-a-time fold), got {spec.k_chunk}"
+        )
+    if spec.numerics != "ieee":
+        bad.append(f"numerics must be ieee, got {spec.numerics}")
+    extra = [f for f in spec.features if f not in ZTT_FEATURES]
+    if extra:
+        bad.append(f"features {extra} are not in Ztt (allowed: {list(ZTT_FEATURES)})")
+    packed = [f for f in spec.in_formats if get_format(f).dtype.itemsize < 2]
+    if packed:
+        bad.append(
+            f"input formats {packed} would be packed (K = 2N or more), which this unit does not model"
+        )
+    if bad:
+        raise DesignError("matrix.profile ztt: " + "; ".join(bad))
 
 
 def _parse_matrix_numerics(raw, lists, k_chunk):
@@ -601,7 +724,7 @@ def parse_design(raw, path=None):
         blocks=[_parse_block(b, i) for i, b in enumerate(blocks_raw)],
         program=program,
         path=None if path is None else str(path),
-        matrix=_parse_matrix(raw.get("matrix")),
+        matrix=_parse_matrix(raw.get("matrix"), cores),
         counters=_parse_counters(raw.get("counters"), cores),
     )
     from framework.naiad.timing import parse_timing

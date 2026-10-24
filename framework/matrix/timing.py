@@ -34,6 +34,11 @@ instruction queue between them, so every hazard is resolved at issue:
   ``issue + path latency + region latency + T - 1``. A region with a latency
   provider (a cache) charges the provider's answer in place of its latency.
 * ``azero``, ``tshift`` and ``mcfg`` are fixed latencies on no pipe.
+* The Ztt-tracking register-to-register ops (``amov.t.a`` / ``amov.a.t``,
+  ``tconv``, ``treduce`` / ``tprefix``) hold the mma pipe for an interval and
+  are readable ``latency - 1`` after it; ``mma.at`` / ``mma.bt`` cost an mma;
+  ``tshift2`` is a fixed latency on no pipe, like ``tshift``. The defaults are
+  the Tensix analogues (see :class:`AMETimingSpec`).
 
 Conventions shared with the scalar model: "ready at ``r``" means an
 instruction reading the value may issue at cycle ``r``; a latency of 1 is
@@ -81,7 +86,19 @@ _PIPE = {
     "acc_store": "store",
     "mma": "mma",
     "acc_scalar": "mma",
+    # The Ztt-tracking ops run on the unit's datapath, as the Tensix's
+    # Dst <-> Src moves (MOVD2A, MOVA2D) and pooling reductions (GAPOOL/GMPOOL)
+    # are Matrix Unit (FPU) instructions sharing MVMUL's issue slot, and as
+    # ascal/aadds (an SFPU analogue) already do here.
+    "acc_to_tile": "mma",
+    "tile_to_acc": "mma",
+    "tile_convert": "mma",
+    "tile_reduce": "mma",
 }
+#: Execs that :meth:`AMETiming.issue` commits with the generic register-to-register rule.
+_UNIT_OPS = frozenset(
+    {"acc_to_tile", "tile_to_acc", "tile_convert", "tile_reduce", "tile_shift2"}
+)
 
 
 @dataclass(frozen=True)
@@ -114,6 +131,30 @@ class AMETimingSpec:
     tshift: int = 1
     #: ascal / aadds latency; they hold the mma pipe for this long.
     epilogue: int = 1
+    # -- the Ztt-tracking ops (custom-2). Defaults are the Tensix analogues in the
+    # Tensix instruction-cost table (TIC, as the designs cite it), MATH unit; each
+    # holds the mma pipe for its interval and is readable ``latency - 1`` after.
+    #: amov.t.a (acc -> tile) rows per cycle: TIC MOVD2A (Dst -> SrcA) moves 4
+    #: rows (MOV_4_ROWS) per instruction at throughput 1, so a 16-row square is 4.
+    acc_to_tile_rows_per_cycle: int = 4
+    #: TIC MOVD2A latency 2.
+    acc_to_tile_latency: int = 2
+    #: amov.a.t (tile -> acc): TIC MOVA2D (SrcA -> Dst) moves 8 rows (MOV_8_ROWS) at throughput 1.
+    tile_to_acc_rows_per_cycle: int = 8
+    #: TIC MOVA2D latency 4.
+    tile_to_acc_latency: int = 4
+    #: tconv interval; None = ``epilogue`` (an element-wise op over the tile, like
+    #: ascal: the Tensix converts in the SFPU or the packer, uncalibrated per element).
+    tconv: int | None = None
+    #: treduce rows per cycle: TIC GAPOOL/GMPOOL pool 8 rows of a 16-wide face per
+    #: instruction at throughput 1 (as MVMUL does), so a 16-row square is 2.
+    treduce_rows_per_cycle: int = 8
+    #: TIC GAPOOL/GMPOOL latency 5 (MVMUL's).
+    treduce_latency: int = 5
+    # tprefix runs ceil(log2(length)) passes at the treduce rate (a Kogge-Stone
+    # network of adders). Not calibrated: the Tensix has no prefix instruction.
+    #: tshift2 latency on no pipe; None = ``tshift`` (TIC SHIFTXB).
+    tshift2: int | None = None
 
     def mma_interval(self, m, n, k, in_format):
         if self.mma_ii is not None:
@@ -146,6 +187,7 @@ class _Op:
         "ii",
         "macs",
         "pipe",
+        "latency",
     )
 
 
@@ -204,7 +246,7 @@ class AMETiming:
         op.pipe = _PIPE.get(insn.exec)
         op.srcs, op.dst = [], -1
         op.tiles_read, op.tiles_written, op.accs_read, op.accs_written = (), (), (), ()
-        op.base, op.nbytes, op.ii, op.macs = None, 0, 0, 0
+        op.base, op.nbytes, op.ii, op.macs, op.latency = None, 0, 0, 0, 1
         for o in insn.operands:
             if o.kind == "gpr":
                 if o.field == "rd":
@@ -262,7 +304,40 @@ class AMETiming:
         elif kind == "acc_scalar":
             op.ii = spec.epilogue
             op.accs_read = op.accs_written = (ops["ad"],)
+        elif kind in _UNIT_OPS:
+            self._decode_unit_op(op, insn, ops)
         return op
+
+    def _decode_unit_op(self, op, insn, ops):
+        """Interval, latency and registers of a custom-2 register-to-register op."""
+        unit, spec = self.unit, self.spec
+        kind = insn.exec
+        rows = unit.m
+        op.latency = 1
+        if kind == "acc_to_tile":
+            op.ii = math.ceil(rows / spec.acc_to_tile_rows_per_cycle)
+            op.latency = spec.acc_to_tile_latency
+            op.accs_read, op.tiles_written = (ops["as"],), (ops["td"],)
+        elif kind == "tile_to_acc":
+            op.ii = math.ceil(rows / spec.tile_to_acc_rows_per_cycle)
+            op.latency = spec.tile_to_acc_latency
+            op.tiles_read, op.accs_written = (ops["ts"],), (ops["ad"],)
+        elif kind == "tile_convert":
+            op.ii = spec.epilogue if spec.tconv is None else spec.tconv
+            op.tiles_read, op.tiles_written = (ops["ts"],), (ops["td"],)
+        elif kind == "tile_reduce":
+            role = "b" if ops["b"] else "a"
+            view_rows, view_cols = unit.shape(role)
+            length = view_rows if ops["cols"] else view_cols
+            passes = (
+                max(1, math.ceil(math.log2(length))) if insn.params["prefix"] else 1
+            )
+            op.ii = passes * math.ceil(view_rows / spec.treduce_rows_per_cycle)
+            op.latency = spec.treduce_latency
+            op.tiles_read, op.tiles_written = (ops["ts"],), (ops["td"],)
+        else:  # tile_shift2: on no pipe, like tshift
+            op.ii = spec.tshift if spec.tshift2 is None else spec.tshift2
+            op.tiles_read, op.tiles_written = (ops["ta"], ops["tb"]), (ops["td"],)
 
     # -- issue ---------------------------------------------------------------
 
@@ -315,6 +390,23 @@ class AMETiming:
                 return self._stall(region.port_free, MEM)
 
         # -- commit: nothing below can stall --------------------------------
+        if kind in _UNIT_OPS:
+            # Register to register: hold the pipe (if any) for ii; the result is
+            # readable ``latency - 1`` after; sources are free once read.
+            ii = op.ii
+            if pipe is not None:
+                self.pipe_free[pipe] = cycle + ii
+                self.busy[pipe] += ii
+            done = cycle + ii + op.latency - 1
+            for t in op.tiles_written:
+                self.tile_ready[t] = done
+            for a in op.accs_written:
+                self.acc_ready[a] = self.acc_mma_ready[a] = done
+            for t in op.tiles_read:
+                self.tile_read_free[t] = max(self.tile_read_free[t], cycle + ii)
+            for a in op.accs_read:
+                self.acc_read_free[a] = max(self.acc_read_free[a], cycle + ii)
+            return done
         if kind == "mma" or kind == "acc_scalar":
             ii = op.ii
             self.pipe_free["mma"] = cycle + ii
@@ -393,6 +485,7 @@ def normalise(
     tiles=8,
     accs=4,
     power_of_two=True,
+    vlen=None,
 ):
     """Derive a unit and its timing from a hardware budget, so modes compare at equal cost.
 
@@ -412,7 +505,18 @@ def normalise(
     """
     from framework.matrix.formats import get_format
 
-    if mode in ("ime", "vme"):
+    if (
+        mode == "ime"
+    ):  # tiles / accs do not apply; vlen pins VLEN instead of deriving it
+        return _normalise_ime(
+            peak_flops_per_cycle,
+            operand_bytes,
+            mem_bytes_per_cycle,
+            in_format=in_format,
+            acc_format=acc_format,
+            vlen=vlen,
+        )
+    if mode == "vme":
         return _NORMALISERS[mode](
             peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle
         )
@@ -461,20 +565,99 @@ def normalise(
     return NormalisedConfig("ame", matrix, timing, derived)
 
 
-def _normalise_ime(peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle):
-    """IME (Phase C): mma reads and writes vector register groups; no new state.
+def _normalise_ime(
+    peak_flops_per_cycle,
+    operand_bytes,
+    mem_bytes_per_cycle,
+    *,
+    in_format="fp32",
+    acc_format="fp32",
+    vlen=None,
+):
+    """IME (Zvvm): the operand storage *is* the vector register file; mma reads and writes it.
 
-    Sketch: the operand storage *is* the VRF, so ``VLEN = operand_bytes * 8 / 32``.
-    With element width ``SEW`` and a register group of ``LMUL`` registers holding
-    an ``M x K`` tile, ``M * K * SEW = LMUL * VLEN``; A, B and C tiles each take a
-    group, so the largest square tile is ``d = sqrt(LMUL * VLEN / SEW)`` with
-    ``3 * LMUL <= 32`` (minus the groups the kernel needs for itself). Peak MACs
-    as AME (``peak / 2``), but each mma also reads ``2 * d * d * SEW / 8`` and
-    writes ``d * d * acc_bytes`` through the VRF ports, so the timing adds a
-    VRF-port bandwidth term: ``ii = max(ceil(d**3 / macs), ceil(vrf_bytes / vrf_port_bytes_per_cycle))``.
-    Memory bandwidth goes to vector loads/stores instead of tile loads.
+    * **Storage.** 32 registers of VLEN bits hold ``operand_bytes``, so
+      ``VLEN = operand_bytes * 8 / 32``, rounded down to a power of two (VLEN must
+      be one) in 128..65536. ``vlen`` pins VLEN instead (an existing RVV design's),
+      and ``derived["storage_ratio"]`` then says how far from equal storage it is.
+    * **Peak.** ``macs_per_cycle = peak_flops_per_cycle / 2``, as for AME (the
+      design's ``format_passes`` apply on top, as they do to AME).
+    * **Ports.** IME adds none: the VRF keeps the RVV datapath's three reads and
+      one write of one VLEN register a cycle (``datapath_bits = VLEN``), so
+      ``vrf_read_bytes_per_cycle = 3 * VLEN / 8`` and ``vrf_write_bytes_per_cycle
+      = VLEN / 8``.
+    * **Memory.** ``mem_bytes_per_cycle`` is the vector LSU's
+      (``timing.vector.mem_bytes_per_cycle``), which feeds IME's tile loads.
+    * **Reference mma** (``derived``): C at ``SEW = acc_format``'s width, ``W =
+      SEW / in width``, the smallest legal lambda with a single-instruction C
+      store (``EMUL_C <= 8``: the largest C panel, highest compute intensity
+      ``M / 2``) and the largest LMUL with A, B and C in the 32 registers. Its
+      interval is ``max(compute, reads, write-back)`` from
+      :class:`~framework.matrix.ime_timing.IMETimingSpec`.
+
+    ``matrix`` is ``{"mode": "ime"}`` (the design keeps its own lambdas and
+    extensions); ``timing`` is the ``timing.matrix`` fields; VLEN and the LSU
+    bandwidth are in ``derived`` (``vlen``, ``vector_mem_bytes_per_cycle``), since
+    they belong to ``cores`` and ``timing.vector``.
     """
-    raise NotImplementedError("IME normalisation needs the RVV register file (Phase C)")
+    from framework.matrix.formats import get_format
+    from framework.matrix.ime import reference_geometry
+    from framework.matrix.ime_timing import IMETimingSpec
+
+    if peak_flops_per_cycle < 2 or peak_flops_per_cycle % 2:
+        raise ValueError(
+            f"peak_flops_per_cycle must be an even number >= 2, got {peak_flops_per_cycle}"
+        )
+    if mem_bytes_per_cycle is not None and mem_bytes_per_cycle <= 0:
+        raise ValueError(f"mem_bytes_per_cycle must be > 0, got {mem_bytes_per_cycle}")
+    in_fmt, acc_fmt = get_format(in_format), get_format(acc_format)
+    sew = 8 * acc_fmt.dtype.itemsize
+    w, rem = divmod(sew, 8 * in_fmt.dtype.itemsize)
+    if rem or w not in (1, 2, 4, 8):
+        raise ValueError(f"no Zvvm widening takes {in_fmt.name} into {acc_fmt.name}")
+    if vlen is None:
+        bits = operand_bytes * 8 // 32
+        if bits < 128:
+            raise ValueError(
+                f"{operand_bytes} bytes is a VLEN of {bits} bits, under RVV's minimum of 128"
+            )
+        vlen = min(1 << (bits.bit_length() - 1), 65536)
+    elif vlen < 128 or vlen > 65536 or vlen & (vlen - 1):
+        raise ValueError(f"vlen must be a power of two in 128-65536, got {vlen}")
+    geo = reference_geometry(vlen, sew, w)
+    if geo is None:
+        raise ValueError(f"VLEN {vlen} has no lambda for SEW {sew} with EMUL_C <= 8")
+    macs = peak_flops_per_cycle // 2
+    read_bw, write_bw = 3 * vlen // 8, vlen // 8
+    spec = IMETimingSpec(
+        macs_per_cycle=macs,
+        vrf_read_bytes_per_cycle=read_bw,
+        vrf_write_bytes_per_cycle=write_bw,
+    )
+    occ, compute, t_read, t_write = spec.mma_occupancy(geo, in_fmt.name, vlen)
+    timing = {
+        "macs_per_cycle": macs,
+        "vrf_read_bytes_per_cycle": read_bw,
+        "vrf_write_bytes_per_cycle": write_bw,
+    }
+    derived = {
+        "vlen": vlen,
+        "vrf_bytes": 32 * vlen // 8,
+        "storage_ratio": 32 * vlen / 8 / operand_bytes,
+        "lambda": geo.lam,
+        "m": geo.m,
+        "k_eff": geo.k,
+        "lmul": geo.lmul,
+        "emul_c": geo.emul_c,
+        "mma_macs": geo.macs,
+        "mma_compute_cycles": compute,
+        "mma_read_cycles": t_read,
+        "mma_write_cycles": t_write,
+        "mma_ii": occ,
+        "achieved_flops_per_cycle": 2 * geo.macs / occ,
+        "vector_mem_bytes_per_cycle": mem_bytes_per_cycle,
+    }
+    return NormalisedConfig("ime", {"mode": "ime"}, timing, derived)
 
 
 def _normalise_vme(peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle):

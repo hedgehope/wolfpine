@@ -14,7 +14,7 @@ output block exercise the driver's padded edges.
 import numpy as np
 
 NAME = "gemm"
-VARIANTS = {"ame": "ame", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv", "ime": "ime"}
 SIZES = (32, 64, 128)
 FORMATS = (
     ("fp64", "fp64"),
@@ -23,6 +23,14 @@ FORMATS = (
     ("fp16", "fp32"),
     ("bf16", "bf16"),
 )
+
+#: The RVV baseline runs every pair (Zvfh / Zvfbfwma widening FMAs; bf16/bf16 rounds the fp32 sum once).
+VARIANT_FORMATS = {
+    "rvv": FORMATS,
+    # IME (Zvvm; needs an IME design, e.g. naiad-ime-timed.yaml): Zvvfp64mm, Zvvfp32mm,
+    # Zvvbf16fp32mm, Zvvfp16fp32mm and Zvvbf16mm (bf16 C rounded after every sub-dot-product).
+    "ime": FORMATS,
+}
 
 _TOLERANCE = {
     ("fp64", "fp64"): 1e-13,

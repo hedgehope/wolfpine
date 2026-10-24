@@ -246,6 +246,10 @@ def _parse_matrix(raw, design):
                 "timing.matrix: the design has no matrix: section to time"
             )
         return None
+    if design.matrix.mode == "ime":
+        from framework.matrix.ime_timing import parse_ime_timing
+
+        return parse_ime_timing(raw, design, _parse_fields, _number, _flag, DesignError)
     zero_ok = lambda v, w: _number(v, w, minimum=0)  # noqa: E731
     rules = {
         "mma_ii": lambda v, w: _number(v, w, minimum=1, allow_none=True),
@@ -255,6 +259,10 @@ def _parse_matrix(raw, design):
         "tile_store_bandwidth": _bandwidth,
         "format_passes": lambda v, w: v,
         **{k: zero_ok for k in ("azero", "mcfg", "tshift", "epilogue")},
+        **{
+            k: lambda v, w: _number(v, w, minimum=0, allow_none=True)
+            for k in ("tconv", "tshift2")
+        },
     }
     spec = _parse_fields(raw, AMETimingSpec, "timing.matrix", rules)
     passes = spec.format_passes
@@ -408,7 +416,7 @@ class MemoryTiming:
 ) = range(17)
 
 _F = 32  # f-register i is scoreboard entry 32 + i
-_MATRIX_OPCODES = (0x0B, 0x2B)
+_MATRIX_OPCODES = (0x0B, 0x2B, 0x5B, 0x7B)  # custom-0..3, as RV_AME_ISA.OPCODES
 
 
 def _classify(instr):
@@ -513,11 +521,19 @@ class NaiadCostState:
         self.branch_taken = s.branch_taken
         self.store_occupancy = s.store
         self.matrix = None
-        if matrix_unit is not None and timing.matrix is not None:
+        ime = getattr(matrix_unit, "mode", None) == "ime"
+        if matrix_unit is not None and timing.matrix is not None and not ime:
             self.matrix = AMETiming(timing.matrix, matrix_unit, memory)
         self.vector = None
         if vector_state is not None and timing.vector is not None:
-            self.vector = VectorTiming(timing.vector, vector_state, memory)
+            if ime:  # IME's operands are vector groups: it extends the vector model
+                from framework.matrix.ime_timing import IMETiming
+
+                self.vector = IMETiming(
+                    timing.vector, vector_state, memory, timing.matrix, matrix_unit
+                )
+            else:
+                self.vector = VectorTiming(timing.vector, vector_state, memory)
         self._decoded = {}
         self.reset()
 

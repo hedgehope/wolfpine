@@ -40,7 +40,8 @@ Every encoding (format codes, opcodes) comes from ``naiad.h`` through
 ``matrix.h``; the emitted shape and blocking are checked against ``naiad.h`` at
 compile time, so a stale header fails to build rather than computing garbage.
 
-Only the attached mode (AME) is implemented. IME and VME raise
+The attached mode (AME) is this module; an IME design gets the IME micro-kernel
+(:mod:`framework.naiad.emit.gemm_ime`, same API). VME raises
 :class:`NotImplementedError` from :func:`emit_gemm_header`; the CLI instead
 writes a header that ``#error``-s on inclusion, so kernels that do not include
 it still build against such a design.
@@ -570,18 +571,36 @@ def _error_header(name, why):
 def emit_gemm_header(design, *, mode=None, block=None, double_buffer=None, pairs=None):
     """The ``naiad_gemm.h`` text for ``design`` (a ``Design``, path, or :class:`GemmShape`).
 
-    ``mode`` overrides the design's (``ame``; ``ime``/``vme`` raise
-    NotImplementedError). ``block`` is ``(bm, bn)`` or ``"BMxBN"`` (default
+    ``mode`` overrides the design's (``ame``; ``vme`` raises
+    NotImplementedError). An IME design gets :mod:`framework.naiad.emit.gemm_ime`'s
+    header (same API). ``block`` is ``(bm, bn)`` or ``"BMxBN"`` (default
     :func:`choose_blocking`); ``double_buffer`` forces the K-loop buffering;
     ``pairs`` restricts the (in, acc) format pairs (default :func:`format_pairs`).
     """
+    if not isinstance(design, GemmShape):
+        if isinstance(design, (str, Path)):
+            from framework.naiad.design import load_design
+
+            design = load_design(design)
+        if (
+            design.matrix is not None
+            and design.matrix.mode == "ime"
+            and mode in (None, "ime")
+        ):
+            from framework.naiad.emit.gemm_ime import emit_ime_gemm_header
+
+            return emit_ime_gemm_header(design, block=block, pairs=pairs)
     shape = design if isinstance(design, GemmShape) else GemmShape.from_design(design)
     mode = mode or shape.mode
     if mode not in MODES:
         raise ValueError(f"unknown matrix mode {mode!r}; expected one of {MODES}")
+    if mode == "ime":
+        raise NotImplementedError(
+            "the IME micro-kernel is emitted from an IME design (framework.naiad.emit.gemm_ime), not an AME shape"
+        )
     if mode != "ame":
         raise NotImplementedError(
-            f"the GEMM emitter has no {mode.upper()} micro-kernel yet (AME only; IME is Phase C, VME Phase D)"
+            f"the GEMM emitter has no {mode.upper()} micro-kernel yet (VME is Phase D)"
         )
     if block is None:
         blocking = choose_blocking(shape.tiles, shape.accs, double_buffer)

@@ -70,13 +70,27 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "jacobi"
-VARIANTS = {"ame": "ame", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
 SIZES = (34, 66, 130)
 FORMATS = dwf.FORMATS
+#: The RVV baseline runs every pair (Zvfh / Zvfbfmin / Zvfbfwma widen the 16-bit inputs); scalar: F/D only.
+VARIANT_FORMATS = {"rvv": FORMATS}
 ITERS = 8
 
-#: Default switch values; ``cflags`` accepts overrides.
-SWITCHES = {"form": "banded", "tshift": True, "epilogue": False}
+#: Default switch values; ``cflags`` accepts overrides. ``mconv`` (AME ``acc_move`` +
+#: ``convert``; Ztt ``mmov.m.a`` + ``mconv.ew``): with a 16-bit ``in_fmt``, each
+#: intermediate sweep's tiles go accumulator -> tile -> in_fmt tile -> memory on the
+#: matrix unit, replacing the identity-mma (bf16) or scalar (fp16) re-rounding pass; it
+#: changes nothing for fp32 / fp64. ``tshift2`` (AME ``shift2``, a proposal, not in Ztt;
+#: ``form="window"`` only): the four windows come from funnel shifts of the
+#: centre / left / right tiles and one fused-halo load, so 2 loads per tile, not 4.
+SWITCHES = {
+    "form": "banded",
+    "tshift": True,
+    "epilogue": False,
+    "mconv": False,
+    "tshift2": False,
+}
 FORMS = {"window": 0, "banded": 1}
 
 
@@ -101,15 +115,13 @@ def switch_cflags(switches=None):
         raise ValueError(
             f"jacobi form must be one of {sorted(FORMS)}, got {sw['form']!r}"
         )
-    value = {
-        "form": FORMS[sw["form"]],
-        "tshift": int(bool(sw["tshift"])),
-        "epilogue": int(bool(sw["epilogue"])),
-    }
+    if sw["tshift2"] and sw["form"] != "window":
+        raise ValueError("the jacobi tshift2 switch applies to form='window' only")
+    flags = ("tshift", "epilogue", "mconv", "tshift2")
+    value = {"form": FORMS[sw["form"]], **{k: int(bool(sw[k])) for k in flags}}
     default = {
         "form": FORMS[SWITCHES["form"]],
-        "tshift": int(SWITCHES["tshift"]),
-        "epilogue": int(SWITCHES["epilogue"]),
+        **{k: int(SWITCHES[k]) for k in flags},
     }
     return [f"-DJACOBI_{k.upper()}={v}" for k, v in value.items() if v != default[k]]
 

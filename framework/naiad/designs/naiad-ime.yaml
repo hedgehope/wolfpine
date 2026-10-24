@@ -1,0 +1,63 @@
+# naiad-ime: naiad-rvv (RV64 + RVV 1.0 at VLEN 256 / ELEN 64) plus the
+# integrated matrix mode, IME: the RISC-V IME TG's Zvvm draft
+# (riscv/integrated-matrix-extension @ 6effbcae, 2026-08-04).
+#
+# IME adds no architectural state: its multiply-accumulates (C += A . B^T)
+# read and write vector register groups, and its tile loads/stores move
+# vector register groups to and from 2-D strided memory. What it adds is four
+# vtype fields (lambda, bs, altfmt_A, altfmt_B at vtype bits 62:57) plus
+# Zvfbfa's altfmt bit for a bf16 accumulator. Its encodings are the draft's
+# own (OP-V OPIVV funct6 0x38-0x3b / OPFVV 0x14-0x17; LOAD-FP / STORE-FP
+# width 111 with mew = 1), which RVV 1.0 leaves reserved; kernels reach them
+# through kernels/naiad/include/ime.h (.insn wrappers, since clang 20 knows
+# neither Zvvm nor the lambda bits).
+#
+# Geometry at VLEN 256: M = VLEN / (SEW * lambda), EMUL_C = M / lambda,
+# K_eff = lambda * W * LMUL. The lambdas below are every one the draft's
+# EMUL_C in {1..16} rule permits at this VLEN; for fp32 C (SEW 32), lambda 1
+# is an 8 x 8 C in 8 registers and lambda 2 a 4 x 4 C in 2.
+#
+# Untimed (one instruction per cycle); naiad-ime-timed.yaml adds the cycle
+# model at equal resources to naiad-dwarfs.yaml's AME unit. Spike has no
+# Zvvm, so these ELFs cannot be difftested.
+name: naiad-ime
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+matrix:
+  mode: ime
+  # Supported lambdas per C element width (the implementation's WARL set);
+  # these are all the permissible ones at VLEN 256.
+  lambdas: {8: [2, 4], 16: [1, 2, 4], 32: [1, 2], 64: [1, 2]}
+  # The draft's per-type extension names (tbl-extensions); an encoding-map row
+  # whose extension is not listed is an illegal instruction.
+  extensions: [Zvvfp64mm, Zvvfp32mm, Zvvfp32fp64mm, Zvvbf16fp32mm, Zvvfp16fp32mm,
+               Zvvbf16mm, Zvvfp16mm, Zvvi8i32mm, Zvvi8mm, Zvvi16i32mm, Zvvi32mm,
+               Zvvmtls, Zvvmttls]
+  # The FP accumulation disclosure, per (SEW, W, lambda): G sub-dot-products a
+  # group, psm (0 = each group summed exactly) and rnd (frm / rto / xct). Every
+  # entry not listed is the default G = 1, psm = 0, rnd = frm: each
+  # sub-dot-product rounded to the C format, then added (the draft's systolic
+  # case, and its recipe for Zvt compatibility at 32-bit inputs).
+  fp_reduction: {}
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mma, matrix_macs,
+                 matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_vrf_a_read_bytes, matrix_vrf_b_read_bytes,
+                 matrix_vrf_c_read_bytes, matrix_vrf_c_write_bytes]
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

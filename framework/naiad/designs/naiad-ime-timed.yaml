@@ -1,0 +1,103 @@
+# naiad-ime-timed: naiad-dwarfs (the dwarf kernels' memory map, scalar and RVV
+# timing, VLEN 256) with its AME unit replaced by the integrated matrix mode
+# (IME, Zvvm @ 6effbcae, as naiad-ime.yaml), timed at equal resources to
+# naiad-dwarfs' AME unit. Same addresses as naiad-dwarfs, so every dwarf kernel
+# links and runs here unchanged.
+#
+# Equal resources (framework.matrix.timing.normalise(mode="ime")). The AME
+# budget is naiad-dwarfs' unit at fp32: peak 2048 MACs/cycle (4096 FLOPs) at one
+# pass, 8 tiles + 4 accumulators of 16 x 16 fp32 = 12 KiB of operand storage,
+# and 64 B/cycle tile paths to memory.
+#
+#   normalise(4096, 12288, 64, mode="ime", vlen=256) gives
+#     macs_per_cycle 2048                         equal peak (format_passes as AME's)
+#     vrf_read / vrf_write 96 / 32 B/cycle        IME adds no ports: the RVV datapath's
+#                                                 three reads and one write of VLEN a cycle
+#     vector_mem_bytes_per_cycle 64               equal memory bandwidth, now the vector
+#                                                 LSU's (naiad-dwarfs' RVV has 32)
+#     storage_ratio 1/12                          the VRF is 1 KiB, not 12 KiB
+#     reference mma: lambda 1, 8 x 8 x 8 (LMUL 8), 512 MACs, 8 cycles
+#                    (reads 768 B / 96, write-back 256 B / 32; compute 512 * 4 / 2048 = 1)
+#
+# Storage is the one budget that cannot be equal at VLEN 256: IME has no state
+# beyond the 32 vector registers, so equal storage means VLEN = 12 KiB * 8 / 32 =
+# 3072, rounded to 2048 (normalise(4096, 12288, 64, mode="ime") without vlen:
+# lambda 4, 16 x 16 x 32 mma, VRF ports 768 / 256 B/cycle). This design keeps
+# VLEN 256, the K1's and naiad-dwarfs' RVV baseline's, so that IME is RVV plus a
+# matrix datapath on the same register file; run the equal-storage point with
+# cores.vlen: 2048 and the ports above (an override, as the sweep harness does).
+#
+# Not calibrated beyond what naiad-dwarfs cites: the IME datapath inherits the
+# AME unit's numbers (pipeline depth, passes per format); the VRF port widths
+# are the RVV datapath's by construction; one contiguous memory run per cycle for
+# tile loads (tile_segments_per_cycle) is the RVV model's one-address-a-cycle rule.
+name: naiad-ime-timed
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: l1
+  stack_size: 64KiB
+matrix:
+  mode: ime
+  lambdas: {8: [2, 4], 16: [1, 2, 4], 32: [1, 2], 64: [1, 2]}
+  extensions: [Zvvfp64mm, Zvvfp32mm, Zvvfp32fp64mm, Zvvbf16fp32mm, Zvvfp16fp32mm,
+               Zvvbf16mm, Zvvfp16mm, Zvvi8i32mm, Zvvi8mm, Zvvi16i32mm, Zvvi32mm,
+               Zvvmtls, Zvvmttls]
+  fp_reduction: {}    # every (SEW, W, lambda): G = 1, psm = 0, rnd = frm
+timing:
+  scalar:
+    alu: 1            # UC riscv.integer_unit.default 1 ("latency 1 and throughput 1")
+    mul: 2            # UC blackhole integer_unit: one cycle in EX1 + one in EX2, pipelined (silicon dep chain 1.985)
+    div: 6            # UC divide_general {6, max 33}: the floor of the range
+    div_pipelined: false
+    load: 2           # UC riscv.load_latency.minimum 2 (core-local data RAM)
+    store: 1
+    branch_taken: 0   # UC blackhole: correctly predicted branch 0.999 cycles; no predictor here, so taken = predicted
+    csr: 1
+    fp_add: 2         # UC blackhole: FP arithmetic is one cycle in EX1 + one in EX2
+    fp_mul: 2
+    fp_fma: 2
+  memory:
+    l1:
+      latency: 6      # + load 2 = 8: UC blackhole load_latency.l1_dcache_miss >= 8
+      bandwidth: null # UC l1: 16 banks x 16 access ports, 128 bits each a cycle; contention is not modelled
+    dram:
+      latency: 126    # UC noc.dram.access_latency (Blackhole read, DRAM minus L1)
+      bandwidth: 24   # UC dram.channel_serialisation: 24 GB/s per GDDR6 channel at 1 GHz
+  matrix:
+    macs_per_cycle: 2048        # = naiad-dwarfs' AME (normalise: peak / 2)
+    format_passes: {fp64: 16, fp32: 4, fp16: 2, bf16: 2, int8: 1}  # = naiad-dwarfs' AME
+    pipeline_depth: 5           # = naiad-dwarfs' AME (TIC MATH.MVMUL latency 5)
+    acc_forwarding: true        # a chained mma accumulates in place, as AME's
+    c_bypass: false             # C is re-read through the VRF ports on every mma
+    vrf_read_bytes_per_cycle: 96   # normalise: 3 x VLEN / 8 (the RVV datapath's read ports)
+    vrf_write_bytes_per_cycle: 32  # normalise: VLEN / 8 (its write port)
+    tile_segments_per_cycle: 1
+  vector:
+    datapath_bits: 256          # = naiad-dwarfs
+    startup: 4
+    div_ii: 8
+    mem_startup: 2
+    mem_bytes_per_cycle: 64     # normalise: = the AME tile paths' 64 B/cycle (naiad-dwarfs' RVV: 32)
+    indexed_elements_per_cycle: 1
+    chaining: false
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mma, matrix_macs,
+                 matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_vrf_a_read_bytes, matrix_vrf_b_read_bytes,
+                 matrix_vrf_c_read_bytes, matrix_vrf_c_write_bytes]
+  - {name: l1, type: scratchpad, base: 0x10000000, window: 2MiB, params: {size: 0x180000}}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

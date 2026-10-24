@@ -25,7 +25,16 @@ ENCODINGS_PATH = Path(__file__).with_name("encodings.yaml")
 STANDARD_FIELDS = {"rd": (7, 11), "rs1": (15, 19), "rs2": (20, 24), "imm": (20, 31)}
 #: Which standard fields each form has, and where its free (funct7/imm) bits start.
 _FORMS = {"r": ({"rd", "rs1", "rs2"}, 25), "i": ({"rd", "rs1", "imm"}, 20)}
-OPERAND_KINDS = ("tile", "acc", "gpr", "in_fmt", "acc_fmt", "flag", "config")
+OPERAND_KINDS = (
+    "tile",
+    "acc",
+    "gpr",
+    "in_fmt",
+    "acc_fmt",
+    "flag",
+    "config",
+    "uimm",
+)
 _FUNCT3 = (12, 14)
 #: opcode + funct3: every instruction fixes both, so this is the decode key.
 _KEY_MASK = 0x707F

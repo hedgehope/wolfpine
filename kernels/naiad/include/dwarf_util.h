@@ -189,6 +189,7 @@ NAIAD_DU_INLINE void naiad_mx_drain(void) {
     NAIAD_DU_DRAIN(8) NAIAD_DU_DRAIN(9) NAIAD_DU_DRAIN(10) NAIAD_DU_DRAIN(11)
     NAIAD_DU_DRAIN(12) NAIAD_DU_DRAIN(13) NAIAD_DU_DRAIN(14) NAIAD_DU_DRAIN(15)
 #undef NAIAD_DU_DRAIN
+    mx_scratch_fence(); /* without acc_mem, astore is amov + tstore through scratch tiles */
 }
 #endif
 

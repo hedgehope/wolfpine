@@ -35,10 +35,24 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "reduce"
-VARIANTS = {"ame": "ame", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
 SIZES = (4096, 16384, 65536)
 FORMATS = dwf.FORMATS
+#: The RVV baseline runs every pair (Zvfh / Zvfbfmin / Zvfbfwma widen the 16-bit inputs); scalar: F/D only.
+VARIANT_FORMATS = {"rvv": FORMATS}
+#: ``finish``: how the 16 partial sums become one. ``mma`` (default): astore, reload as a
+#: tile, one more mma. ``scalar``: 16 scalar adds. ``mmov``: as ``mma`` but the partials
+#: move accumulator -> tile by ``amov.t.a`` (AME ``acc_move``; Ztt ``mmov.m.a``).
+#: ``native``: ``amov.t.a`` then one ``treduce`` down the columns (AME ``reduce``;
+#: Ztt ``mreduceadd.col``), no second mma.
 SWITCHES = {"finish": "mma"}
+#: ``finish`` value -> its cflags.
+FINISHES = {
+    "mma": [],
+    "scalar": ["-DREDUCE_FINISH_MMA=0"],
+    "mmov": ["-DREDUCE_FINISH_MMOV=1"],
+    "native": ["-DREDUCE_FINISH_NATIVE=1"],
+}
 
 
 def _check_size(n):
@@ -49,11 +63,11 @@ def _check_size(n):
 def switch_cflags(switches=None):
     """``-D`` flags for the switches that differ from :data:`SWITCHES` (usable as ``extra_cflags``)."""
     sw = {**SWITCHES, **(switches or {})}
-    if set(sw) - set(SWITCHES) or sw["finish"] not in ("mma", "scalar"):
+    if set(sw) - set(SWITCHES) or sw["finish"] not in FINISHES:
         raise ValueError(
-            f"bad reduce switches {switches}; known: finish = mma | scalar"
+            f"bad reduce switches {switches}; known: finish = {' | '.join(FINISHES)}"
         )
-    return [] if sw["finish"] == "mma" else ["-DREDUCE_FINISH_MMA=0"]
+    return list(FINISHES[sw["finish"]])
 
 
 def cflags(size, in_fmt, acc_fmt, switches=None):

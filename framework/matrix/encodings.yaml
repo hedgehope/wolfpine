@@ -22,6 +22,7 @@
 #   acc_fmt  an accumulator-format code; must be one the design lists
 #   flag     a one-bit modifier
 #   config   an mcfg selector (see config)
+#   uimm     an unsigned immediate (its meaning is the instruction's)
 #
 # An instruction or flag with a `feature` is optional: it is illegal unless the
 # design lists that feature (a flag only when it is set).
@@ -31,10 +32,28 @@
 # field of the instruction that reads them says what the bits mean, exactly as
 # a hardware register file would. Rows are contiguous in memory; rs2 is the
 # byte stride from one row to the next.
+#
+# Overlap with other custom-space matrix ISAs (documentation only: Naiad builds
+# one design per binary, so no Naiad hart decodes two tables). The RISC-V AME
+# draft Ztt v0.6 (riscv/riscv-attached-matrix-extension, tag v0.6, 8d27acdc,
+# 2026-08-16; INSTRUCTION_ENCODINGS.md) puts all 138 of its instructions in
+# custom-1 (0x2B) with funct3 = 000, selected by funct7 0x00-0x63. That is
+# exactly where our mma sits, with its formats in funct7, so every mma word is
+# also a Ztt word: mma fp32/fp32 (funct7 0x11) decodes in Ztt as
+# mmulaccneg.ew.x. The SpacemiT XSMTVDot (smt.vmadot*: custom-1, bit 31 set,
+# funct3 = signedness) and T-Head matrix (custom-1) tables overlap our custom-1
+# funct3 1-5 as well. The existing words keep their encodings (renumbering
+# would change every built kernel's meaning). The instructions added to track
+# Ztt's capabilities (amov, tconv, mma.at/.bt, treduce, tprefix) and the
+# proposed tshift2 all live in custom-2 (0x5B), which none of those three
+# tables uses, so they stay clear of Ztt's slots. Their mnemonics and operands
+# are ours: Ztt types its operands through datatype registers (Md/Ad), while
+# our formats stay in the instruction.
 
 opcodes:
   custom-0: 0x0B
   custom-1: 0x2B
+  custom-2: 0x5B
 
 # Format codes (names from framework/matrix/formats.py). mma's acc_fmt field is
 # three bits wide, so only codes 0-7 can be accumulator formats.
@@ -55,6 +74,14 @@ features:
   shift: 1      # tshift
   epilogue: 2   # ascal / aadds
   semiring: 3   # mma.minplus / mma.maxplus
+  # aload / astore. On unless the design says matrix.acc_mem: false: Ztt has
+  # no memory <-> accumulator path, so a Ztt-like unit moves acc -> tile -> memory.
+  acc_mem: 4
+  acc_move: 5       # amov.t.a / amov.a.t  (Ztt mmov.m.a / mmov.a.m)
+  convert: 6        # tconv                (Ztt mconv.ew)
+  mma_transpose: 7  # mma.at / mma.bt      (Ztt mmulatacc.2d / mmulbtacc.2d)
+  reduce: 8         # treduce / tprefix    (Ztt mreduce{add,max,min}.{row,col}, mprefix{add,max}.{row,col})
+  shift2: 9         # tshift2: NOT in Ztt, a candidate feature this study proposes
 
 # mcfg selectors.
 config:
@@ -136,6 +163,7 @@ instructions:
     form: r
     funct3: 4
     exec: acc_load
+    feature: acc_mem
     operands:
       ad: {field: rd, kind: acc}
       base: {field: rs1, kind: gpr}
@@ -150,6 +178,7 @@ instructions:
     form: r
     funct3: 5
     exec: acc_store
+    feature: acc_mem
     operands:
       as: {field: rd, kind: acc}
       base: {field: rs1, kind: gpr}
@@ -274,3 +303,164 @@ instructions:
       value: {field: rs1, kind: gpr}
       fmt: {bits: [25, 28], kind: acc_fmt}
     doc: acc[ad] = acc[ad] + s, element-wise, as ascal.
+
+  # -- custom-2: the Ztt-tracking additions, and one proposal -------------------
+  # Each mirrors a Ztt v0.6 capability (named in its doc: the instruction pages
+  # of the draft's src/instructions.adoc), with our operand conventions: tile
+  # and accumulator indices as literals, formats in the instruction.
+  amov.t.a:
+    opcode: custom-2
+    form: r
+    funct3: 0
+    exec: acc_to_tile
+    feature: acc_move
+    operands:
+      td: {field: rd, kind: tile}
+      as: {field: rs1, kind: acc}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      b: {bits: [29, 29], kind: flag}
+    doc: >
+      Tile td's "a" view (b=0) or "b" view (b=1) = accumulator as, fmt
+      elements, bit for bit (Ztt mmov.m.a, whose source and destination
+      datatypes must match). fmt must be both an accumulator and an input
+      format, and the view must be M x N (K = N for b=0, K = M for b=1).
+      Bytes of td outside the view become zero.
+
+  amov.a.t:
+    opcode: custom-2
+    form: r
+    funct3: 1
+    exec: tile_to_acc
+    feature: acc_move
+    operands:
+      ad: {field: rd, kind: acc}
+      ts: {field: rs1, kind: tile}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      b: {bits: [29, 29], kind: flag}
+    doc: >
+      Accumulator ad = tile ts's "a" (b=0) or "b" (b=1) view, fmt elements,
+      bit for bit (Ztt mmov.a.m); the converse of amov.t.a, with its conditions.
+
+  tconv:
+    opcode: custom-2
+    form: r
+    funct3: 2
+    exec: tile_convert
+    feature: convert
+    operands:
+      td: {field: rd, kind: tile}
+      ts: {field: rs1, kind: tile}
+      to: {field: rs2, kind: in_fmt}
+      from: {bits: [25, 28], kind: in_fmt}
+      b: {bits: [29, 29], kind: flag}
+    doc: >
+      Tile td's view (a or b, as b says) = tile ts's view read as `from`,
+      converted element by element to `to` with one round to nearest even
+      (Ztt mconv.ew, where the destination datatype picks the rounding;
+      Naiad formats always round RNE). Float to float, or int to int
+      (wrapping); float <-> int is illegal. td may be ts; bytes of td outside
+      the view become zero. After an amov.t.a this is the accumulator ->
+      narrower tile path (fp32 acc -> bf16/fp16 tile) Ztt has instead of a
+      converting store.
+
+  mma.at:
+    opcode: custom-2
+    form: r
+    funct3: 3
+    exec: mma
+    feature: mma_transpose
+    params: {semiring: plus_times, transpose: a}
+    operands:
+      ad: {field: rd, kind: acc}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      in: {bits: [25, 28], kind: in_fmt}
+      acc: {bits: [29, 31], kind: acc_fmt}
+    doc: >
+      acc[ad] = acc[ad] + A' x tile[tb], where A is the K x M block at the top
+      left of tile ta (rows 0..K-1 of M elements; for a square unit, ta's "a"
+      view) and tb is read as its "b" view (Ztt mmulatacc.2d,
+      C[i,j] += sum_q A[q,i] B[q,j]). Needs M <= max(K, N), so the block fits.
+
+  mma.bt:
+    opcode: custom-2
+    form: r
+    funct3: 4
+    exec: mma
+    feature: mma_transpose
+    params: {semiring: plus_times, transpose: b}
+    operands:
+      ad: {field: rd, kind: acc}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      in: {bits: [25, 28], kind: in_fmt}
+      acc: {bits: [29, 31], kind: acc_fmt}
+    doc: >
+      acc[ad] = acc[ad] + tile[ta] x B', where B is the N x K block at the top
+      left of tile tb (Ztt mmulbtacc.2d, C[i,j] += sum_q A[i,q] B[j,q]). Needs
+      N <= max(M, K).
+
+  treduce:
+    opcode: custom-2
+    form: r
+    funct3: 5
+    exec: tile_reduce
+    feature: reduce
+    params: {prefix: false}
+    operands:
+      td: {field: rd, kind: tile}
+      ts: {field: rs1, kind: tile}
+      op: {field: rs2, kind: uimm}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      cols: {bits: [29, 29], kind: flag}
+      b: {bits: [30, 30], kind: flag}
+    doc: >
+      Reduce each row (cols=0, Ztt mreduce*.row) or each column (cols=1,
+      mreduce*.col) of ts's view, broadcasting the result along it in td:
+      op 0 = add (mreduceadd), 1 = max (mreducemax), 2 = min (mreducemin);
+      other values are illegal. Adds fold in increasing index order, each
+      rounded to fmt (one of the association trees Ztt allows). td may be ts;
+      bytes of td outside the view become zero.
+
+  tprefix:
+    opcode: custom-2
+    form: r
+    funct3: 6
+    exec: tile_reduce
+    feature: reduce
+    params: {prefix: true}
+    operands:
+      td: {field: rd, kind: tile}
+      ts: {field: rs1, kind: tile}
+      op: {field: rs2, kind: uimm}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      cols: {bits: [29, 29], kind: flag}
+      b: {bits: [30, 30], kind: flag}
+    doc: >
+      Inclusive prefix along each row (cols=0, Ztt mprefix*.row) or column
+      (cols=1, mprefix*.col) of ts's view into td: op 0 = add (mprefixadd),
+      1 = max (mprefixmax); other values are illegal. Sequential, each step
+      rounded to fmt. td may be ts; bytes of td outside the view become zero.
+
+  tshift2:
+    opcode: custom-2
+    form: r
+    funct3: 7
+    exec: tile_shift2
+    feature: shift2
+    operands:
+      td: {field: rd, kind: tile}
+      ta: {field: rs1, kind: tile}
+      tb: {field: rs2, kind: tile}
+      esz: {bits: [25, 26], kind: uimm}
+      cols: {bits: [27, 27], kind: flag}
+      amount: {bits: [28, 31], kind: uimm}
+    doc: >
+      NOT IN ZTT: a tile funnel shift this study proposes (Ztt's mrowshift /
+      mcolshift fill with zeros). Needs a square unit, M = N = K = R. With ta
+      stacked above tb (cols=0) or ta left of tb (cols=1), td = the R x R
+      window starting `amount` rows (columns) in: td[i] = (ta ++ tb)[i + amount],
+      so td's last `amount` rows (columns) are tb's first ones. Elements are
+      2^esz bytes, no wider than the widest input format; amount is 0 to
+      min(R, 15). td may be ta or tb; bytes of td outside the window become
+      zero.

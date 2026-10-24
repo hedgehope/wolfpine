@@ -32,19 +32,42 @@ Study keys:
     per value, and their column is blank.
 ``normalise``
     ``{peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle, [tiles, accs,
-    mode, power_of_two]}``, each a value or a list (another product axis):
+    mode, power_of_two, vlen]}``, each a value or a list (another product axis):
     :func:`framework.matrix.timing.normalise` derives the unit's shape and
     timing per point (with the point's formats) and merges its ``matrix`` (shape,
     tiles, accs; the base's format list and mode are kept) and ``timing``
-    (into ``timing.matrix``) sections after ``overrides``.
+    (into ``timing.matrix``) sections after ``overrides``. For ``mode: ime`` it
+    also sets ``cores.vlen`` (equal storage, or the pinned ``vlen``; ``null`` is
+    equal storage), the vector LSU's ``timing.vector.mem_bytes_per_cycle``, and
+    ``matrix.lambdas`` to every lambda permissible at the new VLEN (a lambda
+    list is VLEN-specific; the base's may be illegal or lack the reference
+    geometry's). None of this moves an address.
 ``base_design``
     Repo-relative base design (default ``framework/naiad/designs/naiad-dwarfs.yaml``).
+``variant_designs``
+    ``{variant glob: repo-relative design}``: the base design for matching
+    variants (first match wins), e.g. ``{ime: framework/naiad/designs/naiad-ime-timed.yaml}``.
+    Overrides, normalisation and the address check apply to it as to ``base_design``.
+    A matrix variant whose base design has another coupling mode (``ime*`` needs
+    ``matrix.mode: ime``, ``ame*`` needs ``ame``, ``vme*`` ``vme``) is skipped with
+    a message, never run, so ``variants: all`` stays safe.
 ``seed``, ``count_all``
     Input RNG seed (default 0); per-class and per-block counters (default true).
+``seeds``
+    Optional list of seeds: every point runs once per seed (the seed is part of
+    the point), and the CSV carries each group's median and max normwise error
+    over the seeds (``normwise_median`` / ``normwise_max`` / ``n_seeds``, and
+    ``precision.csv``). One seed can mislead badly for a reduction, whose input
+    rounding errors may cancel. Overrides ``seed``.
 ``baseline``
-    ``{variant: scalar, formats: [fp32, fp32] | same}``: the speedup denominator.
+    ``{variant: rvv, formats: [fp32, fp32] | same}``: the speedup denominator.
+``references``
+    Optional list of further variants (e.g. ``[scalar]``): each row also gets
+    ``speedup_vs_<variant>`` (matched like the baseline, same formats rule) and
+    each crossover group a ``crossover_vs_<variant>`` on the same ratio axis.
 ``ratio``
-    ``{vector: scalar | rvv | <number>}``: the vector baseline's peak FMAs/cycle model.
+    ``{vector: scalar | rvv | <number>}``: the vector baseline's peak FMAs/cycle model
+    (``rvv``: the design's ``timing.vector.datapath_bits`` over the arithmetic SEW).
 ``ratio_keys``
     Override keys that move the ratio (they are not grouping keys for the crossover).
 ``figures``
@@ -84,7 +107,7 @@ DEFAULT_RATIO_KEYS = [
     "timing.scalar.issue_width",
     "normalise.peak_flops_per_cycle",
 ]
-FIGURES = ("crossover", "bytes", "accuracy", "redundancy")
+FIGURES = ("crossover", "bytes", "accuracy", "redundancy", "feature_ranking")
 STUDY_KEYS = {
     "name",
     "description",
@@ -97,9 +120,12 @@ STUDY_KEYS = {
     "only",
     "normalise",
     "base_design",
+    "variant_designs",
     "seed",
+    "seeds",
     "count_all",
     "baseline",
+    "references",
     "ratio",
     "ratio_keys",
     "figures",
@@ -127,11 +153,14 @@ class Study:
     only: dict = field(default_factory=dict)
     normalise: dict | None = None
     base_design: str = DEFAULT_BASE
+    variant_designs: dict = field(default_factory=dict)
     seed: int = 0
+    seeds: list | None = None
     count_all: bool = True
     baseline: dict = field(
         default_factory=lambda: {"variant": "scalar", "formats": ["fp32", "fp32"]}
     )
+    references: list = field(default_factory=list)
     ratio: dict = field(default_factory=lambda: {"vector": "scalar"})
     ratio_keys: list = field(default_factory=lambda: list(DEFAULT_RATIO_KEYS))
     figures: list = field(default_factory=list)
@@ -141,9 +170,21 @@ class Study:
     def base_path(self):
         return _repo_path(self.base_design)
 
+    def base_for(self, variant):
+        """The base design path for ``variant`` (``variant_designs``, else ``base_design``)."""
+        for pat, path in (self.variant_designs or {}).items():
+            if fnmatch.fnmatchcase(variant, pat):
+                return _repo_path(path)
+        return self.base_path
+
     @property
     def root(self):
         return None if self.dwarfs_root is None else _repo_path(self.dwarfs_root)
+
+    @property
+    def seed_list(self):
+        """The seeds every point runs with: ``seeds`` if given, else ``[seed]``."""
+        return [int(x) for x in self.seeds] if self.seeds else [int(self.seed)]
 
     def applies(self, key, variant):
         allowed = self.only.get(key)
@@ -259,6 +300,12 @@ def load_sweep(path, quick=False):
         overrides = {
             k: _as_list(v) for k, v in (merged.pop("overrides", None) or {}).items()
         }
+        if merged.get("seeds") is not None and (
+            not isinstance(merged["seeds"], list) or not merged["seeds"]
+        ):
+            raise SweepError(
+                f"{path}: study {merged['name']!r}: seeds must be a non-empty list"
+            )
         studies.append(Study(overrides=overrides, **merged))
     return Sweep(name=name, path=path, studies=studies)
 
@@ -409,7 +456,30 @@ def _apply_normalise(raw, params, in_fmt, acc_fmt):
     matrix = {k: v for k, v in cfg.matrix.items() if k not in ("formats", "mode")}
     deep_merge(raw.setdefault("matrix", {}), matrix)
     deep_merge(raw.setdefault("timing", {}).setdefault("matrix", {}), cfg.timing)
+    if cfg.mode == "ime":
+        _merge_ime(raw, cfg.derived)
     return dict(cfg.derived)
+
+
+def _merge_ime(raw, derived):
+    """The parts of an IME normalisation outside ``matrix`` / ``timing.matrix``: VLEN, LSU bandwidth, lambdas."""
+    from framework.matrix.ime import permissible_lambdas
+
+    vlen = int(derived["vlen"])
+    raw.setdefault("cores", {})["vlen"] = vlen
+    if derived.get("vector_mem_bytes_per_cycle") is not None:
+        raw.setdefault("timing", {}).setdefault("vector", {})["mem_bytes_per_cycle"] = (
+            derived["vector_mem_bytes_per_cycle"]
+        )
+    given = (raw.get("matrix") or {}).get("lambdas")
+    if (
+        given
+    ):  # a lambda list is per VLEN: the normalised unit supports every permissible one
+        raw["matrix"]["lambdas"] = {
+            sew: list(permissible_lambdas(vlen, int(sew)))
+            for sew in given
+            if permissible_lambdas(vlen, int(sew))
+        }
 
 
 # -- expansion ---------------------------------------------------------------------
@@ -434,7 +504,15 @@ def select_sizes(spec, selector):
 
 
 def is_matrix_variant(spec, variant):
-    return variant.startswith("ame") or variant in ("ime", "vme")
+    return variant_mode(variant) is not None
+
+
+def variant_mode(variant):
+    """The coupling mode a matrix variant needs (``ame`` / ``ime`` / ``vme``), or None."""
+    for mode in ("ame", "ime", "vme"):
+        if variant.startswith(mode):
+            return mode
+    return None
 
 
 def variant_formats(spec, variant, requested):
@@ -505,6 +583,17 @@ def expand(sweep, factory=None, log=print):
                         f"[{study.name}] skip {name}/{variant}: the dwarf has no such variant"
                     )
                     continue
+                base_path = study.base_for(variant)
+                want = variant_mode(variant)
+                if want is not None:
+                    matrix = factory.base(base_path)[1].matrix
+                    have = getattr(matrix, "mode", None) if matrix is not None else None
+                    if have != want:
+                        log(
+                            f"[{study.name}] skip {name}/{variant}: needs a matrix.mode {want} design "
+                            f"({Path(base_path).name} has {have or 'no matrix unit'}); map one with variant_designs"
+                        )
+                        continue
                 pairs = variant_formats(spec, variant, study.formats)
                 for size in select_sizes(spec, study.sizes):
                     for in_fmt, acc_fmt in pairs:
@@ -521,7 +610,7 @@ def expand(sweep, factory=None, log=print):
                                     nparams = dict(zip(norm_keys, ncombo))
                                 try:
                                     h, dpath, derived = factory.derive(
-                                        study.base_path, ovr, nparams, in_fmt, acc_fmt
+                                        base_path, ovr, nparams, in_fmt, acc_fmt
                                     )
                                 except AddressMoved:
                                     raise
@@ -531,29 +620,30 @@ def expand(sweep, factory=None, log=print):
                                     )
                                     continue
                                 cflags = ovr.get(CFLAGS_KEY)
-                                point = Point(
-                                    study=study.name,
-                                    dwarf=name,
-                                    variant=variant,
-                                    size=size,
-                                    in_fmt=in_fmt,
-                                    acc_fmt=acc_fmt,
-                                    seed=study.seed,
-                                    count_all=study.count_all,
-                                    overrides=ovr,
-                                    normalise=nparams,
-                                    normalised=derived,
-                                    extra_cflags=tuple(_as_list(cflags))
-                                    if cflags
-                                    else (),
-                                    design_hash=h,
-                                    design_path=str(dpath),
-                                    dwarfs_root=None
-                                    if study.root is None
-                                    else str(study.root),
-                                )
-                                if point.point_id in seen:
-                                    continue
-                                seen.add(point.point_id)
-                                points.append(point)
+                                for seed in study.seed_list:
+                                    point = Point(
+                                        study=study.name,
+                                        dwarf=name,
+                                        variant=variant,
+                                        size=size,
+                                        in_fmt=in_fmt,
+                                        acc_fmt=acc_fmt,
+                                        seed=seed,
+                                        count_all=study.count_all,
+                                        overrides=ovr,
+                                        normalise=nparams,
+                                        normalised=derived,
+                                        extra_cflags=tuple(_as_list(cflags))
+                                        if cflags
+                                        else (),
+                                        design_hash=h,
+                                        design_path=str(dpath),
+                                        dwarfs_root=None
+                                        if study.root is None
+                                        else str(study.root),
+                                    )
+                                    if point.point_id in seen:
+                                        continue
+                                    seen.add(point.point_id)
+                                    points.append(point)
     return points

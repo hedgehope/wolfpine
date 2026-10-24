@@ -30,7 +30,7 @@ Numpy only (bf16 by bit manipulation; no ``ml_dtypes``).
 import numpy as np
 
 NAME = "nbody"
-VARIANTS = {"ame": "ame", "ame_fgemm": "ame_fgemm", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "ame_fgemm": "ame_fgemm", "scalar": "scalar", "rvv": "rvv"}
 SIZES = (
     (64, "uniform"),
     (64, "clustered"),
@@ -40,6 +40,8 @@ SIZES = (
     (384, "clustered"),
 )
 FORMATS = [("fp32", "fp32"), ("fp64", "fp64"), ("bf16", "fp32"), ("fp16", "fp32")]
+#: The RVV baseline runs every pair (16-bit positions widened once, then the direct method in fp32).
+VARIANT_FORMATS = {"rvv": FORMATS}
 D2_MAX = 256
 EPS = 0.01
 CLUSTERS = 4

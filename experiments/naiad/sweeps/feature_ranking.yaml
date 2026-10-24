@@ -1,0 +1,119 @@
+# Feature ranking: what each candidate matrix-unit feature is worth, per dwarf.
+#
+#   python -m experiments.naiad.run feature_ranking -j 6
+#   python -m experiments.naiad.plot feature_ranking      # the feature_ranking figure
+#
+# Two parts.
+#
+# 1. Switches. Each AME dwarf's compile-time feature switches (its spec's
+#    SWITCHES), one at a time, at the default design (naiad-dwarfs) with every
+#    optional feature listed, so a switch only changes the kernel. Row
+#    `ovr:kernel.cflags` names the switch; the empty one is the default kernel,
+#    whose binary is the talk_tier1 one (the feature list adds header defines
+#    the default kernels never read). Features and their Ztt v0.6 counterparts:
+#      acc_move  amov.t.a / amov.a.t   (Ztt mmov.m.a / mmov.a.m)
+#      convert   tconv                 (Ztt mconv.ew)
+#      reduce    treduce / tprefix     (Ztt mreduceadd / mprefixadd)
+#      shift2    tshift2               NOT in Ztt: a candidate this study proposes
+#    plus the pre-existing switches (tshift, epilogue, the window form, the
+#    scalar reduce finish) for scale.
+#
+# 2. The Ztt preset. Every AME dwarf at mid size on naiad-dwarfs (`ztt_default`)
+#    and on naiad-ztt (`ztt_preset`: 16 tiles, no aload/astore, k_chunk 1, Ztt's
+#    feature set), plus the preset's parts one at a time on naiad-dwarfs.
+name: feature_ranking
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+variants: [ame]
+seed: 0
+count_all: true
+figures: [feature_ranking]
+
+studies:
+  - name: jacobi_features
+    description: Jacobi feature switches, n = 130, default design + every feature
+    dwarfs: [jacobi]
+    sizes: [130]
+    formats: [[fp32, fp32], [bf16, fp32], [fp16, fp32], [fp64, fp64]]
+    overrides:
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, mma_transpose, reduce, shift2]]
+      kernel.cflags:
+        - []
+        - [-DJACOBI_MCONV=1]
+        - [-DJACOBI_TSHIFT=0]
+        - [-DJACOBI_EPILOGUE=1]
+        - [-DJACOBI_FORM=0]
+        - [-DJACOBI_FORM=0, -DJACOBI_TSHIFT2=1]
+        - [-DJACOBI_FORM=0, -DJACOBI_MCONV=1]
+    quick:
+      sizes: [34]
+
+  - name: scan_features
+    description: scan feature switches, n = 65536, default design + every feature
+    dwarfs: [scan]
+    sizes: [65536]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, mma_transpose, reduce, shift2]]
+      kernel.cflags:
+        - []
+        - [-DSCAN_MMOV=1]
+        - [-DSCAN_PREFIX=1]
+        - [-DSCAN_EPILOGUE=1]
+        - [-DSCAN_EPILOGUE=1, -DSCAN_MMOV=1]
+    quick:
+      sizes: [4096]
+
+  - name: reduce_features
+    description: reduce finish switches, n = 65536, default design + every feature
+    dwarfs: [reduce]
+    sizes: [65536]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, mma_transpose, reduce, shift2]]
+      kernel.cflags:
+        - []
+        - [-DREDUCE_FINISH_MMOV=1]
+        - [-DREDUCE_FINISH_NATIVE=1]
+        - [-DREDUCE_FINISH_MMA=0]
+    quick:
+      sizes: [4096]
+
+  # -- the Ztt preset against the default unit ----------------------------------
+  - name: ztt_default
+    description: every AME dwarf, mid size, naiad-dwarfs
+    dwarfs: [gemm, jacobi, scan, reduce, fft, tensorprod]
+    sizes: mid
+    formats: [[fp32, fp32], [bf16, fp32]]
+    quick:
+      sizes: smallest
+
+  - name: ztt_preset
+    description: every AME dwarf, mid size, naiad-ztt (matrix.profile ztt)
+    base_design: framework/naiad/designs/naiad-ztt.yaml
+    dwarfs: [gemm, jacobi, scan, reduce, fft, tensorprod]
+    sizes: mid
+    formats: [[fp32, fp32], [bf16, fp32]]
+    quick:
+      sizes: smallest
+
+  - name: ztt_k_chunk
+    description: naiad-dwarfs with Ztt's one-product-at-a-time fold only
+    dwarfs: [gemm, jacobi, scan, reduce, fft, tensorprod]
+    sizes: mid
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides:
+      matrix.k_chunk: 1
+    quick:
+      sizes: smallest
+
+  - name: ztt_no_acc_mem
+    description: naiad-dwarfs with 16 tiles and no aload/astore (matrix.h's amov + tile load/store)
+    dwarfs: [gemm, jacobi, scan, reduce, fft, tensorprod]
+    sizes: mid
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides:
+      matrix.tiles: 16
+      matrix.acc_mem: false
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move]]
+    quick:
+      sizes: smallest

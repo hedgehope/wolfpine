@@ -80,3 +80,22 @@ def test_scalar_matches_golden(tmp_path, in_fmt, acc_fmt):
     assert r.passed, r.error
     assert r.region_cycles
     assert r.counters.get("matrix.macs", 0) == 0
+
+
+@needs_clang
+@pytest.mark.parametrize("in_fmt,acc_fmt", list(_pairs()))
+def test_rvv_matches_golden(tmp_path, in_fmt, acc_fmt):
+    r = run_point(SPEC, "rvv", (8, 2), in_fmt, acc_fmt, build_root=tmp_path)
+    assert r.exit_code == 0, r.console
+    assert r.passed, r.error
+    assert r.region_cycles
+    assert r.counters.get("matrix.macs", 0) == 0
+
+
+@needs_clang
+@pytest.mark.parametrize("size", [(10, 1), (5, 3), (16, 1)])
+def test_rvv_odd_p_and_layouts(tmp_path, size):
+    # p = 5 (Q * P != T: the per-group ur path), 10 (Q = 1) and 16 (full tiles).
+    r = run_point(SPEC, "rvv", size, "fp32", "fp32", build_root=tmp_path)
+    assert r.exit_code == 0, r.console
+    assert r.passed, r.error

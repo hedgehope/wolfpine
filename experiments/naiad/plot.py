@@ -6,7 +6,9 @@ figure is written as PNG and SVG to ``out/<sweep>/figures/<figure>-<study>``:
 ``crossover``
     Speedup over the vector baseline against the matrix-to-vector peak
     throughput ratio, log-log, one line per dwarf (and size / formats when a
-    study has several), the interpolated crossover marked.
+    study has several), the interpolated crossover marked, and its value in a
+    table beside the axes; variants that run once (the scalar reference) are
+    flat dotted lines.
 ``bytes``
     Bytes moved per path, stacked bars per dwarf and variant: memory to and
     from the matrix unit's tiles and accumulators, scalar loads and stores per
@@ -14,7 +16,8 @@ figure is written as PNG and SVG to ``out/<sweep>/figures/<figure>-<study>``:
 ``accuracy``
     Normwise error against the fp64 golden per input/accumulator format pair,
     one line per dwarf, log axis; the fp64 unit roundoff is the floor (exact
-    results sit on it).
+    results sit on it). With several seeds a point is the median, with a bar
+    up to the worst seed.
 ``redundancy``
     Matrix-unit FLOPs over the algorithm's useful FLOPs, per dwarf.
 
@@ -24,6 +27,7 @@ slot of every known dwarf, so a dwarf keeps its colour across figures and sweeps
 
 import argparse
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -147,7 +151,23 @@ def _series_label(dwarf, size, fmts, multi_size, multi_fmt):
 # -- figures ------------------------------------------------------------------------------
 
 
+def _crossover_text(c):
+    """The crossover cell of the table inset: the ratio, or which side of the swept range it lies."""
+    if c is None:
+        return "-"
+    if c.get("crossover_ratio") not in (None, ""):
+        return f"{float(c['crossover_ratio']):.3g}"
+    if c.get("status") == "below_range":
+        return f"< {float(c['min_ratio']):.3g}"
+    if c.get("status") == "above_range":
+        return f"> {float(c['max_ratio']):.3g}"
+    return "-"
+
+
 def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
+    """Speedup vs ratio, a line per swept series; unswept variants (a reference such as
+    the scalar baseline, which runs once) are flat dotted lines across the axis. The
+    crossover values sit in a table beside the axes, so they never overlap."""
     plt = _plt()
     pts = [
         r
@@ -161,27 +181,29 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
         groups.setdefault(
             (r["dwarf"], r["variant"], r["size"], f"{r['in_fmt']}/{r['acc_fmt']}"), []
         ).append(r)
+    swept = {k: v for k, v in groups.items() if len({r["mv_ratio"] for r in v}) > 1}
+    flat = {k: v for k, v in groups.items() if k not in swept}
     dwarfs = sorted({g[0] for g in groups})
-    multi_size = len({(g[0], g[2]) for g in groups}) > len(dwarfs)
-    multi_fmt = len({g[3] for g in groups}) > 1
+    multi_size = len({(g[0], g[2]) for g in swept}) > len({g[0] for g in swept})
+    multi_fmt = len({g[3] for g in swept}) > 1
     xo = {
         (c["dwarf"], c["variant"], c["size"], f"{c['in_fmt']}/{c['acc_fmt']}"): c
         for c in cross
         if c["study"] == study
     }
-    fig, ax = plt.subplots(figsize=(7, 4.4))
-    for key in sorted(groups):
+    fig = plt.figure(figsize=(10.5, 5.0))
+    ax = fig.add_axes([0.07, 0.12, 0.6, 0.8])
+    table = []
+    for key in sorted(swept):
         dwarf, variant, size, fmts = key
-        members = sorted(groups[key], key=lambda r: r["mv_ratio"])
+        members = sorted(swept[key], key=lambda r: r["mv_ratio"])
         colour = dwarf_colour(dwarf, dwarfs)
-        xs = [r["mv_ratio"] for r in members]
-        ys = [r["speedup"] for r in members]
         name = _series_label(
             dwarf, size, fmts, multi_size, multi_fmt
         ) + _variant_suffix(variant)
         ax.plot(
-            xs,
-            ys,
+            [r["mv_ratio"] for r in members],
+            [r["speedup"] for r in members],
             variant_style(variant),
             marker="o",
             color=colour,
@@ -192,9 +214,8 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
         )
         c = xo.get(key)
         if c and c["crossover_ratio"] not in (None, ""):
-            x = float(c["crossover_ratio"])
             ax.plot(
-                [x],
+                [float(c["crossover_ratio"])],
                 [1],
                 marker="D",
                 markersize=9,
@@ -203,14 +224,28 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
                 markeredgewidth=1.5,
                 zorder=4,
             )
-            ax.annotate(
-                f"{x:.3g}",
-                (x, 1),
-                xytext=(4, -14),
-                textcoords="offset points",
-                fontsize=8,
-                color=INK_2,
-            )
+        table.append((name, _crossover_text(c), colour))
+    ref_variants = sorted({k[1] for k in flat})
+    for key in sorted(flat):
+        dwarf, variant, _, _ = key
+        speedup = statistics.median(r["speedup"] for r in flat[key])
+        ax.axhline(
+            speedup,
+            color=dwarf_colour(dwarf, dwarfs),
+            linestyle=":",
+            linewidth=1.2,
+            alpha=0.8,
+            zorder=2,
+        )
+    if ref_variants:
+        ax.plot(
+            [],
+            [],
+            ":",
+            color=INK_2,
+            linewidth=1.2,
+            label=f"{', '.join(ref_variants)} (runs once; dwarf colour)",
+        )
     ax.axhline(1, color=INK_2, linewidth=1, linestyle="--", zorder=1)
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
@@ -219,16 +254,32 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
     )
     ax.set_ylabel(f"Speedup over {vector_baseline} baseline (×)")
     ax.set_title("Crossover: where the matrix reformulation pays off")
-    ax.legend(loc="upper left", fontsize=9)
+    ax.legend(loc="upper left", fontsize=8)
+    if table:
+        table.sort(key=lambda t: t[0])
+        tax = fig.add_axes([0.70, 0.12, 0.29, 0.8])
+        tax.axis("off")
+        tab = tax.table(
+            cellText=[[name, value] for name, value, _ in table],
+            colLabels=["series", "crossover ratio"],
+            loc="upper left",
+            cellLoc="left",
+            colLoc="left",
+            edges="horizontal",
+        )
+        tab.auto_set_font_size(False)
+        tab.set_fontsize(8)
+        tab.scale(1.0, 1.35)
+        for i, (_, _, colour) in enumerate(table, start=1):
+            tab[i, 0].get_text().set_color(colour)
+        for cell in tab.get_celld().values():
+            cell.set_edgecolor(GRID)
     _note(
         fig,
-        "Diamonds mark the crossover (speedup 1, log-linear interpolation). "
+        "Diamonds mark the crossover (speedup 1, log-linear interpolation); the table gives each "
+        "value (< / >: outside the swept range). "
         f"Vector baseline: {vector_baseline}"
-        + (
-            " F/D, standing in for RVV until Phase C."
-            if vector_baseline == "scalar"
-            else "."
-        ),
+        + (" F/D." if vector_baseline == "scalar" else "."),
     )
     return _save(fig, out_dir, f"crossover-{study}")
 
@@ -322,6 +373,8 @@ def plot_bytes(rows, study, out_dir):
 
 
 def plot_accuracy(rows, study, out_dir):
+    """Normwise error per format pair, a line per dwarf/variant: the median over the
+    study's seeds, with a bar up to the worst seed when there are several."""
     plt = _plt()
     pts = [r for r in _ok(rows, study) if r.get("normwise") is not None]
     if not pts:
@@ -335,9 +388,10 @@ def plot_accuracy(rows, study, out_dir):
     floor = metrics.FP64_UNIT_ROUNDOFF
     series = {}
     for r in pts:
-        series.setdefault((r["dwarf"], r["variant"], r["size"]), {})[
-            f"{r['in_fmt']}/{r['acc_fmt']}"
-        ] = max(float(r["normwise"]), floor)
+        series.setdefault((r["dwarf"], r["variant"], r["size"]), {}).setdefault(
+            f"{r['in_fmt']}/{r['acc_fmt']}", []
+        ).append(max(float(r["normwise"]), floor))
+    n_seeds = max(len(v) for s_ in series.values() for v in s_.values())
     dwarfs = sorted({k[0] for k in series})
     multi_size = len({(k[0], k[2]) for k in series}) > len(dwarfs)
     multi_var = len({k[1] for k in series}) > 1
@@ -345,20 +399,34 @@ def plot_accuracy(rows, study, out_dir):
     for key in sorted(series):
         dwarf, variant, size = key
         xs = [i for i, p in enumerate(pairs) if p in series[key]]
-        ys = [series[key][pairs[i]] for i in xs]
+        med = [statistics.median(series[key][pairs[i]]) for i in xs]
+        worst = [max(series[key][pairs[i]]) for i in xs]
         name = _series_label(dwarf, size, "", multi_size, False) + (
             _variant_suffix(variant) if multi_var else ""
         )
+        colour = dwarf_colour(dwarf, dwarfs)
         ax.plot(
             xs,
-            ys,
+            med,
             variant_style(variant),
             marker="o",
-            color=dwarf_colour(dwarf, dwarfs),
+            color=colour,
             label=name,
             markeredgecolor="white",
             markeredgewidth=1.5,
+            zorder=3,
         )
+        if n_seeds > 1:
+            ax.errorbar(
+                xs,
+                med,
+                yerr=[[0] * len(xs), [w - m for w, m in zip(worst, med)]],
+                fmt="none",
+                ecolor=colour,
+                elinewidth=1,
+                capsize=3,
+                zorder=2,
+            )
     ax.axhline(floor, color=INK_2, linestyle="--", linewidth=1)
     ax.annotate(
         "fp64 unit roundoff (floor)",
@@ -378,7 +446,12 @@ def plot_accuracy(rows, study, out_dir):
     ax.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), fontsize=9)
     _note(
         fig,
-        "Golden: fp64 on the unrounded inputs, so input rounding counts. Exact results are drawn on the floor.",
+        "Golden: fp64 on the unrounded inputs, so input rounding counts. Exact results are drawn on the floor."
+        + (
+            f" Points are the median over {n_seeds} input seeds; bars reach the worst seed."
+            if n_seeds > 1
+            else " One input seed."
+        ),
     )
     return _save(fig, out_dir, f"accuracy-{study}")
 
@@ -453,6 +526,89 @@ def plot_redundancy(rows, study, out_dir):
     return _save(fig, out_dir, f"redundancy-{study}")
 
 
+def feature_deltas(rows, study):
+    """``[(label, dwarf, delta)]`` for a feature study, sorted best first (most negative delta).
+
+    ``delta`` is ``region_cycles / reference - 1``. In a study with a
+    ``kernel.cflags`` axis the reference is the same point with no cflags (the
+    default kernel), and each row is one switch. A study without one (a design
+    change, e.g. ``ztt_preset``) is compared with the same point in the study
+    named ``<prefix>_default``, ``<prefix>`` being the study name up to its
+    first ``_``; a study with neither has no deltas.
+    """
+    key = lambda r: (r["dwarf"], r["variant"], r["size"], r["in_fmt"], r["acc_fmt"])  # noqa: E731
+    own = [r for r in _ok(rows, study) if r.get("region_cycles")]
+    flags = lambda r: str(r.get("ovr:kernel.cflags") or "").strip("[]()' ")  # noqa: E731
+    if any(flags(r) for r in own):
+        ref = {key(r): r["region_cycles"] for r in own if not flags(r)}
+        pts = [(r, flags(r).replace("'", "")) for r in own if flags(r)]
+    else:
+        prefix = study.split("_", 1)[0]
+        ref_study = f"{prefix}_default"
+        if ref_study == study:
+            return []
+        ref = {
+            key(r): r["region_cycles"]
+            for r in _ok(rows, ref_study)
+            if r.get("region_cycles")
+        }
+        pts = [(r, study) for r in own]
+    out = []
+    for r, what in pts:
+        base = ref.get(key(r))
+        if base:
+            label = f"{what}  [{r['dwarf']} n={r['size']} {r['in_fmt']}/{r['acc_fmt']}]"
+            label = label.replace('"', "").replace(",", " ")
+            out.append((label, r["dwarf"], r["region_cycles"] / base - 1))
+    return sorted(out, key=lambda t: t[2])
+
+
+def plot_feature_ranking(rows, study, out_dir):
+    """Ranked horizontal bars: each switch's (or design's) change in region cycles."""
+    deltas = feature_deltas(rows, study)
+    if not deltas:
+        return []
+    plt = _plt()
+    dwarfs = sorted({d for _, d, _ in deltas})
+    fig, ax = plt.subplots(figsize=(8, 0.32 * len(deltas) + 1.6))
+    ys = range(len(deltas))
+    vals = [100 * v for _, _, v in deltas]
+    ax.barh(
+        ys,
+        vals,
+        0.6,
+        color=[dwarf_colour(d, dwarfs) for _, d, _ in deltas],
+        edgecolor="white",
+        linewidth=1.5,
+    )
+    for y, v in zip(ys, vals):
+        ax.annotate(
+            f"{v:+.1f}%",
+            (v, y),
+            xytext=(4 if v >= 0 else -4, 0),
+            textcoords="offset points",
+            ha="left" if v >= 0 else "right",
+            va="center",
+            fontsize=8,
+            color=INK,
+        )
+    ax.axvline(0, color=INK_2, linewidth=1)
+    lo, hi = min(0.0, *vals), max(0.0, *vals)
+    pad = 0.15 * max(hi - lo, 1.0)  # room for the value labels at both ends
+    ax.set_xlim(lo - (pad if lo < 0 else 0), hi + (pad if hi > 0 else 0))
+    ax.set_yticks(list(ys), [lbl for lbl, _, _ in deltas], fontsize=8)
+    ax.invert_yaxis()
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("Change in region cycles vs the reference (%)")
+    ax.set_title(f"Feature ranking: {study}")
+    _note(
+        fig,
+        "Negative is faster. Reference: the default kernel (no cflags) on the same design, "
+        "or the <prefix>_default study's point for a design change.",
+    )
+    return _save(fig, out_dir, f"feature_ranking-{study}")
+
+
 # -- driver ----------------------------------------------------------------------------------
 
 
@@ -477,6 +633,8 @@ def plot_sweep(sweep_dir, studies=None, log=print):
                 made = plot_bytes(rows, name, out_dir)
             elif fig == "accuracy":
                 made = plot_accuracy(rows, name, out_dir)
+            elif fig == "feature_ranking":
+                made = plot_feature_ranking(rows, name, out_dir)
             else:
                 made = plot_redundancy(rows, name, out_dir)
             if not made:

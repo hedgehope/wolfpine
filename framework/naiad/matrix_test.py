@@ -78,7 +78,11 @@ def test_defaults_and_aliases():
 @pytest.mark.parametrize(
     "change,message",
     [
-        ({"mode": "ime"}, "not implemented yet"),
+        (
+            {"mode": "ime"},
+            r"matrix \(mode ime\): unknown key",
+        ),  # AME keys; see ime_test.py
+        ({"mode": "vme"}, "not implemented yet"),
         ({"mode": "xyz"}, "matrix.mode must be one of"),
         ({"tiles": 33}, "matrix.tiles must be in 1-32"),
         ({"accs": 0}, "matrix.accs must be in 1-32"),

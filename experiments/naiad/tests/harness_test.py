@@ -232,8 +232,21 @@ def test_peaks_and_ratio(tmp_path):
     assert metrics.matrix_peak(base, "int8") == 2048
     assert metrics.vector_peak(base, "fp32") == 1
     assert metrics.vector_peak(base, "fp32", 8) == 8
-    with pytest.raises(ValueError, match="Phase C"):
-        metrics.vector_peak(base, "fp32", "rvv")
+    # RVV: timing.vector.datapath_bits (256) over the FMA's SEW; bf16 only widens into fp32.
+    assert base.timing.vector.datapath_bits == 256
+    assert metrics.vector_peak(base, "fp32", "rvv", "fp32") == 8
+    assert metrics.vector_peak(base, "fp64", "rvv", "fp64") == 4
+    assert metrics.vector_peak(base, "fp16", "rvv", "fp32") == 8
+    assert metrics.vector_peak(base, "fp16", "rvv", "fp16") == 16
+    assert metrics.vector_peak(base, "bf16", "rvv", "fp32") == 8
+    assert metrics.vector_peak(base, "bf16", "rvv", "bf16") == 8
+    _, wide, _ = DesignFactory(tmp_path).derive(
+        BASE, {"timing.vector.datapath_bits": 512}
+    )
+    assert metrics.vector_peak(load_design(wide), "fp32", "rvv", "fp32") == 16
+    no_vector = load_design(BASE.parent / "naiad-ame-timed.yaml")
+    with pytest.raises(ValueError, match="vector unit"):
+        metrics.vector_peak(no_vector, "fp32", "rvv")
     _, path, _ = DesignFactory(tmp_path).derive(BASE, {"timing.matrix.mma_ii": 64})
     assert metrics.matrix_peak(load_design(path), "fp32") == 64
 
@@ -543,3 +556,140 @@ def test_crossover_needs_a_swept_ratio():
     study = Study(name="s")
     rows = [{**_row("ame", 10, 64), "speedup": 2.0}]
     assert metrics.crossovers(rows, study) == []
+
+
+def test_seeds_expand_and_aggregate(tmp_path):
+    path = write_sweep(
+        tmp_path,
+        {
+            "name": "seeded",
+            "dwarfs_root": TOY_ROOT,
+            "sizes": "smallest",
+            "studies": [
+                {
+                    "name": "p",
+                    "variants": ["ame"],
+                    "formats": [["fp32", "fp32"]],
+                    "seeds": [3, 1, 2],
+                },
+                {
+                    "name": "q",
+                    "variants": ["ame"],
+                    "formats": [["fp32", "fp32"]],
+                    "seed": 7,
+                },
+            ],
+        },
+    )
+    sweep = load_sweep(path)
+    points = expand(sweep, DesignFactory(tmp_path), log=lambda *_: None)
+    assert sorted(p.seed for p in points if p.study == "p") == [1, 2, 3]
+    assert [p.seed for p in points if p.study == "q"] == [7]
+    assert len({p.point_id for p in points}) == len(points)
+    with pytest.raises(SweepError, match="seeds"):
+        load_sweep(write_sweep(tmp_path, {"name": "bad", "seeds": []}))
+    # Aggregation: median and max over the rows that differ only in the seed.
+    rows = []
+    for seed, err in ((0, 1e-3), (1, 3e-3), (2, 2e-3)):
+        r = _row("ame", 100, fmts=("bf16", "fp32"))
+        r.update(seed=seed, normwise=err, passed=True, tolerance=1e-2)
+        rows.append(r)
+    other = _row("ame", 100, fmts=("fp32", "fp32"))
+    other.update(normwise=5e-8)
+    rows.append(other)
+    metrics.add_seed_stats(rows)
+    assert [r["normwise_median"] for r in rows[:3]] == [2e-3] * 3
+    assert [r["normwise_max"] for r in rows[:3]] == [3e-3] * 3
+    assert rows[0]["n_seeds"] == 3
+    assert other["n_seeds"] == 1
+    recs = {(r["in_fmt"], r["n_seeds"]): r for r in metrics.precision_records(rows)}
+    rec = recs[("bf16", 3)]
+    assert rec["seeds"] == "0 1 2"
+    assert rec["normwise_min"] == 1e-3
+    assert rec["passed_all"]
+
+
+def test_reference_speedups_and_crossovers():
+    study = Study(
+        name="s",
+        overrides={"timing.matrix.macs_per_cycle": [1, 4]},
+        only={"timing.matrix.macs_per_cycle": ["ame"]},
+        baseline={"variant": "rvv", "formats": ["fp32", "fp32"]},
+        references=["scalar"],
+    )
+    key = "timing.matrix.macs_per_cycle"
+    rows = [
+        _row("ame", 400, macs=4, **{key: 1}),
+        _row("ame", 100, macs=16, **{key: 4}),
+        _row("rvv", 200, **{key: ""}),
+        _row("scalar", 1000, **{key: ""}),
+    ]
+    metrics.add_speedups(rows, study)
+    assert rows[0]["speedup"] == 0.5
+    assert rows[1]["speedup"] == 2
+    assert rows[0]["speedup_vs_scalar"] == 2.5
+    assert rows[1]["speedup_vs_scalar"] == 10
+    assert (
+        rows[2]["speedup_vs_scalar"] == 5
+    )  # the baseline itself is compared with the reference
+    assert rows[3]["speedup"] == 0.2
+    assert "speedup_vs_scalar" not in rows[3]
+    (c,) = metrics.crossovers(rows, study)
+    assert c["status"] == "bracketed"
+    assert c["crossover_ratio"] == pytest.approx(4 ** (1 / 3))
+    assert c["status_vs_scalar"] == "below_range"
+    assert c["crossover_vs_scalar"] == ""
+
+
+IME_BASE = BASE.parent / "naiad-ime-timed.yaml"
+
+
+def test_variant_designs_and_mode_skips(tmp_path):
+    body = {
+        "name": "vd",
+        "dwarfs": ["gemm"],
+        "sizes": [32],
+        "variants": ["ame", "ime", "rvv"],
+        "formats": [["fp32", "fp32"]],
+    }
+    msgs = []
+    pts = expand(
+        load_sweep(write_sweep(tmp_path, body)),
+        DesignFactory(tmp_path),
+        log=msgs.append,
+    )
+    assert sorted(p.variant for p in pts) == ["ame", "rvv"]
+    assert any("skip gemm/ime: needs a matrix.mode ime design" in m for m in msgs)
+    body["variant_designs"] = {"ime": str(IME_BASE.relative_to(BASE.parents[3]))}
+    pts = expand(
+        load_sweep(write_sweep(tmp_path, body)),
+        DesignFactory(tmp_path),
+        log=lambda *_: None,
+    )
+    by = {p.variant: load_design(p.design_path) for p in pts}
+    assert by["ime"].matrix.mode == "ime"
+    assert by["ame"].matrix.mode == "ame"
+
+
+def test_ime_peak_and_normalise_merge(tmp_path):
+    ime = load_design(IME_BASE)
+    # VLEN 256, fp32: lambda 1, M = 8, LMUL 8, K_eff 8: 512 MACs; the 96 B/cycle read port
+    # moves A + B + C (256 + 256 + 256 B) in 8 cycles, so 64 MACs/cycle.
+    assert metrics.matrix_peak(ime, "fp32", "fp32") == 64
+    budget = {
+        "peak_flops_per_cycle": 4096,
+        "operand_bytes": 12288,
+        "mem_bytes_per_cycle": 64,
+        "mode": "ime",
+    }
+    _, path, derived = DesignFactory(tmp_path).derive(
+        IME_BASE, {}, {**budget, "vlen": None}
+    )
+    d = load_design(path)
+    assert d.cores.vlen == derived["vlen"] == 2048
+    assert d.timing.vector.mem_bytes_per_cycle == 64
+    assert 4 in d.matrix.lambdas[32]  # the reference geometry's lambda, legal at 2048
+    # Equal storage: lambda 4, 16 x 16 x 32 = 8192 MACs; fp32's 4 passes at 2048 MACs/cycle: 16 cycles.
+    assert metrics.matrix_peak(d, "fp32", "fp32") == 512
+    _, pinned, _ = DesignFactory(tmp_path).derive(IME_BASE, {}, {**budget, "vlen": 256})
+    assert load_design(pinned).cores.vlen == 256

@@ -24,6 +24,18 @@
  * matrix unit (an identity mma into a bf16 accumulator) for bf16, on the
  * scalar side for fp16 (the design has no fp16 accumulator format).
  *
+ * Feature switches (AME features the default design lists only in a sweep):
+ *   JACOBI_MCONV 1 (acc_move + convert; Ztt mmov.m.a + mconv.ew): with a 16-bit
+ *     input format, an intermediate sweep moves each output tile accumulator ->
+ *     tile, converts it to the input format on the unit and stores the tile, so
+ *     neither the bf16 identity mma pass nor the fp16 scalar pass is needed.
+ *   JACOBI_TSHIFT2 1 (JACOBI_FORM 0 only; shift2, NOT in Ztt): the four windows
+ *     are funnel shifts (tshift2) of the left / centre / right tiles, rotating
+ *     along the tile row as in the banded form, and of one fused-halo load H
+ *     (base: the row below the tile, stride -17 rows, so H[0] is the row below
+ *     and H[1] the row above): 2 loads per tile instead of 4, plus 1 tshift and
+ *     4 tshift2.
+ *
  * Host interface: grid (in, N x N input format), out (N x N accumulator
  * format: the last sweep, before any rounding to the input format),
  * region_cycles.
@@ -49,6 +61,12 @@
 #ifndef JACOBI_TSHIFT
 #define JACOBI_TSHIFT 1
 #endif
+#ifndef JACOBI_MCONV
+#define JACOBI_MCONV 0
+#endif
+#ifndef JACOBI_TSHIFT2
+#define JACOBI_TSHIFT2 0
+#endif
 
 #define N JACOBI_N
 #define TT ((N - 2) / 16) /* output tiles per dimension */
@@ -69,6 +87,17 @@
 #if JACOBI_EPILOGUE && !defined(NAIAD_MATRIX_FEATURE_EPILOGUE)
 #error "JACOBI_EPILOGUE needs the matrix unit's epilogue feature"
 #endif
+#if JACOBI_MCONV && (!defined(NAIAD_MATRIX_FEATURE_ACC_MOVE) || !defined(NAIAD_MATRIX_FEATURE_CONVERT))
+#error "JACOBI_MCONV needs the matrix unit's acc_move and convert features"
+#endif
+#if JACOBI_TSHIFT2 && (JACOBI_FORM != 0 || !defined(NAIAD_MATRIX_FEATURE_SHIFT2) || !defined(NAIAD_MATRIX_FEATURE_SHIFT))
+#error "JACOBI_TSHIFT2 needs JACOBI_FORM 0 and the matrix unit's shift2 and shift features"
+#endif
+/* The tile JACOBI_MCONV converts through: free in every form except tshift2's. */
+#define CONV_TILE (JACOBI_TSHIFT2 ? 8 : 7)
+#if JACOBI_MCONV && NAIAD_MATRIX_TILES <= CONV_TILE
+#error "JACOBI_MCONV with JACOBI_TSHIFT2 needs a ninth tile"
+#endif
 
 NAIAD_IO dw_in_t grid[N * N];
 NAIAD_IO dw_acc_t out[N * N];
@@ -79,6 +108,9 @@ NAIAD_IO uint64_t region_cycles;
  * what it holds never matters, since the tshift drops those rows. */
 #define USES_STRIDED_HALO (JACOBI_FORM == 1 && JACOBI_TSHIFT)
 static struct {
+#if JACOBI_TSHIFT2
+    dw_in_t pre[255 * N]; /* the -17-row-stride halo load reads up to 239 rows before a tile */
+#endif
     dw_in_t g[2][N * N];
 #if USES_STRIDED_HALO
     dw_in_t slack[255 * N];
@@ -112,6 +144,32 @@ static void make_constants(void) {
 #define EPI(A) ((void)0)
 #endif
 
+/* Storing a finished output tile: an astore, or with JACOBI_MCONV into an
+ * input-format grid (conv), accumulator -> tile -> converted tile -> memory. */
+#define ASTORE(A) mx_astore(A, ACC, d - 16 * des, ds)
+#if JACOBI_MCONV
+#define CONV_STORE(A)                                                                              \
+    do {                                                                                           \
+        mx_amov_ta(CONV_TILE, A, ACC, 1);                                                          \
+        mx_tconv(CONV_TILE, CONV_TILE, 1, ACC, IN);                                                \
+        mx_tstore_b(CONV_TILE, IN, d - 16 * des, ds);                                              \
+    } while (0)
+#define STORE(A)                                                                                   \
+    do {                                                                                           \
+        if (conv) {                                                                                \
+            CONV_STORE(A);                                                                         \
+        } else {                                                                                   \
+            ASTORE(A);                                                                             \
+        }                                                                                          \
+    } while (0)
+#define SWEEP_CONV , int conv
+#define CONV_ARG(x) , x
+#else
+#define STORE(A) ASTORE(A)
+#define SWEEP_CONV
+#define CONV_ARG(x)
+#endif
+
 /* Both forms are software-pipelined along a tile row: a tile's loads issue
  * before the previous tile's astore, and consecutive tiles use different
  * accumulators, so the in-order core does not stall the L1 port (shared by
@@ -127,7 +185,7 @@ static void make_constants(void) {
         mx_tload_a(3, IN, c - 1, RS);                                                              \
         mx_tload_a(4, IN, c + 1, RS);                                                              \
         if (J) {                                                                                   \
-            mx_astore(PA, ACC, d - 16 * des, ds);                                                  \
+            STORE(PA);                                                                             \
         }                                                                                          \
         mx_azero(A);                                                                               \
         mx_mma(A, 0, 1, IN, ACC);                                                                  \
@@ -139,7 +197,70 @@ static void make_constants(void) {
         d += 16 * des;                                                                             \
     } while (0)
 
-static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
+#if JACOBI_TSHIFT2
+/* Tile registers: 0 Q, 1..3 rotating left / centre / right, 4 the halo H (then
+ * Wup), 5 X (then Wrt), 6 Wdn, 7 Wlt. Accumulators 0..2 rotate with the tiles.
+ * Software-pipelined: the next tile's two loads (its right tile into this
+ * tile's left register, its halo into 4) issue between this tile's mma, once
+ * the shifts have consumed what those registers held; the mma run in the
+ * window form's order, so the sums are the same. */
+#define ESZ MX_ESZ(DW_IN_BYTES)
+#define HLOAD(at) mx_tload_b(4, IN, (at) + 16 * N, -17 * RS) /* H[0] row below, H[1] row above */
+#define W2STEP(L, C, R, A, PA)                                                                     \
+    do {                                                                                           \
+        mx_tshift(5, 4, 0, 0, IN, 14);   /* X[15] = H[1], the row above */                         \
+        mx_tshift2(6, C, 4, 0, ESZ, 1);  /* Wdn: rows 1..16 of C ++ H */                           \
+        mx_tshift2(4, 5, C, 0, ESZ, 15); /* Wup: rows 15..30 of X ++ C */                          \
+        mx_tshift2(5, C, R, 1, ESZ, 1);  /* Wrt: columns 1..16 of C ++ R */                        \
+        mx_tshift2(7, L, C, 1, ESZ, 15); /* Wlt: columns 15..30 of L ++ C */                       \
+        mx_azero(A);                                                                               \
+        mx_mma(A, 0, 4, IN, ACC);                                                                  \
+        mx_mma(A, 0, 6, IN, ACC);                                                                  \
+        if (J + 1 < TT) {                                                                          \
+            mx_tload_a(L, IN, c + 32, RS);                                                         \
+            HLOAD(c + 16);                                                                         \
+        }                                                                                          \
+        if (J) {                                                                                   \
+            STORE(PA);                                                                             \
+        }                                                                                          \
+        mx_mma(A, 7, 0, IN, ACC);                                                                  \
+        mx_mma(A, 5, 0, IN, ACC);                                                                  \
+        EPI(A);                                                                                    \
+        c += 16;                                                                                   \
+        d += 16 * des;                                                                             \
+    } while (0)
+
+static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
+    mx_tload_a(0, IN, cst[C_Q], 16 * DW_IN_BYTES);
+    for (int I = 0; I < TT; I++) {
+        const dw_in_t *c = src + (long)(1 + 16 * I) * N + 1;
+        char *d = dst + (1 + 16 * I) * ds + des;
+        mx_tload_a(1, IN, c - 16, RS); /* its column 15 is the tile row's left boundary column */
+        mx_tload_a(2, IN, c, RS);
+        mx_tload_a(3, IN, c + 16, RS);
+        HLOAD(c);
+        int J = 0;
+        for (;;) {
+            W2STEP(1, 2, 3, 0, 2);
+            if (++J == TT) {
+                STORE(0);
+                break;
+            }
+            W2STEP(2, 3, 1, 1, 0);
+            if (++J == TT) {
+                STORE(1);
+                break;
+            }
+            W2STEP(3, 1, 2, 2, 1);
+            if (++J == TT) {
+                STORE(2);
+                break;
+            }
+        }
+    }
+}
+#else
+static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
     mx_tload_a(0, IN, cst[C_Q], 16 * DW_IN_BYTES);
     for (int I = 0; I < TT; I++) {
         const dw_in_t *c = src + (long)(1 + 16 * I) * N + 1;
@@ -148,17 +269,18 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
         for (;;) {
             WSTEP(0, 1);
             if (++J == TT) {
-                mx_astore(0, ACC, d - 16 * des, ds);
+                STORE(0);
                 break;
             }
             WSTEP(1, 0);
             if (++J == TT) {
-                mx_astore(1, ACC, d - 16 * des, ds);
+                STORE(1);
                 break;
             }
         }
     }
 }
+#endif
 #else
 /* -- form 1: banded horizontal (rotating Lt / C / Rt), window or fused-halo vertical -- */
 /* Tile registers: 0 T0, 1 Q or Ah, 2 Elt, 3 Ert, 4..6 rotating, 7 vertical operand.
@@ -176,12 +298,27 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
     mx_tload_b(7, IN, c + N, RS);                                                                  \
     mx_mma(A, 1, 7, IN, ACC)
 #endif
+/* With JACOBI_MCONV a converting store goes through tile 7, the vertical operand,
+ * so it must come before the step's VLOAD. */
+#if JACOBI_MCONV
+#define EARLY_STORE(PA)                                                                            \
+    do {                                                                                           \
+        if (J && conv) {                                                                           \
+            CONV_STORE(PA);                                                                        \
+        }                                                                                          \
+    } while (0)
+#define LATE_STORE_COND (J && !conv)
+#else
+#define EARLY_STORE(PA) ((void)0)
+#define LATE_STORE_COND J
+#endif
 #define BSTEP(L, C, R, A, PA)                                                                      \
     do {                                                                                           \
         mx_tload_a(R, IN, c + 16, RS);                                                             \
+        EARLY_STORE(PA);                                                                           \
         VLOAD();                                                                                   \
-        if (J) {                                                                                   \
-            mx_astore(PA, ACC, d - 16 * des, ds);                                                  \
+        if (LATE_STORE_COND) {                                                                     \
+            ASTORE(PA);                                                                            \
         }                                                                                          \
         mx_azero(A);                                                                               \
         mx_mma(A, C, 0, IN, ACC);                                                                  \
@@ -193,7 +330,7 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
         d += 16 * des;                                                                             \
     } while (0)
 
-static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
+static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
     mx_tload_b(0, IN, cst[C_T0], 16 * DW_IN_BYTES);
     mx_tload_a(1, IN, cst[JACOBI_TSHIFT ? C_AH : C_Q], 16 * DW_IN_BYTES);
     mx_tload_b(2, IN, cst[C_ELT], 16 * DW_IN_BYTES);
@@ -207,17 +344,17 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des) {
         for (;;) {
             BSTEP(4, 5, 6, 0, 2);
             if (++J == TT) {
-                mx_astore(0, ACC, d - 16 * des, ds);
+                STORE(0);
                 break;
             }
             BSTEP(5, 6, 4, 1, 0);
             if (++J == TT) {
-                mx_astore(1, ACC, d - 16 * des, ds);
+                STORE(1);
                 break;
             }
             BSTEP(6, 4, 5, 2, 1);
             if (++J == TT) {
-                mx_astore(2, ACC, d - 16 * des, ds);
+                STORE(2);
                 break;
             }
         }
@@ -262,9 +399,13 @@ int main(void) {
         dw_in_t *next = work.g[(it + 1) & 1];
         int last = it == JACOBI_ITERS - 1;
         if (DW_SAME_FMT && !last) {
-            sweep(src, (char *)next, RS, DW_IN_BYTES);
+            sweep(src, (char *)next, RS, DW_IN_BYTES CONV_ARG(0));
+#if JACOBI_MCONV
+        } else if (!last) {
+            sweep(src, (char *)next, RS, DW_IN_BYTES, 1); /* converted on the unit */
+#endif
         } else {
-            sweep(src, (char *)out, ORS, DW_ACC_BYTES);
+            sweep(src, (char *)out, ORS, DW_ACC_BYTES CONV_ARG(0));
             if (!last) {
                 to_input_format(next);
             }

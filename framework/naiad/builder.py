@@ -145,6 +145,7 @@ def make_matrix_unit(spec, xlen):
             in_formats=spec.in_formats,
             acc_formats=spec.acc_formats,
             features=spec.features,
+            acc_mem=spec.acc_mem,
             k_chunk=spec.k_chunk,
             numerics=spec.numerics,
             fidelity=spec.fidelity,
@@ -203,7 +204,14 @@ class NaiadSoC:
         # The matrix unit is attached after construction, so the core factory
         # stays about the core: AME goes last in each hart's ISA chain.
         self.matrix_units = []
-        if design.matrix is not None:
+        if design.matrix is not None and design.matrix.mode == "ime":
+            from framework.matrix.ime_isa import IMEUnit
+            from framework.matrix.ime_isa import attach as attach_ime
+
+            for core in self.cores:
+                unit = IMEUnit(design.matrix, core.vector, cores_spec.xlen)
+                self.matrix_units.append(attach_ime(core, unit))
+        elif design.matrix is not None:
             for core in self.cores:
                 unit = make_matrix_unit(design.matrix, cores_spec.xlen)
                 self.matrix_units.append(attach_matrix_unit(core, unit))

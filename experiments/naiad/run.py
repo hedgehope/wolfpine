@@ -10,7 +10,8 @@ ones). Builds are cached by key in ``out/<sweep>/build/`` (or ``--build-root``).
 
 Finally it writes ``results.csv`` (one row per study and point; columns in
 :mod:`experiments.naiad.metrics`), ``crossover.csv`` (one row per crossover
-group) and ``meta.json``. ``--no-run`` only rewrites those from stored results,
+group), ``precision.csv`` (one row per group of points that differ only in
+the seed: median and max normwise error) and ``meta.json``. ``--no-run`` only rewrites those from stored results,
 for instance after changing a study's ``ratio.vector`` model.
 """
 
@@ -39,8 +40,8 @@ from experiments.naiad.sweep import (
 
 SWEEPS = Path(__file__).resolve().parent / "sweeps"
 VECTOR_NOTE = (
-    "The 'vector' baseline is the scalar F/D variant until RVV lands (Phase C); "
-    "set a study's ratio.vector to 'rvv' (and its baseline.variant to the RVV variant) to switch."
+    "A study's 'vector' baseline is its baseline.variant (rvv: the dwarfs' RVV variants, scalar: F/D) "
+    "and its ratio.vector model (rvv: timing.vector.datapath_bits / SEW; scalar: issue_width)."
 )
 
 
@@ -181,6 +182,7 @@ def collect(sweep, points, out_dir):
         result = json.loads(path.read_text())
         result["design_path"] = str(out_dir / result["design_file"])
         rows.append(metrics.flatten(result, by_study[p.study]))
+    metrics.add_seed_stats(rows)
     cross = []
     for study in sweep.studies:
         metrics.add_speedups(rows, study)
@@ -198,6 +200,7 @@ def write_reports(sweep, points, out_dir, commit):
         "size",
         "in_fmt",
         "acc_fmt",
+        "seed",
         "group",
         "crossover_ratio",
         "status",
@@ -208,7 +211,27 @@ def write_reports(sweep, points, out_dir, commit):
         "speedup_at_max",
         "vector_baseline",
     ]
+    cross_cols += sorted({k for c in cross for k in c} - set(cross_cols))
     metrics.write_csv(out_dir / "crossover.csv", cross, cross_cols)
+    precision = metrics.precision_records(rows)
+    precision_cols = [
+        "study",
+        "dwarf",
+        "variant",
+        "size",
+        "in_fmt",
+        "acc_fmt",
+        "group",
+        "n_seeds",
+        "seeds",
+        "normwise_median",
+        "normwise_max",
+        "normwise_min",
+        "normwise_by_seed",
+        "passed_all",
+        "tolerance",
+    ]
+    metrics.write_csv(out_dir / "precision.csv", precision, precision_cols)
     meta = {
         "sweep": sweep.name,
         "sweep_file": str(sweep.path),
@@ -221,6 +244,8 @@ def write_reports(sweep, points, out_dir, commit):
             s.name: {
                 "vector_baseline": s.ratio.get("vector", "scalar"),
                 "baseline": s.baseline,
+                "references": s.references,
+                "seeds": s.seed_list,
                 "figures": s.figures,
                 "description": s.description,
             }

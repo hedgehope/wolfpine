@@ -1,4 +1,4 @@
-"""AME: the attached matrix unit as an RV ISA executor (custom-0 / custom-1).
+"""AME: the attached matrix unit as an RV ISA executor (custom-0 / custom-1 / custom-2).
 
 The core offers each fetched word to this class like any other extension
 (``run(register_file, memory_space, snoop, instr)``, True when claimed). The
@@ -93,6 +93,7 @@ def _mma(unit, insn, ops, register_file, memory, instr):
         ops["acc"],
         insn.params["semiring"],
         instr,
+        insn.params.get("transpose"),
     )
 
 
@@ -109,6 +110,41 @@ def _acc_scalar(unit, insn, ops, register_file, memory, instr):
     )
 
 
+def _role(ops):
+    return "b" if ops["b"] else "a"
+
+
+def _acc_to_tile(unit, insn, ops, register_file, memory, instr):
+    unit.acc_to_tile(ops["td"], ops["as"], ops["fmt"], _role(ops), instr)
+
+
+def _tile_to_acc(unit, insn, ops, register_file, memory, instr):
+    unit.tile_to_acc(ops["ad"], ops["ts"], ops["fmt"], _role(ops), instr)
+
+
+def _tile_convert(unit, insn, ops, register_file, memory, instr):
+    unit.convert_tile(ops["td"], ops["ts"], ops["from"], ops["to"], _role(ops), instr)
+
+
+def _tile_reduce(unit, insn, ops, register_file, memory, instr):
+    unit.reduce_tile(
+        ops["td"],
+        ops["ts"],
+        ops["fmt"],
+        _role(ops),
+        ops["cols"],
+        ops["op"],
+        insn.params["prefix"],
+        instr,
+    )
+
+
+def _tile_shift2(unit, insn, ops, register_file, memory, instr):
+    unit.shift2_tile(
+        ops["td"], ops["ta"], ops["tb"], ops["esz"], ops["cols"], ops["amount"], instr
+    )
+
+
 #: ``exec`` names in the table -> executor.
 EXECUTORS = {
     "tile_load": _tile_load,
@@ -120,6 +156,11 @@ EXECUTORS = {
     "mma": _mma,
     "config_read": _config_read,
     "acc_scalar": _acc_scalar,
+    "acc_to_tile": _acc_to_tile,
+    "tile_to_acc": _tile_to_acc,
+    "tile_convert": _tile_convert,
+    "tile_reduce": _tile_reduce,
+    "tile_shift2": _tile_shift2,
 }
 
 
@@ -169,7 +210,7 @@ class RV_AME_ISA(RV_ISA):
 def attach(core, unit):
     """Give ``core`` the matrix ``unit``: its state on the register file, AME last in the ISA chain.
 
-    Appending is safe because every other extension declines custom-0/custom-1.
+    Appending is safe because every other extension declines the custom opcodes.
     ``isas`` and the pre-bound ``_isa_runs`` are kept in step.
     """
     core.matrix = unit

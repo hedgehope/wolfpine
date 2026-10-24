@@ -1,0 +1,155 @@
+# naiad-ztt: naiad-dwarfs with its matrix unit reshaped into one the AME draft
+# Ztt v0.6 allows (matrix.profile: ztt), so a kernel's cost under Ztt's rules
+# can be compared with our default unit at the same peak and bandwidth.
+#
+# What changes (the matrix: section only; cores, memory map and timing are
+# naiad-dwarfs', so every sweep override that applies there applies here):
+#   - 16 tile registers (Ztt AME_NUM_M_REGS is 16 or 32), 4 accumulators;
+#   - no memory <-> accumulator path (acc_mem: false): matrix.h lowers
+#     aload/astore to amov + a tile load/store through scratch tiles 12-15;
+#   - Ztt's accumulation rule (k_chunk: 1) and feature set;
+#   - no int8 (it would be a packed format).
+# The Ztt-tracking ops' costs are the timing model's defaults (Tensix
+# analogues; framework/matrix/timing.py, AMETimingSpec).
+#
+# What naiad-dwarfs' own notes say about the shared parts follows.
+#
+# naiad-dwarfs (the base): the common base design for the dwarf-reformulation kernels
+# (kernels/naiad/dwarfs/). naiad-ame-timed (whose calibration notes follow)
+# plus F/D for the scalar FP baselines, the RVV unit for the vector baselines,
+# and the full format set the precision study sweeps; the experiment harness
+# (experiments/naiad/) derives every sweep point from this file by overriding
+# keys, never by moving addresses.
+#
+# The vector unit (the dwarfs' `rvv` variants) is the SpacemiT K1 X60's shape:
+# RVV 1.0 with VLEN 256, ELEN 64, plus Zvfh (fp16 arithmetic), Zvfbfmin and
+# Zvfbfwma (bf16 converts and the widening bf16 FMA; Zvfbfwma needs Zfbfmin,
+# whose scalar half/bf16 moves the kernels use). Only the `rvv` (and other
+# vector-coupled) variants are compiled with V in -march: the scalar and AME
+# variants are built with this ISA list minus the vector extensions
+# (framework/naiad/dwarfs.py), so the compiler cannot auto-vectorise a
+# baseline that is meant to be scalar.
+#
+# naiad-ame-timed: naiad-ame with the cycle model on, calibrated against the
+# Tensix as this repo models it.
+#
+# The shape mirrors one Tensix tile: the program, its data and its stack live in
+# a 1.5 MiB on-chip L1 (Blackhole's), the matrix unit is fed from L1 the way the
+# FPU is fed by the unpackers and drained by the packers, and DRAM sits behind
+# a NoC-sized latency. Sources are the cost tables in
+# framework/pe/tensix/tensix_instruction_costs.yaml (TIC) and
+# framework/perf/unit_costs.yaml (UC); each number below says which entry.
+# Where the Tensix has no counterpart the value is marked "not calibrated".
+#
+# Fixed by construction, so not parameters here: one instruction issues per
+# cycle (UC riscv.issue: "intended to execute one RV32IM instruction per
+# cycle"), instruction fetch is free, and there is no L0 data cache (every L1
+# load pays the L0-miss latency; a cache block fronting l1 would model the L0).
+name: naiad-ztt
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: l1
+  stack_size: 64KiB
+matrix:
+  mode: ame
+  # Ztt v0.6 (riscv/riscv-attached-matrix-extension tag v0.6, 8d27acdc,
+  # 2026-08-16). design.py enforces the profile's ranges.
+  profile: ztt
+  # A square is N x N with N = sqrt(AME_NELEM): 16 x 16, as naiad-dwarfs. With
+  # AME_UNIT_DATATYPE_SIZE = 16 bits no listed format is packed, so K = N for
+  # every format (fp32 / fp64 squares span 2 / 4 M registers).
+  m: 16
+  n: 16
+  k: 16
+  # AME_NUM_M_REGS in {16, 32}; a Naiad tile holds one square of the widest
+  # format, i.e. one register group, so this is 16 groups (32 M registers at
+  # fp32; Ztt would give fp64 only 8). naiad-dwarfs' 8 is outside the range.
+  tiles: 16
+  accs: 4            # AME_NUM_ACC_REGS in {1, 2, 4, 8, 16}: naiad-dwarfs' 4
+  # No int8: at a 16-bit unit size it would be packed (K = 32), which a unit
+  # with one K for every format does not model.
+  formats: {in: [fp64, fp32, fp16, bf16], acc: [fp64, fp32, bf16]}
+  # Ztt's data movement and structural ops; no epilogue (ascal/aadds act on
+  # accumulators, Ztt's element-wise ops on M registers), semiring or shift2.
+  features: [transpose, shift, acc_move, convert, mma_transpose, reduce]
+  acc_mem: false     # "AME defines no direct data-movement path between memory and Acc"
+  k_chunk: 1         # the accumulator-seeded fold, one product at a time (unfused)
+timing:
+  scalar:
+    alu: 1            # UC riscv.integer_unit.default 1 ("latency 1 and throughput 1")
+    mul: 2            # UC blackhole integer_unit: one cycle in EX1 + one in EX2, pipelined (silicon dep chain 1.985)
+    div: 6            # UC divide_general {6, max 33}: the floor of the range
+    div_pipelined: false
+    load: 2           # UC riscv.load_latency.minimum 2 (core-local data RAM)
+    store: 1
+    branch_taken: 0   # UC blackhole: correctly predicted branch 0.999 cycles; no predictor here, so taken = predicted
+    csr: 1
+    fp_add: 2         # UC blackhole: FP arithmetic is one cycle in EX1 + one in EX2
+    fp_mul: 2
+    fp_fma: 2
+    # fp_div / fp_sqrt: the baby cores' F subset has neither; the defaults stand (not calibrated).
+  memory:
+    l1:
+      latency: 6      # + load 2 = 8: UC blackhole load_latency.l1_dcache_miss >= 8
+      bandwidth: null # UC l1: 16 banks x 16 access ports, 128 bits each a cycle; contention is not modelled
+    dram:
+      latency: 126    # UC noc.dram.access_latency (Blackhole read, DRAM minus L1)
+      bandwidth: 24   # UC dram.channel_serialisation: 24 GB/s per GDDR6 channel at 1 GHz
+  matrix:
+    # One MVMUL is 8 rows of SrcB by a 16x16 SrcA: 8*16*16 = 2048 MACs a cycle at
+    # LoFi (TIC MATH.fidelity_phases.mul_adds_per_cycle_lofi 4096 = 2048 MACs;
+    # mvmuls_per_tile 16, silicon +1.6 cycles per phase step). A 16x16x16 mma is
+    # 4096 MACs: 2 cycles per pass.
+    macs_per_cycle: 2048
+    # Passes per mma = fidelity phases (TIC cycles_per_tile LoFi 16 .. HiFi4 64).
+    # The phase count per format is tt-metal's usual choice, not a sourced rule:
+    # HiFi4 for fp32 (8 cycles per mma), LoFi for int8 (not calibrated: the
+    # tables carry no integer fidelity).
+    # fp64/fp16/bf16: not calibrated (the Tensix has no fp64; bf16 at HiFi2 is tt-metal's usual
+    # matmul choice, fp16 taken the same). The sweep varies these.
+    format_passes: {fp64: 16, fp32: 4, fp16: 2, bf16: 2}
+    pipeline_depth: 5      # TIC MATH.MVMUL latency 5
+    acc_forwarding: true   # fidelity phases accumulate into the same Dst rows at 1 IPC (TIC corroboration)
+    overlap: true          # the math thread runs decoupled from the unpack/pack threads
+    tile_load_bandwidth: 64  # TIC UNPACK throttle_modes.x4 64 B/cycle (joint_bandwidth 80 is for two unpackers)
+    tile_load_latency: 2     # TIC UNPACR: "at least two cycles calculating the address"
+    tile_store_bandwidth: 64 # TIC PACK l1_bandwidth: 4 packers x one 128-bit write per cycle
+    tile_store_latency: 1    # TIC PACR occupancy 1 (issue; the drain is unsourced)
+    azero: 1                 # TIC MATH ZEROACC 1
+    tshift: 2                # TIC MATH SHIFTXB 2
+    mcfg: 1
+    epilogue: 2              # SFPU arithmetic latency 2, per instruction (not calibrated per element)
+  vector:
+    # The K1 X60 executes a VLEN-256 register as 128 bits x 2 pipes, so one
+    # VLEN of arithmetic a cycle: 8 fp32 / 4 fp64 / 16 fp16 FMAs, and 8 fp32
+    # FMAs for the widening bf16/fp16 -> fp32 forms (they occupy the datapath at
+    # 2*SEW). Modelled as one 256-bit datapath (the model has a single
+    # arithmetic pipe; two 128-bit pipes fed by one instruction give the same
+    # peak). The rest are C1's defaults (naiad-rvv-timed), not calibrated: the
+    # Tensix has no RVV unit and K1 measurements are user-run.
+    datapath_bits: 256         # 2 x 128-bit pipes: 8 fp32 / 4 fp64 elements a cycle
+    startup: 4                 # issue to first result, as the scalar FP pipeline's depth plus forwarding
+    div_ii: 8                  # vdiv / vfdiv / vfsqrt: 8 cycles per element group
+    mem_startup: 2             # = scalar.load
+    mem_bytes_per_cycle: 32    # one VLEN register per cycle into the VRF (the AME tile path is 64 B/cycle)
+    indexed_elements_per_cycle: 1
+    chaining: false
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_mem_to_acc_bytes, matrix_acc_to_mem_bytes, matrix_mma, matrix_macs]
+  - {name: l1, type: scratchpad, base: 0x10000000, window: 2MiB, params: {size: 0x180000}}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

@@ -427,7 +427,10 @@ def test_mcfg_reads_shape_formats_and_features():
         "ACCS": 2,
         "IN_FORMATS": (1 << FP32) | (1 << INT8),
         "ACC_FORMATS": (1 << FP32) | (1 << INT32),
-        "FEATURES": (1 << TABLE.features["shift"]) | (1 << TABLE.features["semiring"]),
+        # acc_mem (aload/astore) is on unless the unit is built with acc_mem=False.
+        "FEATURES": (1 << TABLE.features["shift"])
+        | (1 << TABLE.features["semiring"])
+        | (1 << TABLE.features["acc_mem"]),
     }
     for name, value in want.items():
         _exec(core, "mcfg", rd=X_RD, sel=TABLE.config[name])

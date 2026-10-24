@@ -10,6 +10,10 @@
  *     (P[k][j] = p_k) and form J' P with an accumulator-format ones tile J':
  *     every element is sum_k p_k. One more mma, on the matrix unit.
  *   0: store acc and add the 16 partials on the scalar side.
+ * REDUCE_FINISH_MMOV 1 (acc_move): as 1, but the partials move accumulator ->
+ *   tile by amov.t.a (Ztt mmov.m.a) instead of the astore + tload round trip.
+ * REDUCE_FINISH_NATIVE 1 (acc_move, reduce): amov.t.a, then one treduce down the
+ *   columns (Ztt mreduceadd.col) leaves the sum in every element; no second mma.
  * Four tile registers rotate so the loads of one group of four tiles run ahead
  * of their mma (the L1 port, not the mma pipe, is the bound).
  *
@@ -27,6 +31,18 @@
 #endif
 #ifndef REDUCE_FINISH_MMA
 #define REDUCE_FINISH_MMA 1
+#endif
+#ifndef REDUCE_FINISH_MMOV
+#define REDUCE_FINISH_MMOV 0
+#endif
+#ifndef REDUCE_FINISH_NATIVE
+#define REDUCE_FINISH_NATIVE 0
+#endif
+#if (REDUCE_FINISH_MMOV || REDUCE_FINISH_NATIVE) && !defined(NAIAD_MATRIX_FEATURE_ACC_MOVE)
+#error "REDUCE_FINISH_MMOV / _NATIVE need the matrix unit's acc_move feature"
+#endif
+#if REDUCE_FINISH_NATIVE && !defined(NAIAD_MATRIX_FEATURE_REDUCE)
+#error "REDUCE_FINISH_NATIVE needs the matrix unit's reduce feature"
 #endif
 #define N REDUCE_N
 #define IN DW_IN_FMT
@@ -68,15 +84,25 @@ int main(void) {
         mx_mma(0, 3, 0, IN, ACC);
         mx_mma(0, 4, 0, IN, ACC);
     }
+#if REDUCE_FINISH_NATIVE
+    mx_amov_ta(5, 0, ACC, 0);                /* P[i][j] = p_i */
+    mx_treduce(5, 5, 0, 1, ACC, MX_RED_ADD); /* column sums: every element is sum_i p_i */
+    mx_tstore_a(5, ACC, part, ATS);
+    dw_acc_t s = part[0];
+#elif REDUCE_FINISH_MMA
+#if REDUCE_FINISH_MMOV
+    mx_amov_ta(5, 0, ACC, 1); /* the b view: P[k][j] = p_k */
+#else
     mx_astore(0, ACC, part, ATS);
-#if REDUCE_FINISH_MMA
     mx_tload_b(5, ACC, part, ATS);
+#endif
     mx_tload_a(6, ACC, ones_acc, ATS);
     mx_azero(1);
     mx_mma(1, 6, 5, ACC, ACC);
     mx_astore(1, ACC, part, ATS);
     dw_acc_t s = part[0];
 #else
+    mx_astore(0, ACC, part, ATS);
     dw_acc_t s = 0;
     for (int i = 0; i < 16; i++) {
         s += part[16 * i];

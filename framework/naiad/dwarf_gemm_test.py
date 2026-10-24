@@ -75,3 +75,36 @@ def test_fp64_reaches_most_of_its_peak(tmp_path):
     r = _check(run_point(SPEC, "ame", 64, "fp64", "fp64", build_root=tmp_path))
     peak = timing.macs_per_cycle / timing.format_passes["fp64"]
     assert r.counters["matrix.macs"] / (r.region_cycles * peak) > 0.7
+
+
+@needs_clang
+@pytest.mark.parametrize("in_fmt,acc_fmt", list(_formats()))
+def test_rvv_matches_golden(tmp_path, in_fmt, acc_fmt):
+    r = _check(
+        run_point(SPEC, "rvv", min(SPEC.SIZES), in_fmt, acc_fmt, build_root=tmp_path)
+    )
+    assert r.counters.get("matrix.macs", 0) == 0
+
+
+@needs_clang
+def test_rvv_ragged_shape(tmp_path):
+    # 37 rows (balanced 5 + 5 + ... blocks with a remainder), 45 columns (a partial panel), odd K.
+    _check(run_point(SPEC, "rvv", (37, 45, 19), "fp32", "fp32", build_root=tmp_path))
+
+
+@needs_clang
+def test_only_vector_variants_get_v_in_march(tmp_path):
+    """On naiad-dwarfs (which has RVV) the scalar baseline stays scalar: no auto-vectorisation."""
+    size = min(SPEC.SIZES)
+    scalar = _check(
+        run_point(
+            SPEC, "scalar", size, "fp32", "fp32", build_root=tmp_path, count_all=True
+        )
+    )
+    rvv = _check(
+        run_point(
+            SPEC, "rvv", size, "fp32", "fp32", build_root=tmp_path, count_all=True
+        )
+    )
+    assert scalar.counters["instret.vector"] == 0
+    assert rvv.counters["instret.vector"] > 0

@@ -36,7 +36,7 @@ ones; the scalar loop just indexes them), decoded here:
 import numpy as np
 
 NAME = "tensorprod"
-VARIANTS = {"ame": "ame", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
 SIZES = (8, 10, 12, 16)
 FORMATS = (
     ("fp64", "fp64"),
@@ -44,6 +44,8 @@ FORMATS = (
     ("bf16", "fp32"),
     ("fp16", "fp32"),
 )
+#: The RVV baseline runs every pair (Zvfh / Zvfbfwma widening FMAs into fp32).
+VARIANT_FORMATS = {"rvv": FORMATS}
 DEFAULT_E = 8
 TILE = 16
 

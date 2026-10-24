@@ -1,0 +1,99 @@
+# Tier-2 talk figures: the AME crossover, precision and data-movement studies
+# against the RVV baseline (every dwarf's `rvv` variant), with the scalar F/D
+# variant kept as a second reference.
+#
+#   python -m experiments.naiad.run talk_tier2 -j 8 && python -m experiments.naiad.plot talk_tier2
+#   python -m experiments.naiad.run talk_tier2 --quick     # smallest sizes, three ratios, two seeds
+#
+# Every point derives its design from naiad-dwarfs.yaml (RVV at VLEN 256, a
+# 256-bit vector datapath) by overrides only; no override may move an address.
+# The ratio is matrix peak MACs/cycle for the row's input format over the RVV
+# peak FMAs/cycle (timing.vector.datapath_bits / SEW: 8 for fp32).
+# Variants are listed explicitly: gemm's `ime` variant needs an IME design.
+name: talk_tier2
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: all
+variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]
+sizes: mid
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: [fp32, fp32]}
+references: [scalar]
+ratio: {vector: rvv}
+
+studies:
+  # Speedup over RVV against the matrix-to-vector throughput ratio. fp32 takes
+  # 4 passes (format_passes), so macs_per_cycle m gives a fp32 matrix peak of
+  # 4096 / ceil(16384 / m) MACs/cycle against RVV's 8 fp32 FMAs/cycle: 4..8192
+  # in half-octave steps is a ratio of 1/8..256. The RVV and scalar variants do
+  # not depend on the matrix unit, so they run once per dwarf (only:); scalar
+  # is the flat dotted reference line, and crossover.csv also gives each
+  # group's crossover against it (crossover_vs_scalar).
+  - name: crossover
+    description: speedup over RVV vs matrix:vector peak ratio, fp32/fp32, mid size
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # Normwise error against the fp64 golden for every format pair each variant
+  # supports (AME: the spec's FORMATS; rvv: VARIANT_FORMATS; scalar: F/D), at
+  # the default timing, over five input seeds (median and max in the CSV, in
+  # precision.csv and in the figure: one seed can mislead for a reduction).
+  - name: precision
+    description: error per format pair, default design, median and max over 5 seeds
+    formats: all
+    seeds: [0, 1, 2, 3, 4]
+    figures: [accuracy]
+    quick:
+      seeds: [0, 1]
+
+  # Bytes per path and redundant arithmetic at the default design.
+  - name: bytes
+    description: bytes per path and redundancy, default design, fp32/fp32
+    formats: [[fp32, fp32]]
+    figures: [bytes, redundancy]
+
+  # Coupling comparison on gemm 128^3 fp32 at equal resources (the spec's
+  # "held constant": peak matrix FLOPs 4096/cycle, 12 KiB of operand storage,
+  # 64 B/cycle of memory bandwidth), against RVV. AME: normalise reproduces
+  # naiad-dwarfs' 8 tiles + 4 accumulators of 16 x 16. IME (Zvvm, on
+  # naiad-ime-timed): equal storage puts the operands in a VLEN 2048 VRF
+  # (vlen: null; 8 KiB, the largest power of two under 12 KiB); vlen 256
+  # pins the RVV design's register file. Every variant's vector LSU gets the
+  # 64 B/cycle (naiad-dwarfs' RVV default is 32), so memory bandwidth is equal.
+  - name: coupling_ame
+    description: gemm 128^3 fp32, AME normalised to naiad-dwarfs' resources, vs RVV
+    dwarfs: [gemm]
+    variants: [ame, rvv]
+    sizes: [128]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+    normalise: {peak_flops_per_cycle: 4096, operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ame, tiles: 8, accs: 4}
+    only: {normalise: [ame]}
+    figures: [bytes]
+    quick:
+      sizes: [64]
+  - name: coupling_ime
+    description: gemm 128^3 fp32, IME at equal storage (VLEN 2048) and pinned VLEN 256, vs RVV
+    dwarfs: [gemm]
+    variants: [ime, rvv]
+    variant_designs: {ime: framework/naiad/designs/naiad-ime-timed.yaml}
+    sizes: [128]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+    normalise: {peak_flops_per_cycle: 4096, operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ime, vlen: [null, 256]}
+    only: {normalise: [ime]}
+    figures: [bytes]
+    quick:
+      sizes: [64]

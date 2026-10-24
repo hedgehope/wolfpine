@@ -39,10 +39,17 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "scan"
-VARIANTS = {"ame": "ame", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
 SIZES = (4096, 16384, 65536)
 FORMATS = dwf.FORMATS
-SWITCHES = {"epilogue": False}
+#: The RVV baseline runs every pair (Zvfh / Zvfbfmin / Zvfbfwma widen the 16-bit inputs); scalar: F/D only.
+VARIANT_FORMATS = {"rvv": FORMATS}
+#: Feature switches (defaults reproduce the original kernel). ``mmov``: move ``Ls X``
+#: accumulator -> tile with ``amov.t.a`` (AME ``acc_move``; Ztt ``mmov.m.a``) instead of
+#: the memory round trip. ``prefix``: the in-tile scan from the native ``tprefix`` /
+#: ``treduce`` (AME ``reduce``, plus ``acc_move``, ``shift`` and, for 16-bit inputs,
+#: ``convert``; Ztt ``mprefixadd`` / ``mreduceadd``) instead of the triangular products.
+SWITCHES = {"epilogue": False, "mmov": False, "prefix": False}
 
 
 def _check_size(n):
@@ -57,7 +64,7 @@ def switch_cflags(switches=None):
         raise ValueError(
             f"unknown scan switch(es) {sorted(set(sw) - set(SWITCHES))}; known: {sorted(SWITCHES)}"
         )
-    return ["-DSCAN_EPILOGUE=1"] if sw["epilogue"] else []
+    return [f"-DSCAN_{k.upper()}=1" for k in SWITCHES if sw[k] and not SWITCHES[k]]
 
 
 def cflags(size, in_fmt, acc_fmt, switches=None):

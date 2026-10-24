@@ -22,6 +22,14 @@ an optional ``prebuild(*, build_dir, size, in_fmt, acc_fmt, design)`` hook
 writes generated headers into ``build_dir`` before make runs; ``build_dir``
 is then added to the include path. It must be deterministic in its arguments,
 since its output is not part of the build key.
+
+Only vector-coupled variants are compiled with the design's vector extensions:
+on a design with RVV, every other variant (``scalar``, ``ame*``, ...) is built
+with ``-march`` minus the vector extensions (:func:`scalar_march`), so the
+compiler cannot auto-vectorise a baseline meant to be scalar and an AME
+kernel's scalar side stays what it was on a design without V. A spec may name
+its vector variants in ``VECTOR_VARIANTS``; by default they are the variants
+whose name starts with one of :data:`VECTOR_VARIANT_PREFIXES`.
 """
 
 import fcntl
@@ -45,8 +53,40 @@ DEFAULT_DESIGN = REPO / "framework" / "naiad" / "designs" / "naiad-dwarfs.yaml"
 NAIAD_CC = os.environ.get("NAIAD_CC", "/opt/llvm/20.1.7/bin/clang")
 
 
+#: Variant-name prefixes compiled with the design's vector extensions (unless a spec sets VECTOR_VARIANTS).
+VECTOR_VARIANT_PREFIXES = ("rvv", "ime", "vme")
+
+
 class DwarfError(Exception):
     pass
+
+
+def uses_vector(spec, variant):
+    """True when ``variant`` of ``spec`` may be compiled with the design's vector extensions."""
+    explicit = getattr(spec, "VECTOR_VARIANTS", None)
+    if explicit is not None:
+        return variant in explicit
+    return variant.startswith(VECTOR_VARIANT_PREFIXES)
+
+
+def scalar_march(design):
+    """``design``'s ``-march`` without its vector extensions, or None when it has none."""
+    from dataclasses import replace
+
+    from framework.naiad.design import (
+        VECTOR_EXTENSIONS,
+        VECTOR_SUBEXTENSIONS,
+        load_design,
+    )
+
+    if not hasattr(design, "cores"):
+        design = load_design(design)
+    cores = design.cores
+    if not cores.has_vector:
+        return None
+    vector = set(VECTOR_EXTENSIONS) | set(VECTOR_SUBEXTENSIONS)
+    isa = tuple(e for e in cores.isa if e not in vector)
+    return replace(cores, isa=isa).march
 
 
 def _root(dwarfs_root):
@@ -158,9 +198,16 @@ def build_point(
         )
     prog_dir = spec_dir(spec) / spec.VARIANTS[variant]
     cflags = ["-O2", "-g", *spec.cflags(size, in_fmt, acc_fmt), *extra_cflags]
+    march = None if uses_vector(spec, variant) else scalar_march(design)
     key = hashlib.sha1(
         "\0".join(
-            [design_build_key(design), variant, *cflags, _sources_key(spec)]
+            [
+                design_build_key(design),
+                variant,
+                *cflags,
+                _sources_key(spec),
+                *([f"march={march}"] if march else []),
+            ]
         ).encode()
     ).hexdigest()[:12]
     build_dir = Path(build_root or KERNELS / "build" / "dwarfs") / f"{prog}-{key}"
@@ -191,6 +238,8 @@ def build_point(
             f"NAIAD_CC={NAIAD_CC}",
             f"CFLAGS={' '.join(cflags)}",
         ]
+        if march:
+            cmd.append(f"NAIAD_MARCH={march}")
         done = subprocess.run(cmd, capture_output=True, text=True)
     if done.returncode != 0:
         raise DwarfError(

@@ -57,6 +57,10 @@ def _block_defines(design):
 
 def _matrix_defines(spec):
     """The matrix unit's shape, formats and features, then the encodings table."""
+    if spec.mode == "ime":
+        from framework.matrix.ime import header_lines
+
+        return header_lines(spec)
     from framework.matrix.encodings import TABLE, header_defines
 
     lines = [
@@ -71,6 +75,10 @@ def _matrix_defines(spec):
     lines += [f"#define NAIAD_MATRIX_IN_{_ident(f)} 1" for f in spec.in_formats]
     lines += [f"#define NAIAD_MATRIX_ACC_{_ident(f)} 1" for f in spec.acc_formats]
     lines += [f"#define NAIAD_MATRIX_FEATURE_{_ident(f)} 1" for f in spec.features]
+    if spec.acc_mem:
+        lines.append("#define NAIAD_MATRIX_FEATURE_ACC_MEM 1")
+    if spec.profile is not None:
+        lines.append(f"#define NAIAD_MATRIX_PROFILE_{_ident(spec.profile)} 1")
     lines += ["", "/* matrix encodings (framework/matrix/encodings.yaml) */"]
     lines += [f"#define {name} {value:#x}" for name, value in header_defines(TABLE)]
     return lines

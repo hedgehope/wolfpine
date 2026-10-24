@@ -32,10 +32,12 @@ round-to-odd, then RNE to bf16), so ``ml_dtypes`` is not needed.
 import numpy as np
 
 NAME = "fft"
-VARIANTS = {"ame": "ame", "ame_gauss": "ame_gauss", "scalar": "scalar"}
+VARIANTS = {"ame": "ame", "ame_gauss": "ame_gauss", "scalar": "scalar", "rvv": "rvv"}
 DEFAULT_BATCH = 4
 SIZES = (256, 1024, 4096)
 FORMATS = [("fp32", "fp32"), ("fp64", "fp64"), ("bf16", "fp32"), ("fp16", "fp32")]
+#: The RVV baseline runs every pair (16-bit inputs widen in the first pass, then fp32).
+VARIANT_FORMATS = {"rvv": FORMATS}
 
 _PLANS = {
     256: (16, 16),
