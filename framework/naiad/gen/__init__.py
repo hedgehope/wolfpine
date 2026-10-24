@@ -127,6 +127,11 @@ def gen_header(design):
         f'#define NAIAD_MARCH "{cores.march}"',
     ]
     lines += [f"#define NAIAD_ISA_{_ident(ext)} 1" for ext in cores.isa]
+    if cores.has_vector:
+        lines += [
+            f"#define NAIAD_VLEN {cores.vlen}",
+            f"#define NAIAD_ELEN {cores.elen}",
+        ]
     prog = design.program_memory
     lines += [
         f"#define NAIAD_PROGRAM_MEMORY NAIAD_{_ident(prog.name)}_BASE",
@@ -243,6 +248,9 @@ def gen_crt0(design):
         fp_on = "  /* mstatus.FS = Initial, so FP instructions do not trap. */\n  li    t0, 1 << 13\n  csrs  mstatus, t0\n"
     else:
         fp_on = ""
+    # Vector instructions trap the same way while mstatus.VS is Off.
+    if design.cores.has_vector and "zicsr" in isa:
+        fp_on += "  /* mstatus.VS = Initial, so vector instructions do not trap. */\n  li    t0, 1 << 9\n  csrs  mstatus, t0\n"
     return f"""{_banner(design, "/*")}
   .section .text.init, "ax", @progbits
   .globl _start

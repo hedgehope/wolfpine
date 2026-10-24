@@ -1,0 +1,33 @@
+# naiad-rvv: naiad-fp-rv64 plus the RVV 1.0 vector unit (RV64GCV minus C):
+# rv64imafdv_zicsr_zicntr_zfbfmin_zvfh_zvfbfmin_zvfbfwma_zvl256b, lp64d.
+# Zfbfmin is there because Zvfbfwma requires it, and because its flh / fsh /
+# fmv.x.h / fmv.h.x are the scalar half-precision transfers Zvfh code uses
+# (Naiad has no Zfhmin; its fcvt.s.h / fcvt.h.s are not modelled).
+#
+# VLEN 256 / ELEN 64 is the SpacemiT K1's X60 vector unit. The vector state is
+# framework/pe/rv/isa/v (one uint8[32, VLENB] numpy register file); Zvfh adds
+# fp16 vector arithmetic, Zvfbfmin the bf16 <-> fp32 converts and Zvfbfwma
+# vfwmaccbf16. Untimed (one instruction per cycle); naiad-rvv-timed.yaml adds
+# the cycle model. Spike runs the same ELFs with --isa=<the march below>
+# (the _zvl256b suffix is what sets its VLEN).
+name: naiad-rvv
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params: {counters: [cycle, instret, mtime, htif_chars]}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

@@ -321,6 +321,10 @@ _NOT_A_GUARANTEE = MappingProxyType(
         "DesignError": (
             "a malformed Naiad design file; input validation before any device exists"
         ),
+        "VectorStateError": (
+            "a vector instruction on a core whose vector state was never attached, "
+            "or a misuse of the VRF accessor API: a set-up error, not a program's behaviour"
+        ),
         "NaiadBuildError": (
             "a Naiad design the builder cannot assemble yet (e.g. RV64 before "
             "its core lands); a configuration gap, not a program's behaviour"

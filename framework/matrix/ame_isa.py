@@ -141,6 +141,10 @@ def _disasm(insn, ops):
 
 
 class RV_AME_ISA(RV_ISA):
+    #: Major opcodes this ISA may claim (``RV64I``'s dispatch table offers it no others):
+    #: the four custom opcodes, a superset of whatever ``encodings.yaml`` assigns.
+    OPCODES = frozenset({0x0B, 0x2B, 0x5B, 0x7B})
+
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
         if instr is None:

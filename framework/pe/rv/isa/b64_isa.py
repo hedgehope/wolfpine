@@ -71,6 +71,9 @@ def _snoop_i(cls, name, rd, rs1, imm=None):
 class RV64_ZBA_ISA(RV_ISA):
     """Zba address generation, RV64."""
 
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset({0x1B, 0x33, 0x3B})
+
     # funct3 -> shift amount for the shNadd / shNadd.uw family (funct7 0x10).
     _SHADD = {0x2: 1, 0x4: 2, 0x6: 3}
 
@@ -116,6 +119,9 @@ class RV64_ZBA_ISA(RV_ISA):
 
 class RV64_ZBB_ISA(RV_ISA):
     """Zbb basic bit manipulation, RV64."""
+
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset({0x13, 0x1B, 0x33, 0x3B})
 
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):

@@ -34,6 +34,9 @@ from framework.pe.rv.isa.rv_isa import RV_ISA
 
 _M64 = 0xFFFFFFFFFFFFFFFF
 _M32 = 0xFFFFFFFF
+# pc / nextpc register indices (``REGISTER_NAME_MAPPING``): an integer index
+# is a list lookup, a name goes through RegisterFile.get's fallback (~0.5 us).
+_PC, _NEXTPC = 32, 33
 
 
 def sext32(value):
@@ -79,6 +82,11 @@ _STORES = {0x0: (1, "sb"), 0x1: (2, "sh"), 0x2: (4, "sw"), 0x3: (8, "sd")}
 
 
 class RV64_I_ISA(RV_ISA):
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset(
+        {0x03, 0x0F, 0x13, 0x17, 0x1B, 0x23, 0x33, 0x37, 0x3B, 0x63, 0x67, 0x6F, 0x73}
+    )
+
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
         if instr is None:
@@ -131,7 +139,7 @@ class RV64_I_ISA(RV_ISA):
     def handle_u_auipc(cls, instr, register_file, snoop):
         rd = (instr >> 7) & 0x1F
         immediate = sext32(instr & 0xFFFFF000)
-        pc_val = register_file["pc"].read_uint()
+        pc_val = register_file[_PC].read_uint()
         write_reg(register_file, rd, pc_val + immediate)
         if snoop:
             RV_ISA.print_snoop(
@@ -144,12 +152,12 @@ class RV64_I_ISA(RV_ISA):
     @classmethod
     def handle_j_jal(cls, instr, register_file, snoop):
         rd = (instr >> 7) & 0x1F
-        pc_val = register_file["pc"].read_uint()
+        pc_val = register_file[_PC].read_uint()
         if rd > 0:
             write_reg(register_file, rd, pc_val + 4)
         offset = _imm_j(instr)
         new_pc_val = (pc_val + offset) & _M64
-        register_file["nextpc"].write(new_pc_val.to_bytes(8, "little"))
+        register_file[_NEXTPC].write(new_pc_val.to_bytes(8, "little"))
         if snoop:
             RV_ISA.print_snoop(
                 snoop,
@@ -164,12 +172,12 @@ class RV64_I_ISA(RV_ISA):
         rs1 = (instr >> 15) & 0x1F
         # Read rs1 before writing rd: they may be the same register.
         rs1_val = register_file[rs1].read_uint()
-        pc_val = register_file["pc"].read_uint()
+        pc_val = register_file[_PC].read_uint()
         if rd > 0:
             write_reg(register_file, rd, pc_val + 4)
         offset = _imm_i(instr)
         new_pc_val = (rs1_val + offset) & (_M64 - 1)
-        register_file["nextpc"].write(new_pc_val.to_bytes(8, "little"))
+        register_file[_NEXTPC].write(new_pc_val.to_bytes(8, "little"))
         if snoop:
             RV_ISA.print_snoop(
                 snoop,
@@ -206,8 +214,8 @@ class RV64_I_ISA(RV_ISA):
 
         offset = _imm_b(instr)
         if taken:
-            new_pc_val = (register_file["pc"].read_uint() + offset) & _M64
-            register_file["nextpc"].write(new_pc_val.to_bytes(8, "little"))
+            new_pc_val = (register_file[_PC].read_uint() + offset) & _M64
+            register_file[_NEXTPC].write(new_pc_val.to_bytes(8, "little"))
         if snoop:
             RV_ISA.print_snoop(
                 snoop,

@@ -88,6 +88,9 @@ def _loaded(data, size):
 
 
 class RV64_ZAAMO_ISA(RV_ISA):
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset({0x2F})
+
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
         if instr is None:
@@ -123,6 +126,9 @@ class RV64_ZAAMO_ISA(RV_ISA):
 
 
 class RV64_ZALRSC_ISA(RV_ISA):
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset({0x2F})
+
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
         if instr is None:

@@ -13,12 +13,21 @@
  * Include after nothing else: it pulls in the design's generated naiad.h (put the
  * generated directory on the include path). The same tohost/fromhost protocol is
  * what Spike speaks, so programs using only this header also run there.
+ *
+ * Built with -DNAIAD_PLATFORM_LINUX, the same names come from
+ * naiad_platform_linux.h instead: a hosted Linux user-space back end (stdio,
+ * clock_gettime or a perf-event cycle counter), for running Naiad kernels
+ * natively on RVV hardware such as the SpacemiT K1.
  */
 #ifndef NAIAD_PLATFORM_H
 #define NAIAD_PLATFORM_H
 
 #include <stddef.h>
 #include <stdint.h>
+
+#ifdef NAIAD_PLATFORM_LINUX
+#include "naiad_platform_linux.h"
+#else /* the freestanding Naiad / Spike back end */
 
 #include "naiad.h"
 
@@ -204,4 +213,5 @@ size_t strlen(const char *s);
  * with optional 0 flag. No floating point. Returns the number of characters. */
 int naiad_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+#endif /* NAIAD_PLATFORM_LINUX */
 #endif /* NAIAD_PLATFORM_H */

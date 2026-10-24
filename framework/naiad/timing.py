@@ -38,8 +38,8 @@ the provider of the blocks it fronts; :meth:`MemoryTiming.attach_provider` does
 the same by hand.
 
 **The matrix unit** is :mod:`framework.matrix.timing` (``timing.matrix``);
-**the vector unit** is a placeholder until RVV (Phase C): a ``timing.vector``
-section is rejected.
+**the vector unit** is :mod:`framework.naiad.vector_timing` (``timing.vector``,
+defaults when a vector design omits it; rejected without a vector unit).
 
 The defaults below are a generic five-stage in-order core, documented per
 field; ``naiad-ame-timed.yaml`` replaces them with numbers from the Tenstorrent
@@ -51,10 +51,29 @@ from dataclasses import dataclass, field, fields
 
 from framework.matrix.timing import AMETiming, AMETimingSpec
 from framework.naiad.design import DesignError, _check_keys, parse_int
+from framework.naiad.vector_timing import VectorTiming, VectorTimingSpec, parse_vector
 
 #: Stall reasons, in report order.
-STALL_REASONS = ("raw", "mem", "structural", "branch", "matrix_busy", "matrix_raw")
-_RAW, _MEM, _STRUCTURAL, _CONTROL, _MATRIX_BUSY, _MATRIX_RAW = range(len(STALL_REASONS))
+STALL_REASONS = (
+    "raw",
+    "mem",
+    "structural",
+    "branch",
+    "matrix_busy",
+    "matrix_raw",
+    "vector_busy",
+    "vector_raw",
+)
+(
+    _RAW,
+    _MEM,
+    _STRUCTURAL,
+    _CONTROL,
+    _MATRIX_BUSY,
+    _MATRIX_RAW,
+    _VECTOR_BUSY,
+    _VECTOR_RAW,
+) = range(len(STALL_REASONS))
 _REASON_INDEX = {name: i for i, name in enumerate(STALL_REASONS)}
 
 _M64 = (1 << 64) - 1
@@ -117,6 +136,8 @@ class TimingSpec:
     memory: dict = field(default_factory=dict, hash=False)
     #: None when the design has no matrix unit.
     matrix: AMETimingSpec | None = None
+    #: None when the design's cores have no vector unit.
+    vector: VectorTimingSpec | None = None
 
     def region(self, name, type_name):
         """The timing for block ``name`` of type ``type_name``.
@@ -265,14 +286,11 @@ def parse_timing(raw, design):
     if raw is None:
         return None
     _check_keys(raw, {"scalar", "memory", "matrix", "vector"}, "timing")
-    if raw.get("vector") is not None:
-        raise DesignError(
-            "timing.vector: there is no vector unit to time yet (RVV is Phase C)"
-        )
     return TimingSpec(
         scalar=_parse_scalar(raw.get("scalar")),
         memory=_parse_memory(raw.get("memory"), design),
         matrix=_parse_matrix(raw.get("matrix"), design),
+        vector=parse_vector(raw.get("vector"), design, _parse_fields, _number, _flag),
     )
 
 
@@ -386,7 +404,8 @@ class MemoryTiming:
     _FP_MISC,
     _NONE,
     _MATRIX,
-) = range(16)
+    _VECTOR,
+) = range(17)
 
 _F = 32  # f-register i is scoreboard entry 32 + i
 _MATRIX_OPCODES = (0x0B, 0x2B)
@@ -463,7 +482,7 @@ class NaiadCostState:
     #: The counter hub names this state's events ``hart<N>.timing.<key>``.
     counter_prefix = "timing"
 
-    def __init__(self, timing, memory, xlen=64, matrix_unit=None):
+    def __init__(self, timing, memory, xlen=64, matrix_unit=None, vector_state=None):
         self.timing = timing
         self.memory = memory
         self.xlen = xlen
@@ -496,6 +515,9 @@ class NaiadCostState:
         self.matrix = None
         if matrix_unit is not None and timing.matrix is not None:
             self.matrix = AMETiming(timing.matrix, matrix_unit, memory)
+        self.vector = None
+        if vector_state is not None and timing.vector is not None:
+            self.vector = VectorTiming(timing.vector, vector_state, memory)
         self._decoded = {}
         self.reset()
 
@@ -511,6 +533,8 @@ class NaiadCostState:
         self.memory.reset()
         if self.matrix is not None:
             self.matrix.reset()
+        if self.vector is not None:
+            self.vector.reset()
 
     # -- reporting ---------------------------------------------------------------
 
@@ -524,6 +548,8 @@ class NaiadCostState:
         )
         if self.matrix is not None:
             out.update(self.matrix.counters())
+        if self.vector is not None:
+            out.update(self.vector.counters())
         out.update(self.memory.counters())
         return out
 
@@ -552,6 +578,14 @@ class NaiadCostState:
                 # Not a word the unit implements; executing it raises, so no cost is owed.
                 return _NONE, (), -1, 0
             return _MATRIX, op.srcs, op.dst, op
+        if self.vector is not None and (
+            opcode == 0x57
+            or (opcode in (0x07, 0x27) and (instr >> 12) & 0x7 in (0, 5, 6, 7))
+        ):
+            op = self.vector.decode(instr)
+            if op is None:
+                return _NONE, (), -1, 0
+            return _VECTOR, op.ssrc, op.sdst, op
         return _classify(instr)
 
     def can_issue(self, instr, cycle_num, register_file):
@@ -584,6 +618,18 @@ class NaiadCostState:
             if not matrix.spec.overlap and done > cycle_num + 1:
                 self._stall_until = done
                 self._stall_reason = _MATRIX_BUSY
+            return True
+
+        if kind == _VECTOR:
+            vector = self.vector
+            done = vector.issue(extra, cycle_num, register_file)
+            if done < 0:
+                return self._stall(
+                    vector.stall_until, _REASON_INDEX[vector.stall_reason]
+                )
+            if dst > 0:
+                ready[dst] = done
+                self._ready_reason[dst] = _RAW
             return True
 
         unit = self._unit_of.get(kind)
@@ -678,5 +724,9 @@ def install(soc):
                         m.lookup(addr).latency
                     )
         core.rv_cost = NaiadCostState(
-            timing, memory, soc.design.cores.xlen, getattr(core, "matrix", None)
+            timing,
+            memory,
+            soc.design.cores.xlen,
+            getattr(core, "matrix", None),
+            getattr(core, "vector", None),
         )

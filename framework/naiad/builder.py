@@ -18,6 +18,8 @@ from framework.memory.memory_map import AddressRange, MemoryMap
 from framework.naiad.counters import CounterError, CounterHub, requested_families
 from framework.naiad.registry import IP_REGISTRY, NAIAD_ISA_REGISTRY
 from framework.naiad.timing import install as install_timing
+from framework.pe.rv.isa.v import RV64_V_ISA
+from framework.pe.rv.isa.v import attach as attach_vector
 from framework.pe.rv.isa.zicsr64_isa import CSRFile64
 from framework.pe.rv.isa.zicsr_isa import CSRFile
 from framework.pe.rv.rv32 import RV32I, RV32IM
@@ -82,7 +84,7 @@ class NaiadMemory(DeviceMemory):
         return result
 
 
-def make_core(xlen, isa, reset_pc, memory, core_id):
+def make_core(xlen, isa, reset_pc, memory, core_id, vlen=None, elen=None):
     """Build one core.
 
     ``isa`` is the design's extension list; each name resolves through
@@ -110,6 +112,8 @@ def make_core(xlen, isa, reset_pc, memory, core_id):
                 core.register_file, hart_id=core_id, core_label=f"hart{core_id}"
             )
             core.register_file.csrs = core.csrs
+        if RV64_V_ISA in core.isas:
+            attach_vector(core, vlen=vlen or 128, elen=elen or 64, extensions=isa)
         return core
     if xlen != 32:
         raise NaiadBuildError(f"unsupported xlen {xlen}")
@@ -186,7 +190,13 @@ class NaiadSoC:
 
         self.cores = [
             make_core(
-                cores_spec.xlen, cores_spec.isa, cores_spec.reset_pc, self.memory, i
+                cores_spec.xlen,
+                cores_spec.isa,
+                cores_spec.reset_pc,
+                self.memory,
+                i,
+                vlen=cores_spec.vlen,
+                elen=cores_spec.elen,
             )
             for i in range(cores_spec.count)
         ]

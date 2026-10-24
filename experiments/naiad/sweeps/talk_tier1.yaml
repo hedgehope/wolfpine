@@ -26,7 +26,8 @@ studies:
     variants: all
     formats: [[fp32, fp32]]
     overrides:
-      timing.matrix.macs_per_cycle: [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+      # Half-octave steps below a ratio of 16, where the crossovers sit.
+      timing.matrix.macs_per_cycle: [4, 6, 8, 12, 16, 24, 32, 48, 64, 128, 256, 512, 1024, 2048]
     only:
       timing.matrix.macs_per_cycle: ["ame*"]
     figures: [crossover]

@@ -37,6 +37,12 @@ class DesignError(ValueError):
     pass
 
 
+#: The vector base extensions (either one gives the core a vector unit), and
+#: the vector sub-extensions that need one.
+VECTOR_EXTENSIONS = ("v", "zve64d")
+VECTOR_SUBEXTENSIONS = ("zvfh", "zvfbfmin", "zvfbfwma")
+
+
 def parse_int(value, what):
     """An int from YAML: a plain int, or a string like ``0x1000`` / ``64KiB``."""
     if isinstance(value, bool):
@@ -56,15 +62,29 @@ class CoreSpec:
     xlen: int = 32
     isa: tuple[str, ...] = ("i", "m")
     reset_pc: int = 0x1000
+    #: Vector register width and largest element width in bits; None without a vector extension.
+    vlen: int | None = None
+    elen: int | None = None
+
+    @property
+    def has_vector(self):
+        return any(e in VECTOR_EXTENSIONS for e in self.isa)
 
     @property
     def march(self):
-        """The ``-march`` string for this ISA list, e.g. ``rv32im_zicsr``."""
+        """The ``-march`` string for this ISA list, e.g. ``rv32im_zicsr``.
+
+        A vector design also gets ``_zvl<VLEN>b``, so the compiler may assume
+        the design's VLEN and Spike (whose ``--isa`` this string becomes) runs
+        with it.
+        """
         singles = sorted(
             (e for e in self.isa if len(e) == 1 and e != "i"),
             key=_SINGLE_LETTER_ORDER.index,
         )
         multis = [e for e in self.isa if len(e) > 1]
+        if self.has_vector:
+            multis.append(f"zvl{self.vlen}b")
         return "_".join([f"rv{self.xlen}i" + "".join(singles)] + multis)
 
     @property
@@ -204,7 +224,7 @@ def _parse_cores(raw):
     from framework.pe.rv.rv64 import RV64_ISA_REGISTRY
 
     raw = {} if raw is None else raw
-    _check_keys(raw, {"count", "xlen", "isa", "reset_pc"}, "cores")
+    _check_keys(raw, {"count", "xlen", "isa", "reset_pc", "vlen", "elen"}, "cores")
     count = parse_int(raw.get("count", 1), "cores.count")
     xlen = parse_int(raw.get("xlen", 32), "cores.xlen")
     isa = tuple(str(e).lower() for e in raw.get("isa", ("i", "m")))
@@ -226,7 +246,47 @@ def _parse_cores(raw):
     needs_f = [e for e in ("d", "zfbfmin") if e in isa and "f" not in isa]
     if needs_f:
         raise DesignError(f"cores.isa: {needs_f} require 'f', got {list(isa)}")
-    return CoreSpec(count=count, xlen=xlen, isa=isa, reset_pc=reset_pc)
+    if "zcd" in isa and ("d" not in isa or not {"c", "zca"} & set(isa)):
+        raise DesignError(
+            f"cores.isa: 'zcd' requires 'd' and 'zca' (or 'c'), got {list(isa)}"
+        )
+    vlen, elen = _parse_vector(raw, isa, xlen)
+    return CoreSpec(
+        count=count, xlen=xlen, isa=isa, reset_pc=reset_pc, vlen=vlen, elen=elen
+    )
+
+
+def _parse_vector(raw, isa, xlen):
+    """``cores.vlen`` / ``cores.elen`` for a vector ISA: ``(vlen, elen)``, or ``(None, None)``."""
+    bases = [e for e in isa if e in VECTOR_EXTENSIONS]
+    subs = [e for e in isa if e in VECTOR_SUBEXTENSIONS]
+    if not bases:
+        if subs:
+            raise DesignError(
+                f"cores.isa: {subs} need a vector unit ('v' or 'zve64d'), got {list(isa)}"
+            )
+        given = [k for k in ("vlen", "elen") if k in raw]
+        if given:
+            raise DesignError(
+                f"cores.{given[0]} given, but cores.isa has no vector extension ('v' or 'zve64d')"
+            )
+        return None, None
+    if xlen != 64:
+        raise DesignError("cores.isa: the vector unit is RV64 only")
+    if "f" not in isa or "d" not in isa:
+        raise DesignError(f"cores.isa: {bases} require 'f' and 'd', got {list(isa)}")
+    if "zvfbfwma" in isa and ("zvfbfmin" not in isa or "zfbfmin" not in isa):
+        raise DesignError("cores.isa: zvfbfwma requires zvfbfmin and zfbfmin")
+    elen = parse_int(raw.get("elen", 64), "cores.elen")
+    vlen = parse_int(raw.get("vlen", 128), "cores.vlen")
+    if elen != 64:
+        raise DesignError(f"cores.elen must be 64 (V and Zve64d), got {elen}")
+    minimum = 128 if "v" in bases else 64
+    if vlen < minimum or vlen > 65536 or vlen & (vlen - 1):
+        raise DesignError(
+            f"cores.vlen must be a power of two in {minimum}-65536 for {bases}, got {vlen}"
+        )
+    return vlen, elen
 
 
 #: Coupling modes the schema knows; only AME is built so far.

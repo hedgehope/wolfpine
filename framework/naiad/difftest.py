@@ -10,7 +10,9 @@ spends spinning on ``tohost``).
 
 ``--commits`` also compares the two retirement streams instruction by
 instruction: Spike's ``--log-commits`` against Naiad's ``InstrEvent`` s (pc,
-instruction word, destination register and value). Both streams are aligned on
+instruction word, destination register and value; on a core with a vector unit,
+also every vector register Spike logs as written, against Naiad's register file
+after that instruction). Both streams are aligned on
 the ELF entry point, since the two boot ROMs differ (Spike's also loads ``a1``
 with its DTB address and ``a0`` with ``mhartid``). The first divergence is
 reported with its pc, instruction and rd values. Three things differ between
@@ -49,6 +51,8 @@ import tempfile
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from framework.pe.rv.isa.rvc_isa import expand as expand_rvc
 
 #: Spike's ``--isa`` misses one thing Naiad always has: Naiad's RV64 CSR file
 #: implements Zicntr whenever Zicsr is present, and without ``zicntr`` Spike
@@ -154,6 +158,9 @@ class NaiadRun:
     soc: object
     #: ``(pc, instr, rd, value)`` per retired instruction when traced, else None.
     commits: list | None = None
+    #: Parallel to ``commits`` on a core with a vector unit: the register file
+    #: (``bytes``, 32 * VLENB) after each vector instruction, None after the rest.
+    vregs: list | None = None
 
 
 def run_naiad(design, elf, *, max_cycles=None, trace=False):
@@ -175,6 +182,8 @@ def run_naiad(design, elf, *, max_cycles=None, trace=False):
         result = soc.run(max_cycles or DEFAULT_MAX_CYCLES)
     else:
         commits = []
+        vector = getattr(soc.cores[0], "vector", None)
+        vregs = [] if vector is not None else None
 
         def on_instr(event):
             if not event.stalled:
@@ -186,6 +195,12 @@ def run_naiad(design, elf, *, max_cycles=None, trace=False):
                         event.reg_write_value,
                     )
                 )
+                if vregs is not None:
+                    vregs.append(
+                        vector.vrf.tobytes()
+                        if is_vector_instr(event.instruction)
+                        else None
+                    )
 
         for core in soc.cores:
             # Cores only publish InstrEvents once they have a unit id.
@@ -207,7 +222,10 @@ def run_naiad(design, elf, *, max_cycles=None, trace=False):
     detail = (
         f"{result.cycles} cycles, {result.counters.get('instret', '?')} instructions"
     )
-    return NaiadRun(RunOutcome(result.console, result.exit_code, detail), soc, commits)
+    run = NaiadRun(RunOutcome(result.console, result.exit_code, detail), soc, commits)
+    if trace:
+        run.vregs = vregs
+    return run
 
 
 def _unsubscribe(bus, cat, callback):
@@ -256,6 +274,7 @@ def compare_console(naiad, spike, ignore=()):
 
 _SPIKE_LINE = re.compile(r"core\s+\d+: \d 0x([0-9a-f]+) \(0x([0-9a-f]+)\)(.*)")
 _SPIKE_XREG = re.compile(r"\bx(\d+)\s+0x([0-9a-f]+)")
+_SPIKE_VREG = re.compile(r"\bv(\d+)\s+0x([0-9a-f]+)")
 _SPIKE_MEM = re.compile(r"\bmem 0x([0-9a-f]+)(?: 0x([0-9a-f]+))?")
 
 
@@ -268,6 +287,11 @@ class SpikeCommit:
     mem_addr: int | None = None
     #: True for a store (Spike logs the value), False for a load or no access.
     mem_store: bool = False
+    #: Vector registers Spike logs as written, ``((reg, value), ...)`` with each
+    #: value the whole register as an integer (byte 0 least significant). Spike
+    #: logs the registers an arithmetic instruction's body touched, but not a
+    #: vector load's destination.
+    vregs: tuple = ()
 
 
 def parse_spike_commits(lines):
@@ -283,6 +307,7 @@ def parse_spike_commits(lines):
             rd, value = int(x.group(1)), int(x.group(2), 16)
         mem = _SPIKE_MEM.search(rest)
         addr = int(mem.group(1), 16) if mem else None
+        vregs = tuple((int(r), int(v, 16)) for r, v in _SPIKE_VREG.findall(rest))
         yield SpikeCommit(
             int(m.group(1), 16),
             int(m.group(2), 16),
@@ -290,6 +315,7 @@ def parse_spike_commits(lines):
             value,
             addr,
             bool(mem and mem.group(2)),
+            vregs,
         )
 
 
@@ -308,6 +334,12 @@ def _sources(instr):
     ):  # csrrw/s/c (register forms)
         return (rs1,)
     return ()
+
+
+def is_vector_instr(instr):
+    """True for an RVV instruction that may write a vector register (OP-V, or a vector load)."""
+    opcode = instr & 0x7F
+    return opcode == 0x57 or (opcode == 0x07 and (instr >> 12) & 0x7 in (0, 5, 6, 7))
 
 
 def _is_counter_read(instr):
@@ -339,6 +371,8 @@ class CommitDiff:
     context: list = field(default_factory=list)
     resyncs: int = 0
     volatile_reads: int = 0
+    #: Vector register writes compared (Spike-logged registers checked against Naiad's).
+    vector_writes: int = 0
 
     @property
     def ok(self):
@@ -348,6 +382,7 @@ class CommitDiff:
         lines = [
             f"commit streams: {self.matched} instructions matched, {self.resyncs} HTIF spin resyncs, "
             f"{self.volatile_reads} volatile reads"
+            + (f", {self.vector_writes} vector writes" if self.vector_writes else "")
         ]
         if self.divergence is None:
             lines.append("commit streams agree")
@@ -374,16 +409,42 @@ def _fmt(pc, instr, rd, value):
     return text + (f" x{rd} = {value:#018x}" if rd >= 0 else "")
 
 
-def compare_commits(naiad_commits, spike_commits, *, entry, volatile_ranges=()):
+def compare_commits(
+    naiad_commits, spike_commits, *, entry, volatile_ranges=(), naiad_vregs=None
+):
     """Compare Naiad ``(pc, instr, rd, value)`` tuples with :class:`SpikeCommit` s.
 
     Both streams are aligned on ``entry`` (the first record at that pc). ``volatile_ranges``
     is a list of ``(low, high)`` half-open address ranges whose loads are not compared.
+    ``naiad_vregs``, parallel to ``naiad_commits`` (:attr:`NaiadRun.vregs`), turns on
+    the vector comparison: every vector register Spike logs as written is compared
+    with Naiad's register file after the same instruction.
     """
     diff = CommitDiff()
-    naiad = iter(naiad_commits)
+    index = [-1]  # index into naiad_commits of the record last taken
+
+    def _naiad():
+        for k, c in enumerate(naiad_commits):
+            index[0] = k
+            yield c
+
+    naiad = _naiad()
     spike = iter(spike_commits)
     n = next((c for c in naiad if c[0] == entry), None)
+
+    def vreg_mismatch(k, s):
+        if naiad_vregs is None or not s.vregs or k >= len(naiad_vregs):
+            return None
+        vrf = naiad_vregs[k]
+        if vrf is None:
+            return f"v{s.vregs[0][0]}: spike logs a vector write, naiad's instruction is not a vector one"
+        vlenb = len(vrf) // 32
+        for reg, value in s.vregs:
+            got = int.from_bytes(vrf[reg * vlenb : (reg + 1) * vlenb], "little")
+            if got != value:
+                return f"v{reg}: naiad {got:#0{2 * vlenb + 2}x}, spike {value:#0{2 * vlenb + 2}x}"
+        return None
+
     s = next((c for c in spike if c.pc == entry), None)
     if n is None or s is None:
         side = "naiad" if n is None else "spike"
@@ -439,18 +500,22 @@ def compare_commits(naiad_commits, spike_commits, *, entry, volatile_ranges=()):
             s = resynced
             diff.resyncs += 1
 
-        sources = _sources(instr)
+        # The analyses below read 32-bit fields; a compressed instruction is
+        # compared as its 16-bit parcel (both streams log that) but analysed as
+        # its expansion.
+        word = instr if instr & 3 == 3 else (expand_rvc(instr) or 0)
+        sources = _sources(word)
         taint = any(r in tainted_regs for r in sources)
         if s.mem_addr is not None and not s.mem_store:
             if volatile_addr(s.mem_addr) or s.mem_addr in tainted_mem:
                 taint = True
                 diff.volatile_reads += volatile_addr(s.mem_addr)
-        if _is_counter_read(instr):
+        if _is_counter_read(word):
             taint = True
             diff.volatile_reads += 1
         if s.mem_store and s.mem_addr is not None:
-            data_reg = (instr >> 20) & 0x1F
-            if instr & 0x7F == 0x23 and data_reg in tainted_regs:
+            data_reg = (word >> 20) & 0x1F
+            if word & 0x7F == 0x23 and data_reg in tainted_regs:
                 tainted_mem.add(s.mem_addr)
             else:
                 tainted_mem.discard(s.mem_addr)
@@ -470,7 +535,14 @@ def compare_commits(naiad_commits, spike_commits, *, entry, volatile_ranges=()):
                     )
                     break
                 tainted_regs.discard(rd)
-        if taint and _is_branch(instr):
+        if s.vregs:
+            bad = vreg_mismatch(index[0], s)
+            if bad is not None:
+                stop(f"vector value at pc {pc:#x} instr {instr:#010x}: {bad}")
+                break
+            if naiad_vregs is not None:
+                diff.vector_writes += len(s.vregs)
+        if taint and _is_branch(word):
             last_tainted_branch = (diff.matched, pc)
         diff.matched += 1
         recent.append(pc)
@@ -559,6 +631,7 @@ def difftest(
                     parse_spike_commits(f),
                     entry=naiad.soc.image.entry,
                     volatile_ranges=volatile_ranges(naiad.soc),
+                    naiad_vregs=naiad.vregs,
                 )
     return DiffResult(naiad.outcome, spike_out, problems, commit_diff)
 

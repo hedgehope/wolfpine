@@ -10,11 +10,18 @@ binades apart is held exactly with no sticky-bit bookkeeping; only division and
 square root, whose exact results need not be finite binary fractions, compute a
 few guard bits and fold the remainder into a sticky bit.
 
-This is the slow but correct path: there is no host-float fast path, because
-the host FPU knows only round-to-nearest-even and reports no flags, and the
-cases where it would agree (RNE, exact results) are the ones a cross-check
-covers rather than the ones that go wrong. ``math.fma`` (Python 3.13) would not
-help either, for the same reason.
+**Host-float fast path.** Under RNE, the common case of fp32 / fp64 add, sub,
+mul, div, sqrt and fused multiply-add is computed with host doubles instead
+(fp64 fma, which would need ``math.fma`` from Python 3.13, with a specialised
+integer path), where the result is provably the exact path's, bits and flags alike
+(see :func:`_fast_add64` and below for the argument per operation). It covers
+normal operands with a result whose biased exponent is at least 2 (so it is
+neither tiny before nor after rounding) and below the overflow threshold, in
+which case the only flag is NX, decided by an exact check. Anything else (other
+rounding modes, zeros, subnormals, infinities, NaNs, a tiny or overflowing
+result, an fp32 sum that lands exactly on a rounding midpoint) falls through
+to the exact path, which stays the definition: ``add_soft`` and friends are that path
+alone, for cross-checking.
 
 RISC-V conventions modelled (unprivileged spec, chapters F and D):
 
@@ -28,7 +35,9 @@ RISC-V conventions modelled (unprivileged spec, chapters F and D):
   integer; an out-of-range input raises NV and not NX.
 """
 
+import struct
 from math import isqrt
+from math import sqrt as _host_sqrt
 from typing import NamedTuple
 
 # fflags bits.
@@ -198,7 +207,7 @@ def _add_exact(sa, ma, ea, sb, mb, eb, fmt, rm):
     return round_pack(sign, total, e, fmt, rm)
 
 
-def add(a, b, fmt, rm, negate_b=False):
+def add_soft(a, b, fmt, rm, negate_b=False):
     """``a + b`` (``a - b`` with ``negate_b``)."""
     sa, ma, ea, ca = decode(a, fmt)
     sb, mb, eb, cb = decode(b, fmt)
@@ -213,7 +222,7 @@ def add(a, b, fmt, rm, negate_b=False):
     return _add_exact(sa, ma, ea, sb, mb, eb, fmt, rm)
 
 
-def mul(a, b, fmt, rm):
+def mul_soft(a, b, fmt, rm):
     sa, ma, ea, ca = decode(a, fmt)
     sb, mb, eb, cb = decode(b, fmt)
     sign = sa ^ sb
@@ -226,7 +235,7 @@ def mul(a, b, fmt, rm):
     return round_pack(sign, ma * mb, ea + eb, fmt, rm)
 
 
-def div(a, b, fmt, rm):
+def div_soft(a, b, fmt, rm):
     sa, ma, ea, ca = decode(a, fmt)
     sb, mb, eb, cb = decode(b, fmt)
     sign = sa ^ sb
@@ -249,7 +258,7 @@ def div(a, b, fmt, rm):
     return round_pack(sign, (q << 1) | (r != 0), ea - eb - k - 1, fmt, rm)
 
 
-def sqrt(a, fmt, rm):
+def sqrt_soft(a, fmt, rm):
     sa, ma, ea, ca = decode(a, fmt)
     if ca >= QNAN:
         return _nan_result(fmt, ca)
@@ -268,7 +277,7 @@ def sqrt(a, fmt, rm):
     return round_pack(0, (s << 1) | (s * s != scaled), (ea >> 1) - k - 1, fmt, rm)
 
 
-def fma(a, b, c, fmt, rm, negate_product=False, negate_addend=False):
+def fma_soft(a, b, c, fmt, rm, negate_product=False, negate_addend=False):
     """``(+/-)(a * b) (+/-) c`` with one rounding (fmadd / fmsub / fnmsub / fnmadd)."""
     sa, ma, ea, ca = decode(a, fmt)
     sb, mb, eb, cb = decode(b, fmt)
@@ -290,6 +299,372 @@ def fma(a, b, c, fmt, rm, negate_product=False, negate_addend=False):
     if cc == INF:
         return _inf(sc, fmt), 0
     return _add_exact(sp, ma * mb, ea + eb, sc, mc, ec, fmt, rm)
+
+
+# -- the host-float fast path ---------------------------------------------------
+#
+# Python floats are IEEE binary64 with round-to-nearest-even (CPython never
+# changes the host's rounding mode or enables flush-to-zero), and +, -, *, /
+# and math.sqrt are correctly rounded. Every helper returns ``(bits, fflags)``
+# exactly as the exact path would, or None to defer to it.
+
+_D = struct.Struct("<d")
+_Q = struct.Struct("<Q")
+_F = struct.Struct("<f")
+_I = struct.Struct("<I")
+_unpack_d = _D.unpack
+_pack_d = _D.pack
+_unpack_q = _Q.unpack
+_unpack_f = _F.unpack
+_pack_f = _F.pack
+_unpack_i = _I.unpack
+
+_FRAC52 = (1 << 52) - 1
+_HIDDEN52 = 1 << 52
+
+
+def _f64(bits):
+    return _unpack_d(bits.to_bytes(8, "little"))[0]
+
+
+def _bits64(x):
+    return _unpack_q(_pack_d(x))[0]
+
+
+def _fast_add64(a, b, negate_b):
+    """fp64 ``a + b`` under RNE, or None.
+
+    Operands must be normal with biased exponent <= 0x7FC (|x| < 2**1022), so
+    no step of TwoSum below can overflow; the result must have a biased
+    exponent in [2, 0x7FE] (|s| >= 2**-1021: not tiny, and finite). Then ``s``
+    is the correctly rounded sum (RNE) and TwoSum (Knuth) gives the exact
+    rounding error ``err``, so NX is exactly ``err != 0``. A zero result
+    (exact cancellation) is excluded by the exponent bound, so the sign-of-zero
+    rule is the exact path's.
+    """
+    ea = (a >> 52) & 0x7FF
+    eb = (b >> 52) & 0x7FF
+    if not (0 < ea < 0x7FD and 0 < eb < 0x7FD):
+        return None
+    x = _f64(a)
+    y = _f64(b)
+    if negate_b:
+        y = -y
+    s = x + y
+    r = _bits64(s)
+    er = (r >> 52) & 0x7FF
+    if er < 2 or er == 0x7FF:
+        return None
+    z = s - x
+    err = (x - (s - z)) + (y - z)
+    return r, (NX if err else 0)
+
+
+def _fast_mul64(a, b):
+    """fp64 ``a * b`` under RNE, or None.
+
+    Normal operands and a result with biased exponent in [2, 0x7FE], so the
+    exact product (>= the result times 1 - 2**-53) is in the normal range too,
+    where it is representable exactly when its integer significand
+    ``ma * mb`` has at most 53 significant bits. That decides NX.
+    """
+    ea = (a >> 52) & 0x7FF
+    eb = (b >> 52) & 0x7FF
+    if not (0 < ea < 0x7FF and 0 < eb < 0x7FF):
+        return None
+    r = _bits64(_f64(a) * _f64(b))
+    er = (r >> 52) & 0x7FF
+    if er < 2 or er == 0x7FF:
+        return None
+    m = ((a & _FRAC52) | _HIDDEN52) * ((b & _FRAC52) | _HIDDEN52)
+    m >>= (m & -m).bit_length() - 1
+    return r, (NX if m.bit_length() > 53 else 0)
+
+
+def _fast_div64(a, b):
+    """fp64 ``a / b`` under RNE, or None.
+
+    Normal operands and a normal, finite, not-tiny result ``q`` (as for mul).
+    The quotient is exact iff ``q * b == a`` exactly, which is checked in
+    integers: ``mq * mb * 2**t == ma`` with ``t`` from the three exponents.
+    """
+    ea = (a >> 52) & 0x7FF
+    eb = (b >> 52) & 0x7FF
+    if not (0 < ea < 0x7FF and 0 < eb < 0x7FF):
+        return None
+    r = _bits64(_f64(a) / _f64(b))
+    er = (r >> 52) & 0x7FF
+    if er < 2 or er == 0x7FF:
+        return None
+    prod = ((r & _FRAC52) | _HIDDEN52) * ((b & _FRAC52) | _HIDDEN52)
+    ma = (a & _FRAC52) | _HIDDEN52
+    t = er + eb - ea - 1075
+    exact = (prod << t) == ma if t >= 0 else prod == (ma << -t)
+    return r, (0 if exact else NX)
+
+
+def _fast_fma64(a, b, c, negate_product, negate_addend):
+    """fp64 fused multiply-add under RNE, in integers, or None.
+
+    There is no host fma before Python 3.13, so this is the exact path
+    specialised to its common case: normal operands whose aligned terms lie
+    within 160 bits of each other (so the integers stay small), a nonzero sum,
+    and a result whose biased exponent is in [2, 0x7FE]. The exact sum is
+    formed in integers and rounded once, to nearest-even, exactly as
+    :func:`round_pack` does for a normal result; NX is a nonzero remainder.
+    """
+    ea = (a >> 52) & 0x7FF
+    eb = (b >> 52) & 0x7FF
+    ec = (c >> 52) & 0x7FF
+    if not (0 < ea < 0x7FF and 0 < eb < 0x7FF and 0 < ec < 0x7FF):
+        return None
+    p = ((a & _FRAC52) | _HIDDEN52) * ((b & _FRAC52) | _HIDDEN52)
+    ep = ea + eb - 2150  # p's value is p * 2**ep
+    m = (c & _FRAC52) | _HIDDEN52
+    em = ec - 1075
+    d = ep - em
+    if d > 160 or d < -160:
+        return None
+    if d >= 0:
+        p <<= d
+        e = em
+    else:
+        m <<= -d
+        e = ep
+    if ((a ^ b) >> 63) ^ negate_product:
+        p = -p
+    if (c >> 63) ^ negate_addend:
+        m = -m
+    total = p + m
+    if total == 0:
+        return None
+    sign = 0
+    if total < 0:
+        sign = 1
+        total = -total
+    n = total.bit_length()
+    biased = e + n - 1 + 1023
+    if biased < 2 or biased > 0x7FE:
+        return None
+    shift = n - 53
+    if shift <= 0:
+        return (sign << 63) | (biased << 52) | ((total << -shift) & _FRAC52), 0
+    mant = total >> shift
+    rem = total & ((1 << shift) - 1)
+    if rem:
+        half = 1 << (shift - 1)
+        if rem > half or (rem == half and mant & 1):
+            mant += 1
+            if mant >> 53:
+                mant >>= 1
+                biased += 1
+                if biased > 0x7FE:
+                    return None
+        return (sign << 63) | (biased << 52) | (mant & _FRAC52), NX
+    return (sign << 63) | (biased << 52) | (mant & _FRAC52), 0
+
+
+def _fast_sqrt64(a):
+    """fp64 ``sqrt(a)`` under RNE, or None.
+
+    A positive normal operand (a negative one is NV, a zero keeps its sign:
+    both the exact path's). The root of a normal double is normal, and
+    ``math.sqrt`` is correctly rounded; it is exact iff ``s * s == a``,
+    checked in integers.
+    """
+    ea = a >> 52  # includes the sign bit: a negative operand fails the bound
+    if not 0 < ea < 0x7FF:
+        return None
+    r = _bits64(_host_sqrt(_f64(a)))
+    er = r >> 52
+    ms = (r & _FRAC52) | _HIDDEN52
+    ma = (a & _FRAC52) | _HIDDEN52
+    t = 2 * er - ea - 1075
+    sq = ms * ms
+    exact = (sq << t) == ma if t >= 0 else sq == (ma << -t)
+    return r, (0 if exact else NX)
+
+
+# fp32 goes through binary64: a single is exactly a double, the product of two
+# singles is exact in a double (48 significant bits, exponents far inside the
+# double range), and for +, -, *, /, sqrt rounding the double result to single
+# gives the correctly rounded single result, because 53 >= 2 * 24 + 2 (double
+# rounding is innocuous; Figueroa, "When is double rounding innocuous?", 1995).
+# Sums are handled separately (they are not one double operation away when the
+# exact sum needs more than 53 bits): see _fast_sum32.
+
+
+def _f32(bits):
+    return _unpack_f(bits.to_bytes(4, "little"))[0]
+
+
+def _round32(x):
+    """``x`` rounded to single (RNE) as ``(bits, value)``, or None if it overflows or is tiny.
+
+    ``struct``'s ``f`` packing is the C cast (RNE), and raises on overflow.
+    A biased exponent below 2 (|result| < 2**-125) is left to the exact path,
+    which decides tininess after rounding.
+    """
+    try:
+        packed = _pack_f(x)
+    except OverflowError:
+        return None
+    bits = _unpack_i(packed)[0]
+    e = (bits >> 23) & 0xFF
+    if e < 2 or e == 0xFF:
+        return None
+    return bits, _unpack_f(packed)[0]
+
+
+def _normal32(bits):
+    return 0 < (bits >> 23) & 0xFF < 0xFF
+
+
+def _fast_sum32(x, y):
+    """Single RNE of the exact ``x + y`` (doubles, each exact in at most 48 bits), or None.
+
+    ``s = x + y`` in double with the TwoSum error ``err`` (exact; nothing here
+    can overflow a double). If ``err == 0`` the sum is ``s`` exactly, so its
+    single rounding is ``round32(s)``, inexact iff that differs from ``s``. If
+    ``err != 0`` the exact sum is ``s + err`` with ``|err| <= ulp53(s) / 2``,
+    which rounds to single as ``s`` does unless ``s`` is exactly a single
+    rounding midpoint (every midpoint is a double, at least one ulp53 from any
+    other double, so ``s + err`` cannot reach or cross one ``s`` is not on);
+    a midpoint defers to the exact path, otherwise the result is inexact.
+    ``s``'s binade is a single-normal one whenever the rounded result is, so a
+    midpoint is a double whose low 29 significand bits are ``1 << 28``.
+    """
+    s = x + y
+    rounded = _round32(s)
+    if rounded is None:
+        return None
+    bits, value = rounded
+    z = s - x
+    err = (x - (s - z)) + (y - z)
+    if err == 0:
+        return bits, (0 if value == s else NX)
+    if _bits64(s) & 0x1FFFFFFF == 0x10000000:
+        return None
+    return bits, NX
+
+
+def _fast_add32(a, b, negate_b):
+    if not (_normal32(a) and _normal32(b)):
+        return None
+    y = _f32(b)
+    return _fast_sum32(_f32(a), -y if negate_b else y)
+
+
+def _fast_mul32(a, b):
+    if not (_normal32(a) and _normal32(b)):
+        return None
+    p = _f32(a) * _f32(b)  # exact
+    rounded = _round32(p)
+    if rounded is None:
+        return None
+    bits, value = rounded
+    return bits, (0 if value == p else NX)
+
+
+def _fast_div32(a, b):
+    """Single quotient: double rounding is innocuous; exact iff ``q * b == a`` (exact in double)."""
+    if not (_normal32(a) and _normal32(b)):
+        return None
+    x = _f32(a)
+    y = _f32(b)
+    rounded = _round32(x / y)
+    if rounded is None:
+        return None
+    bits, value = rounded
+    return bits, (0 if value * y == x else NX)
+
+
+def _fast_sqrt32(a):
+    """Single root: double rounding is innocuous; exact iff ``s * s == a`` (exact in double)."""
+    if not 0 < a >> 23 < 0xFF:  # positive normal (the sign bit fails the bound)
+        return None
+    x = _f32(a)
+    rounded = _round32(_host_sqrt(x))
+    if rounded is None:
+        return None
+    bits, value = rounded
+    return bits, (0 if value * value == x else NX)
+
+
+def _fast_fma32(a, b, c, negate_product, negate_addend):
+    """Single fused multiply-add: the product is exact in double, then one :func:`_fast_sum32`."""
+    if not (_normal32(a) and _normal32(b) and _normal32(c)):
+        return None
+    p = _f32(a) * _f32(b)
+    z = _f32(c)
+    return _fast_sum32(-p if negate_product else p, -z if negate_addend else z)
+
+
+def add(a, b, fmt, rm, negate_b=False):
+    """``a + b`` (``a - b`` with ``negate_b``)."""
+    if rm == RNE:
+        if fmt is F64:
+            fast = _fast_add64(a, b, negate_b)
+        elif fmt is F32:
+            fast = _fast_add32(a, b, negate_b)
+        else:
+            fast = None
+        if fast is not None:
+            return fast
+    return add_soft(a, b, fmt, rm, negate_b)
+
+
+def mul(a, b, fmt, rm):
+    if rm == RNE:
+        if fmt is F64:
+            fast = _fast_mul64(a, b)
+        elif fmt is F32:
+            fast = _fast_mul32(a, b)
+        else:
+            fast = None
+        if fast is not None:
+            return fast
+    return mul_soft(a, b, fmt, rm)
+
+
+def div(a, b, fmt, rm):
+    if rm == RNE:
+        if fmt is F64:
+            fast = _fast_div64(a, b)
+        elif fmt is F32:
+            fast = _fast_div32(a, b)
+        else:
+            fast = None
+        if fast is not None:
+            return fast
+    return div_soft(a, b, fmt, rm)
+
+
+def sqrt(a, fmt, rm):
+    if rm == RNE:
+        if fmt is F64:
+            fast = _fast_sqrt64(a)
+        elif fmt is F32:
+            fast = _fast_sqrt32(a)
+        else:
+            fast = None
+        if fast is not None:
+            return fast
+    return sqrt_soft(a, fmt, rm)
+
+
+def fma(a, b, c, fmt, rm, negate_product=False, negate_addend=False):
+    """``(+/-)(a * b) (+/-) c`` with one rounding (fmadd / fmsub / fnmsub / fnmadd)."""
+    if rm == RNE:
+        if fmt is F64:
+            fast = _fast_fma64(a, b, c, negate_product, negate_addend)
+        elif fmt is F32:
+            fast = _fast_fma32(a, b, c, negate_product, negate_addend)
+        else:
+            fast = None
+        if fast is not None:
+            return fast
+    return fma_soft(a, b, c, fmt, rm, negate_product, negate_addend)
 
 
 def _order_key(bits, fmt):

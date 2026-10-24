@@ -20,8 +20,9 @@ model's HTIF macros for Sail's benefit) is replaced by an empty one.
 
 The model is machine-mode only with no trap handler (``STANDARD_SM_SUPPORTED``
 is left undefined), since Naiad models no traps; tests that need traps or
-privilege modes are not selected. The design is ``naiad-fp-rv64`` plus Zba,
-Zbb and Zfbfmin, so F and D (FLEN = 64) run too. A test runs when its
+privilege modes are not selected. The design is ``naiad-fp-rv64`` plus C,
+Zba, Zbb and Zfbfmin, so F and D (FLEN = 64) and the compressed suites (Zca,
+Zcd) run too. A test runs when its
 ``REQUIRED_EXTENSIONS`` are all in :data:`SUPPORTED`.
 
 Exit status: 0 if every selected test passed, 1 otherwise.
@@ -70,6 +71,8 @@ DEFAULT_EXTENSIONS = (
     "F",
     "D",
     "Zfbfmin",
+    "Zca",
+    "Zcd",
 )
 
 #: ACT extension names (``REQUIRED_EXTENSIONS``) the Naiad core implements.
@@ -88,11 +91,26 @@ SUPPORTED = frozenset(
         "F",
         "D",
         "Zfbfmin",
+        "Zca",
+        "Zcd",
+        "C",
     }
 )
 
 #: Naiad's ISA list for the archtest design (design extension names).
-DESIGN_ISA = ["i", "m", "a", "f", "d", "zba", "zbb", "zfbfmin", "zicsr", "zicntr"]
+DESIGN_ISA = [
+    "i",
+    "m",
+    "a",
+    "f",
+    "d",
+    "c",
+    "zba",
+    "zbb",
+    "zfbfmin",
+    "zicsr",
+    "zicntr",
+]
 
 SIGNATURE_GRANULARITY = 8
 
@@ -112,6 +130,9 @@ RVTEST_CONFIG_H = """\
 #define F_SUPPORTED
 #define D_SUPPORTED
 #define ZFBFMIN_SUPPORTED
+#define C_SUPPORTED
+#define ZCA_SUPPORTED
+#define ZCD_SUPPORTED
 #define ZICSR_SUPPORTED
 #define ZICNTR_SUPPORTED
 // time is a real CSR (CLINT mtime), so no emulation through RVMODEL_MTIME_ADDRESS.

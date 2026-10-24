@@ -475,7 +475,7 @@ def test_defaults_are_filled_in():
             "not one of the unit's in formats",
         ),
         ({"matrix": {"format_passes": {"nope": 2}}}, "format_passes"),
-        ({"vector": {"vlen": 128}}, "RVV is Phase C"),
+        ({"vector": {"vlen": 128}}, "no vector unit to time"),
         ({"cache": {}}, "unknown key"),
     ],
 )

@@ -93,6 +93,82 @@ def test_value_divergence_is_reported_with_pc_and_values():
     assert "0x0000000000000002" in diff.divergence
 
 
+VADD_V2 = 0x02430157  # vadd.vv v2, v4, v6
+VSETVLI = 0x0112F357  # vsetvli t1, t0, e32, m2, tu, mu
+VLE8_V8 = 0x02038407  # vle8.v v8, (t2)
+
+
+def _vrf(**regs):
+    """A 32 x 32-byte register file (VLEN 256) with the given registers set."""
+    data = bytearray(32 * 32)
+    for name, value in regs.items():
+        r = int(name[1:])
+        data[r * 32 : (r + 1) * 32] = value.to_bytes(32, "little")
+    return bytes(data)
+
+
+def test_parse_spike_vector_writes():
+    v2, v3 = "00" * 31 + "1f", "ab" + "00" * 31
+    line = (
+        f"core   0: 3 0x0000000080000014 (0x02430157) e32 m2 l16 v2  0x{v2} v3  0x{v3} "
+        "c8_vstart 0x0000000000000000\n"
+    )
+    (c,) = parse_spike_commits([line])
+    assert c.rd == -1
+    assert c.vregs == ((2, 0x1F), (3, 0xAB << 248))
+    # A scalar write after the vtype prefix still parses, with no vector writes.
+    (c,) = parse_spike_commits(
+        [
+            "core   0: 3 0x0000000080000018 (0x42202557) e32 m2 l16 c8_vstart 0x0000000000000000 x10 0x0000000000000007\n"
+        ]
+    )
+    assert (c.rd, c.value, c.vregs) == (10, 7, ())
+
+
+def test_is_vector_instr():
+    from framework.naiad.difftest import is_vector_instr
+
+    assert is_vector_instr(VADD_V2)
+    assert is_vector_instr(VSETVLI)
+    assert is_vector_instr(VLE8_V8)
+    assert not is_vector_instr(0x0002B007)  # fld ft0, 0(t0): LOAD-FP, width 3
+    assert not is_vector_instr(ADDI_X5)
+
+
+def test_vector_writes_are_compared():
+    naiad = [(ENTRY, ADDI_X5, 5, 1), (ENTRY + 4, VADD_V2, -1, 0)]
+    spike = [
+        _s(ENTRY, ADDI_X5, 5, 1),
+        SpikeCommit(ENTRY + 4, VADD_V2, -1, 0, vregs=((2, 5), (3, 6))),
+    ]
+    good = [None, _vrf(v2=5, v3=6)]
+    diff = compare_commits(naiad, spike, entry=ENTRY, naiad_vregs=good)
+    assert diff.ok, diff.report()
+    assert diff.matched == 2
+    assert diff.vector_writes == 2
+    assert "2 vector writes" in diff.report()
+    bad = [None, _vrf(v2=5, v3=7)]
+    diff = compare_commits(naiad, spike, entry=ENTRY, naiad_vregs=bad)
+    assert not diff.ok
+    assert diff.matched == 1
+    assert "v3" in diff.divergence
+    assert "vector value" in diff.divergence
+    # Without the register files (a core with no vector unit) only scalars are compared.
+    assert compare_commits(naiad, spike, entry=ENTRY).ok
+
+
+def test_vector_compare_indexes_survive_boot_records_and_resyncs():
+    # Records before the entry point shift the indices: the register file used
+    # must be the one recorded with the same instruction.
+    naiad = [(0x1000, 0x297, 5, 0x1000), (ENTRY, VADD_V2, -1, 0)]
+    spike = [
+        _s(0x1000, 0x297, 5, 0x1000),
+        SpikeCommit(ENTRY, VADD_V2, -1, 0, vregs=((2, 9),)),
+    ]
+    vrfs = [_vrf(v2=1), _vrf(v2=9)]
+    assert compare_commits(naiad, spike, entry=ENTRY, naiad_vregs=vrfs).ok
+
+
 def test_htif_spin_loop_resyncs():
     # Waiting for tohost to clear: Naiad sees 0 at once, Spike loops three times.
     tohost = 0x80001000

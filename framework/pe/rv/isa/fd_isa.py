@@ -99,6 +99,9 @@ def _rm_suffix(rm):
 class _FloatISA(RV_ISA):
     """One precision's share of the F / D encodings. Subclasses set the format."""
 
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = FP_OPCODES
+
     #: The fmt field value (0 = S, 1 = D) and load/store width (2 = W, 3 = D).
     FMT_CODE = 0
     WIDTH = 2

@@ -41,8 +41,8 @@ def test_rv64_extensions_resolves_names_in_order_without_duplicates():
         RV64_ZICSR_ISA,
     ]
     assert rv64_extensions(["zalrsc", "a"]) == [RV64_ZALRSC_ISA, RV64_ZAAMO_ISA]
-    with pytest.raises(KeyError, match="unknown RV64 extension 'v'"):
-        rv64_extensions(["v"])
+    with pytest.raises(KeyError, match="unknown RV64 extension 'q'"):
+        rv64_extensions(["q"])
     assert set(RV64_ISA_REGISTRY) >= {
         "m",
         "a",

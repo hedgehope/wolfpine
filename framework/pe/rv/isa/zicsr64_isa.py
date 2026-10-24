@@ -31,6 +31,10 @@ What is modelled
   WARL and reads back ``N`` when counter ``N`` is bound, 0 when not. A bound
   counter reads the event's live value, with the same offset rule as
   ``mcycle``; an unbound one is hardwired to zero, as the spec allows.
+* The vector CSRs ``vstart`` / ``vxsat`` / ``vxrm`` / ``vcsr`` and the
+  read-only ``vl`` / ``vtype`` / ``vlenb``, forwarded to the hart's
+  ``VectorState`` (``framework.pe.rv.isa.v.state``) when one is attached, and
+  unknown otherwise.
 * ``fflags`` / ``frm`` / ``fcsr`` as views of the FP register file's ``fcsr``
   entry, for a core built with ``fp_registers=True``.
 * ``mstatus``, ``mtvec``, ``mie``, ``mip``, ``mscratch``, ``mepc``, ``mcause``,
@@ -52,6 +56,7 @@ Refused
 
 from framework.pe.rv.isa.i64_isa import write_reg
 from framework.pe.rv.isa.rv_isa import RV_ISA
+from framework.pe.rv.isa.v.state import VECTOR_CSRS
 from framework.pe.rv.isa.zicsr_isa import CSRError, NoCSRsError, UnknownCSRError
 
 _M64 = 0xFFFFFFFFFFFFFFFF
@@ -98,6 +103,13 @@ CSR_NAMES = {
     0xF13: "mimpid",
     0xF14: "mhartid",
     0xF15: "mconfigptr",
+    0x008: "vstart",
+    0x009: "vxsat",
+    0x00A: "vxrm",
+    0x00F: "vcsr",
+    0xC20: "vl",
+    0xC21: "vtype",
+    0xC22: "vlenb",
 }
 for _n in HPM_COUNTERS:
     CSR_NAMES[0xB00 + _n] = f"mhpmcounter{_n}"
@@ -151,6 +163,9 @@ class CSRFile64:
         self._instret_base = 0
         #: Zihpm: counter number -> zero-argument reader of its event.
         self.hpm = {}
+        #: The hart's ``VectorState`` once one is attached (framework.pe.rv.isa.v.attach):
+        #: vstart / vxsat / vxrm / vcsr / vl / vtype / vlenb are forwarded to it.
+        self.vector = None
         self._hpm_base = {}
 
     def bind_hpm(self, n, reader):
@@ -186,6 +201,8 @@ class CSRFile64:
             return self._hpm_read(low)
         if low >= 3 and (addr & ~0x1F) == 0x320:
             return low if low in self.hpm else 0
+        if addr in VECTOR_CSRS and self.vector is not None:
+            return self.vector.read_csr(addr)
         if addr == CSR_FCSR:
             return self._fcsr(pc).read_uint() & 0xFF
         if addr == CSR_FFLAGS:
@@ -226,6 +243,10 @@ class CSRFile64:
                 self._hpm_base[n] = (value - reader()) & _M64
         elif 0x323 <= addr <= 0x33F:
             pass  # WARL: the event is fixed by the platform
+        elif addr in VECTOR_CSRS and self.vector is not None:
+            self.vector.write_csr(
+                addr, value
+            )  # vl/vtype/vlenb are read-only, refused above
         elif addr == CSR_FCSR:
             self._fcsr(pc).write((value & 0xFF).to_bytes(4, "little"))
         elif addr == CSR_FFLAGS:
@@ -251,6 +272,8 @@ class CSRFile64:
             ) from None
 
     def reset(self):
+        if self.vector is not None:
+            self.vector.reset()
         self.store = {}
         self.cycles = 0
         self.retired = 0
@@ -268,6 +291,9 @@ class RV64_ZICSR_ISA(RV_ISA):
     Also provides Zicntr: the counters are entries in the same file. Adding
     this class to an ``RV64I``'s extensions is what allocates that file.
     """
+
+    #: Major opcodes (``instr & 0x7F``) this ISA may claim; ``RV64I``'s dispatch table offers it no others.
+    OPCODES = frozenset({0x73})
 
     @classmethod
     def run(cls, register_file, memory_space, snoop, instr=None):
