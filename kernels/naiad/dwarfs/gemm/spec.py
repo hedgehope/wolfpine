@@ -15,6 +15,11 @@ The ``ame_mc`` variant is the AME driver with C's rows split across the harts
 of a multi-hart design (``naiad-dwarfs-4c.yaml``; each hart has its own unit),
 timed from a barrier to a barrier; on one hart it is the ame variant.
 
+The ``tensix`` variant offloads to a Tensix tile on the bus (``naiad-tensix.yaml``,
+kernels/naiad/include/tensix_accel.h): its region is the whole round trip (launch
+image, DMA in with 2D-DMA tilize, doorbell, wait, DMA out), the tile's one-time
+firmware boot excluded.
+
 ``size`` is n (square) or (m, n, k). Sizes that are not multiples of the 32 x 32
 output block exercise the driver's padded edges.
 """
@@ -29,6 +34,7 @@ VARIANTS = {
     "ime": "ime",
     "ame_mc": "ame_mc",
     "vme": "vme",
+    "tensix": "tensix",
 }
 SIZES = (32, 64, 128)
 FORMATS = (
@@ -48,7 +54,13 @@ VARIANT_FORMATS = {
     # VME (Zvt v0.4; needs a VME design, e.g. naiad-vme-timed.yaml): Zvtdmm, Zvtfmm, Zvtbf16fmm,
     # Zvtfp16fmm; bf16 -> bf16 accumulates in fp32 tiles and rounds once on store (no bf16 C in Zvt).
     "vme": FORMATS,
+    # A Blackhole Tensix tile behind MMIO + DMA (needs naiad-tensix.yaml): the captured
+    # tt-metal matmul_tiles image, bf16 in at HiFi2; whole 32x32 tiles only.
+    "tensix": (("bf16", "fp32"), ("bf16", "bf16")),
 }
+
+#: Variants that need a block of this type in the design (the harness skips them elsewhere).
+VARIANT_BLOCKS = {"tensix": "tensix"}
 
 _TOLERANCE = {
     ("fp64", "fp64"): 1e-13,

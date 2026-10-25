@@ -1,0 +1,42 @@
+# Cost-model validation points beyond the talk sweeps (framework/naiad/costmodel): size scaling,
+# formats at the smallest size, and design perturbations the formulas were not built on.
+#   python -m experiments.naiad.run costmodel_val -j 6 && python -m framework.naiad.costmodel.validate --extra experiments/naiad/out/costmodel_val
+name: costmodel_val
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: all
+variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: [fp32, fp32]}
+ratio: {vector: rvv}
+studies:
+  - name: sizes
+    sizes: all
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.matrix.macs_per_cycle: [128, 2048]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+  - name: formats_small
+    sizes: smallest
+    formats: all
+  - name: perturb_l1
+    sizes: mid
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.memory.l1.latency: [1]
+  - name: perturb_vdp
+    sizes: mid
+    formats: [[fp32, fp32]]
+    variants: [rvv]
+    overrides:
+      timing.vector.datapath_bits: [128]
+      timing.vector.mem_bytes_per_cycle: [16]
+  - name: perturb_tile
+    sizes: mid
+    formats: [[fp32, fp32], [fp64, fp64]]
+    variants: [ame, ame_gauss, ame_fgemm]
+    overrides:
+      timing.matrix.tile_load_bandwidth: [16]
+      timing.matrix.pipeline_depth: [12]
+      timing.matrix.macs_per_cycle: [512]

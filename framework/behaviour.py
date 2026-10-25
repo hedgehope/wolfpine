@@ -353,6 +353,10 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "a dwarf kernel that is unknown or fails to build; a host-tool "
             "problem in the experiment harness, raised before any simulator runs"
         ),
+        "Unsupported": (
+            "the Naiad cost model declining a (dwarf, variant, size, design) it "
+            "has no model for; a host-tool answer, raised before any simulator runs"
+        ),
         "EncodingTableError": (
             "a malformed matrix encodings table; input validation at import, "
             "before any device exists"
@@ -375,6 +379,11 @@ _NOT_A_GUARANTEE = MappingProxyType(
         "MatrixAccessFault": (
             "a Naiad tile load that reaches unmapped memory; an access fault "
             "of a research SoC, not a Tenstorrent modelling guarantee"
+        ),
+        "TensixImageError": (
+            "a wire trace that does not hold one complete tt-metal launch, "
+            "refused while building a Naiad Tensix image; input validation of "
+            "an offline tool, before any device exists"
         ),
     }
 )

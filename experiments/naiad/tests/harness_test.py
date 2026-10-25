@@ -671,6 +671,34 @@ def test_variant_designs_and_mode_skips(tmp_path):
     assert by["ame"].matrix.mode == "ame"
 
 
+TENSIX_BASE = BASE.parent / "naiad-tensix.yaml"
+
+
+def test_variant_blocks_skip_designs_without_the_block(tmp_path):
+    body = {
+        "name": "tb",
+        "dwarfs": ["gemm"],
+        "sizes": [64],
+        "variants": ["ame", "tensix"],
+        "formats": [["bf16", "fp32"]],
+    }
+    msgs = []
+    pts = expand(
+        load_sweep(write_sweep(tmp_path, body)),
+        DesignFactory(tmp_path),
+        log=msgs.append,
+    )
+    assert [p.variant for p in pts] == ["ame"]
+    assert any("skip gemm/tensix: needs a 'tensix' block" in m for m in msgs)
+    body["variant_designs"] = {"tensix": str(TENSIX_BASE.relative_to(BASE.parents[3]))}
+    pts = expand(
+        load_sweep(write_sweep(tmp_path, body)),
+        DesignFactory(tmp_path),
+        log=lambda *_: None,
+    )
+    assert sorted(p.variant for p in pts) == ["ame", "tensix"]
+
+
 def test_ime_peak_and_normalise_merge(tmp_path):
     ime = load_design(IME_BASE)
     # VLEN 256, fp32: lambda 1, M = 8, LMUL 8, K_eff 8: 512 MACs; the 96 B/cycle read port

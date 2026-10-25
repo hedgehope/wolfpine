@@ -17,6 +17,7 @@ from framework.naiad.ip.dma import DMAEngine
 from framework.naiad.ip.htif import HTIF
 from framework.naiad.ip.memories import DRAMBlock, ScratchpadBlock
 from framework.naiad.ip.perfcounters import PerfCounters
+from framework.naiad.ip.tensix import TensixBlock
 from framework.pe.rv.isa.a_isa import RV_ZAAMO_ISA
 from framework.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
 from framework.pe.rv.isa.m_isa import RV_M_ISA
@@ -31,6 +32,7 @@ IP_REGISTRY = {
     "perfcounters": PerfCounters,
     "dma": DMAEngine,
     "cache": Cache,
+    "tensix": TensixBlock,
 }
 
 NAIAD_ISA_REGISTRY = {

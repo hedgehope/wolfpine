@@ -70,7 +70,8 @@ ERR_BUS = 4
 ERR_BUSY = 5
 
 #: Block types whose bytes are counted per path; any other end counts as MMIO.
-MEMORY_TYPES = ("dram", "scratchpad")
+#: A ``tensix`` block's end is its L1 window (``framework.naiad.ip.tensix``).
+MEMORY_TYPES = ("dram", "scratchpad", "tensix")
 _MASK64 = (1 << 64) - 1
 _DEFAULTS = {
     "channels": 1,

@@ -50,7 +50,9 @@ Study keys:
     Overrides, normalisation and the address check apply to it as to ``base_design``.
     A matrix variant whose base design has another coupling mode (``ime*`` needs
     ``matrix.mode: ime``, ``ame*`` needs ``ame``, ``vme*`` ``vme``) is skipped with
-    a message, never run, so ``variants: all`` stays safe.
+    a message, never run, so ``variants: all`` stays safe. Likewise a variant the
+    spec's optional ``VARIANT_BLOCKS`` maps to a block type (gemm's ``tensix``
+    needs a ``tensix`` block) is skipped on a base design without one.
 ``seed``, ``count_all``
     Input RNG seed (default 0); per-class and per-block counters (default true).
 ``seeds``
@@ -603,6 +605,15 @@ def expand(sweep, factory=None, log=print):
                             f"({Path(base_path).name} has {have or 'no matrix unit'}); map one with variant_designs"
                         )
                         continue
+                need = getattr(spec, "VARIANT_BLOCKS", {}).get(variant)
+                if need is not None and not factory.base(base_path)[1].blocks_of_type(
+                    need
+                ):
+                    log(
+                        f"[{study.name}] skip {name}/{variant}: needs a '{need}' block "
+                        f"({Path(base_path).name} has none); map a design with variant_designs"
+                    )
+                    continue
                 pairs = variant_formats(spec, variant, study.formats)
                 for size in select_sizes(spec, study.sizes):
                     for in_fmt, acc_fmt in pairs:
