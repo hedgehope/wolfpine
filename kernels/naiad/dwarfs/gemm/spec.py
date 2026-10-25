@@ -7,6 +7,10 @@ a 4 x 4 register-blocked FP loop computing in the accumulator's precision (fp32
 for 16-bit inputs, which it widens in software inside the timed region, since
 the dwarfs' design has no Zfh/Zfbfmin).
 
+The ``vme`` variant is the emitted Zvt driver (naiad_gemm.h from a VME design,
+framework/naiad/emit/gemm_vme.py): A transposed through the tile state into a
+panel, B in place, a block shape the emitter picks for the design.
+
 The ``ame_mc`` variant is the AME driver with C's rows split across the harts
 of a multi-hart design (``naiad-dwarfs-4c.yaml``; each hart has its own unit),
 timed from a barrier to a barrier; on one hart it is the ame variant.

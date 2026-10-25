@@ -32,6 +32,9 @@ views of the same storage order correctly; tile results of moves and loads
 are ready ``1`` (moves) or ``mem_startup + latency + transfer`` (loads) cycles
 after issue. Configuration instructions (``msetmtype[i]``, ``msett*``) and
 ``vtdiscard`` cost one cycle and write rd like an ALU op.
+A ``vtse`` registers its bytes with the stores-in-flight table
+(:mod:`framework.naiad.store_hazards`) until the LSU frees, and a ``vtle``
+(or any other load) overlapping it waits (``mem_raw``).
 """
 
 import math
@@ -39,7 +42,13 @@ from dataclasses import dataclass, field
 
 from framework.matrix import vme
 from framework.matrix.ime_timing import MATRIX_BUSY, MATRIX_RAW, IMETiming
-from framework.naiad.vector_timing import MEM, VECTOR_BUSY, VECTOR_RAW, VectorTiming
+from framework.naiad.vector_timing import (
+    MEM,
+    MEM_RAW,
+    VECTOR_BUSY,
+    VECTOR_RAW,
+    VectorTiming,
+)
 
 TILE_RAW = MATRIX_RAW
 
@@ -395,6 +404,13 @@ class VMETiming(IMETiming):
         region = self.memory.lookup(addr)
         if region.port_free > cycle:
             return self._stall(region.port_free, MEM)
+        # Memory RAW (framework.naiad.store_hazards): one contiguous run from vstart.
+        span = addr + vs.vstart * (tew // 8)
+        inflight = self.memory.inflight
+        if is_load and inflight.until > cycle:
+            at = inflight.wait_span(span, nbytes, cycle)
+            if at:
+                return self._stall(at, MEM_RAW)
         # -- commit
         bw = self.spec.mem_bytes_per_cycle
         if region.bandwidth is not None:
@@ -417,6 +433,8 @@ class VMETiming(IMETiming):
         else:
             for p in pts:
                 self.tile_read_until[p] = max(self.tile_read_until[p], cycle + t)
+            if nbytes:
+                inflight.add_span(span, nbytes, cycle + t, cycle)
         return cycle + 1
 
     def _issue_zero(self, op, cycle):

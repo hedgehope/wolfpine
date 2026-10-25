@@ -50,15 +50,20 @@ transfer is ``segments`` contiguous runs in memory, and the LSU starts
 ``vmtl`` is ``VL / (lambda*LMUL)`` runs and ``vmttl`` ``lambda*LMUL`` runs.
 Counted at full ``VL`` (masked-off elements still take their lane), as the
 RVV model counts.
+A tile store registers its rows (``LD``-strided) with the stores-in-flight
+table (:mod:`framework.naiad.store_hazards`) until the LSU frees; a load
+overlapping it waits (``mem_raw``).
 """
 
 import math
 from dataclasses import dataclass, field
 
 from framework.matrix import ime
+from framework.naiad.store_hazards import footprint
 from framework.naiad.vector_timing import (
     CFG,
     MEM,
+    MEM_RAW,
     VECTOR_BUSY,
     VECTOR_RAW,
     VectorTiming,
@@ -391,11 +396,20 @@ class IMETiming(VectorTiming):
         region = self.memory.lookup(addr)
         if region.port_free > cycle:
             return self._stall(region.port_free, MEM)
-        # -- commit
         ld = register_file[d.rs2].read_uint()
         nl = vs.vl // ls
         if ld == 0:
             ld = (vs.vlen // vs.sew // lam) if d.transposing else ls
+        # Memory RAW: rows of the tile at ld elements (framework.naiad.store_hazards).
+        eb = vs.sew // 8
+        rows, row_elems = (ls, nl) if d.transposing else (nl, ls)
+        fp = footprint(addr, ld * eb, rows, row_elems * eb)
+        inflight = self.memory.inflight
+        if is_load and inflight.until > cycle:
+            at = inflight.wait(fp, cycle)
+            if at:
+                return self._stall(at, MEM_RAW)
+        # -- commit
         dense = ld == (nl if d.transposing else ls)
         segments = 1 if dense else (ls if d.transposing else nl)
         bw = self.spec.mem_bytes_per_cycle
@@ -417,6 +431,8 @@ class IMETiming(VectorTiming):
             self._book_rvv(cycle, 0, nbytes)
         else:
             self._book_rvv(cycle, nbytes, 0)
+            if nbytes:
+                inflight.add(fp, cycle + t, cycle)
         return cycle + 1
 
 

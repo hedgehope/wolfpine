@@ -24,6 +24,10 @@ tick that is and when its result may be read.
   stores are posted and hold the load/store unit for ``store`` cycles. Both hold
   the region's port for ``ceil(bytes / bandwidth)`` cycles, and a second access
   to a busy port waits (``mem``). AMOs are timed as loads.
+* A load (or AMO) whose bytes an asynchronous store -- an AME tile/acc
+  store, an RVV / IME / VME store on the vector LSU, on any hart -- is still
+  writing waits until that store completes (``mem_raw``): the per-SoC table in
+  :mod:`framework.naiad.store_hazards` holds the policy.
 * ``issue_width`` is fixed at 1: the interpreter retires at most one
   instruction per tick, so wider issue needs a different clocking scheme.
 
@@ -51,6 +55,7 @@ from dataclasses import dataclass, field, fields
 
 from framework.matrix.timing import AMETiming, AMETimingSpec
 from framework.naiad.design import DesignError, _check_keys, parse_int
+from framework.naiad.store_hazards import StoresInFlight
 from framework.naiad.vector_timing import VectorTiming, VectorTimingSpec, parse_vector
 
 #: Stall reasons, in report order.
@@ -63,6 +68,7 @@ STALL_REASONS = (
     "matrix_raw",
     "vector_busy",
     "vector_raw",
+    "mem_raw",
 )
 (
     _RAW,
@@ -73,6 +79,7 @@ STALL_REASONS = (
     _MATRIX_RAW,
     _VECTOR_BUSY,
     _VECTOR_RAW,
+    _MEM_RAW,
 ) = range(len(STALL_REASONS))
 _REASON_INDEX = {name: i for i, name in enumerate(STALL_REASONS)}
 
@@ -324,6 +331,7 @@ class Region:
         "latency",
         "bandwidth",
         "provider",
+        "coherent",
         "port_free",
         "loads",
         "stores",
@@ -336,6 +344,7 @@ class Region:
         self.latency = spec.latency
         self.bandwidth = spec.bandwidth
         self.provider = None
+        self.coherent = False
         self.reset()
 
     def reset(self):
@@ -397,9 +406,13 @@ class MemoryTiming:
 
     ``ports`` (block name -> :class:`SharedPort`) shares each region's port with
     every other ``MemoryTiming`` built with the same dict (one per hart).
+    ``inflight`` is the :class:`~framework.naiad.store_hazards.StoresInFlight`
+    the harts' async stores register with and their loads check (one per SoC;
+    a fresh one when omitted).
     """
 
-    def __init__(self, timing, blocks, ports=None):
+    def __init__(self, timing, blocks, ports=None, inflight=None):
+        self.inflight = StoresInFlight() if inflight is None else inflight
         mapped = sorted((b for b in blocks.values() if b.mapped), key=lambda b: b.base)
         if ports is None:
             self.regions = [
@@ -422,6 +435,7 @@ class MemoryTiming:
         self.unmapped = Region("unmapped", 0, 1, DEFAULT_REGION)
 
     def reset(self):
+        self.inflight.reset()
         for r in self.regions:
             r.reset()
         self.unmapped.reset()
@@ -438,7 +452,11 @@ class MemoryTiming:
             raise TypeError(
                 f"a latency provider needs an access(addr, size, is_write) method, got {provider!r}"
             )
-        self.by_name[region_name].provider = provider
+        region = self.by_name[region_name]
+        region.provider = provider
+        # A coherent provider (a private MSI cache's per-hart view) also times
+        # AMOs as writes and charges posted stores its bus cycles.
+        region.coherent = bool(getattr(provider, "coherent", False))
 
     def counters(self):
         out = {}
@@ -549,6 +567,7 @@ class NaiadCostState:
     def __init__(self, timing, memory, xlen=64, matrix_unit=None, vector_state=None):
         self.timing = timing
         self.memory = memory
+        self.inflight = memory.inflight
         self.xlen = xlen
         s = timing.scalar
         self._latency = {
@@ -601,6 +620,7 @@ class NaiadCostState:
                 )
             else:
                 self.vector = VectorTiming(timing.vector, vector_state, memory)
+            self.vector.xlen = xlen
         self._decoded = {}
         self.reset()
 
@@ -737,15 +757,23 @@ class NaiadCostState:
             region = self.memory.lookup(addr)
             if region.port_free > cycle_num:
                 return self._stall(region.port_free, _MEM)
+            inflight = self.inflight
+            if kind == _LOAD and inflight.until > cycle_num:
+                at = inflight.wait_span(addr, extra, cycle_num)
+                if at:  # an async store is still writing these bytes
+                    return self._stall(at, _MEM_RAW)
             # -- commit
             t_cycles = (
                 1 if region.bandwidth is None else max(1, -(-extra // region.bandwidth))
             )
-            extra_latency = region.access(
-                addr, extra, kind == _STORE, cycle_num, t_cycles
-            )
+            is_write = kind == _STORE or (
+                region.coherent and instr & 0x7F == 0x2F and instr >> 27 != 0b00010
+            )  # an AMO or sc takes the line for writing; lr reads it
+            extra_latency = region.access(addr, extra, is_write, cycle_num, t_cycles)
             if kind == _STORE:
                 self._lsu_free = cycle_num + self.store_occupancy
+                if region.coherent:  # posted, but the bus upgrade holds the LSU
+                    self._lsu_free += region.provider.coherence_cycles
                 return True
             latency += extra_latency + t_cycles - 1
             if dst > 0:
@@ -800,20 +828,26 @@ def install(soc):
     harts share each region's port, so a region's ``bandwidth`` is the harts'
     combined cap (fixed priority, hart 0 first); a region with unlimited
     bandwidth (``null``, as the dwarfs' L1) has no contention. A cache block
-    is one shared cache: the harts' accesses all move its state. There is no
-    coherence model (Naiad caches are functional pass-throughs, so there is
-    nothing to keep coherent; MSI snooping is not modelled).
+    is one shared cache (the harts' accesses all move its state) unless it is
+    ``private: true``: then each hart gets its own L1 view
+    (``block.for_hart(h)``), kept coherent by snooping MSI, whose bus cycles
+    loads pay as latency and scalar stores as LSU occupancy; AMOs (not lr) are
+    timed as writes there (``framework.naiad.ip.cache``).
     """
     timing = soc.design.timing
     # Multi-hart: one port per region for all harts (timing.shared_ports).
     ports = {} if len(soc.cores) > 1 and timing.shared_ports else None
+    # One memory, so one table of stores in flight that every hart's loads check.
+    inflight = StoresInFlight()
     for core in soc.cores:
-        memory = MemoryTiming(timing, soc.blocks, ports)
+        memory = MemoryTiming(timing, soc.blocks, ports, inflight)
         for block in soc.blocks.values():
             fronts = getattr(block, "fronts", None)
             if fronts and callable(getattr(block, "access", None)):
+                for_hart = getattr(block, "for_hart", None)
+                provider = block if for_hart is None else for_hart(core.core_id)
                 for name in fronts:
-                    memory.attach_provider(name, block)
+                    memory.attach_provider(name, provider)
                 if hasattr(block, "backing_latency") and block.backing_latency is None:
                     block.backing_latency = lambda addr, m=memory: (
                         m.lookup(addr).latency

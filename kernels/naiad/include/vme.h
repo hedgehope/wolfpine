@@ -23,6 +23,7 @@
  *                                      C[tile][tm, tn] += A(vs2)[tk, tm]^T . B(vs1)[tk, tn]
  *   vme_vtdiscard()
  *   vme_vle(eew, vd, ptr) / vme_vse(eew, vs, ptr)          vleEEW.v / vseEEW.v on a literal register
+ *   vme_vlre(nf, eew, vd, ptr)          vl<nf>re<eew>.v: nf whole registers from vd (vtype-free)
  *   VME_TSS(tile, col, index)          a Tile Subset Specifier (col: 0 row, 1 column)
  */
 #ifndef NAIAD_VME_H
@@ -114,5 +115,9 @@ VME_INLINE unsigned long vme_mtype(void) {
     __asm__ volatile("vle" VME_STR(eew) ".v v" VME_STR(vd) ", (%0)" ::"r"(ptr) : "memory")
 #define vme_vse(eew, vs, ptr)                                                                      \
     __asm__ volatile("vse" VME_STR(eew) ".v v" VME_STR(vs) ", (%0)" ::"r"(ptr) : "memory")
+/* vl<nf>re<eew>.v: nf whole registers from vd (nf = 1, 2, 4, 8); independent of vtype and vl, so
+   it loads several operand groups (or K steps of them) in one scalar-addressed instruction. */
+#define vme_vlre(nf, eew, vd, ptr)                                                                 \
+    __asm__ volatile("vl" VME_STR(nf) "re" VME_STR(eew) ".v v" VME_STR(vd) ", (%0)" ::"r"(ptr) : "memory")
 
 #endif /* NAIAD_VME_H */

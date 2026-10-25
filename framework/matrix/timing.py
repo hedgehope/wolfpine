@@ -33,6 +33,12 @@ instruction queue between them, so every hazard is resolved at issue:
   (and on the region's port, which scalar loads share), and is readable at
   ``issue + path latency + region latency + T - 1``. A region with a latency
   provider (a cache) charges the provider's answer in place of its latency.
+* **Memory RAW.** A tile/acc store registers its footprint (``rows`` rows of
+  the view at ``x[stride]``) with the SoC's stores-in-flight table
+  (:mod:`framework.naiad.store_hazards`), complete at
+  ``issue + tile_store_latency + T - 1``; a tile/acc load overlapping one
+  still in flight waits for it (``mem_raw``), as do the core's scalar and
+  vector loads.
 * ``azero``, ``tshift`` and ``mcfg`` are fixed latencies on no pipe.
 * The Ztt-tracking register-to-register ops (``amov.t.a`` / ``amov.a.t``,
   ``tconv``, ``treduce`` / ``tprefix``) hold the mma pipe for an interval and
@@ -73,10 +79,13 @@ p150 hardware step is user-run and goes:
 import math
 from dataclasses import dataclass, field
 
+from framework.naiad.store_hazards import footprint
+
 #: Stall reasons this model reports (a subset of the core's).
 MATRIX_BUSY = "matrix_busy"
 MATRIX_RAW = "matrix_raw"
 MEM = "mem"
+MEM_RAW = "mem_raw"
 
 #: ``exec`` names (``encodings.yaml``) -> the pipe they occupy.
 _PIPE = {
@@ -188,6 +197,9 @@ class _Op:
         "macs",
         "pipe",
         "latency",
+        "stride",
+        "rows",
+        "row_bytes",
     )
 
 
@@ -247,6 +259,7 @@ class AMETiming:
         op.srcs, op.dst = [], -1
         op.tiles_read, op.tiles_written, op.accs_read, op.accs_written = (), (), (), ()
         op.base, op.nbytes, op.ii, op.macs, op.latency = None, 0, 0, 0, 1
+        op.stride, op.rows, op.row_bytes = ops.get("stride", 0), 0, 0
         for o in insn.operands:
             if o.kind == "gpr":
                 if o.field == "rd":
@@ -271,7 +284,10 @@ class AMETiming:
             if f is None:
                 return None
             rows, cols = unit.shape(insn.params["role"])
+            if ops.get("t", 0):  # memory holds the transpose
+                rows, cols = cols, rows
             op.nbytes = rows * cols * f.dtype.itemsize
+            op.rows, op.row_bytes = rows, cols * f.dtype.itemsize
             op.tiles_written = (ops["td"],)
         elif kind == "tile_store":
             f = fmt("fmt", unit.in_formats)
@@ -279,12 +295,14 @@ class AMETiming:
                 return None
             rows, cols = unit.shape(insn.params["role"])
             op.nbytes = rows * cols * f.dtype.itemsize
+            op.rows, op.row_bytes = rows, cols * f.dtype.itemsize
             op.tiles_read = (ops["ts"],)
         elif kind in ("acc_load", "acc_store"):
             f = fmt("fmt", unit.acc_formats)
             if f is None:
                 return None
             op.nbytes = unit.m * unit.n * f.dtype.itemsize
+            op.rows, op.row_bytes = unit.m, unit.n * f.dtype.itemsize
             if kind == "acc_load":
                 op.accs_written = (ops["ad"],)
             else:
@@ -345,6 +363,14 @@ class AMETiming:
         self.stall_until, self.stall_reason = until, reason
         return -1
 
+    def _footprint(self, op, base, register_file):
+        """The bytes a tile/acc transfer touches: ``op.rows`` rows at ``x[stride]``."""
+        xlen = self.unit.xlen
+        stride = register_file[op.stride].read_uint() if op.stride else 0
+        if stride >> (xlen - 1):
+            stride -= 1 << xlen
+        return footprint(base, stride, op.rows, op.row_bytes)
+
     def issue(self, op, cycle, register_file):
         """Issue ``op`` at ``cycle`` if nothing blocks it.
 
@@ -388,6 +414,15 @@ class AMETiming:
             region = self.memory.lookup(base)
             if region.port_free > cycle:
                 return self._stall(region.port_free, MEM)
+            if op.rows:
+                fp = None
+                inflight = self.memory.inflight
+                if pipe == "store" or inflight.until > cycle:
+                    fp = self._footprint(op, base, register_file)
+                if pipe == "load" and inflight.until > cycle:
+                    at = inflight.wait(fp, cycle)
+                    if at:  # an earlier store is still writing these bytes
+                        return self._stall(at, MEM_RAW)
 
         # -- commit: nothing below can stall --------------------------------
         if kind in _UNIT_OPS:
@@ -432,6 +467,12 @@ class AMETiming:
             self.pipe_free[pipe] = cycle + t_cycles
             self.busy[pipe] += t_cycles
             done = cycle + latency + t_cycles - 1
+            if is_write and op.rows:
+                # Written once the last byte leaves the store path; the region's
+                # latency is the trip a later load makes too, so it cancels.
+                self.memory.inflight.add(
+                    fp, cycle + spec.tile_store_latency + t_cycles - 1, cycle
+                )
             for t in op.tiles_written:
                 self.tile_ready[t] = done
             for a in op.accs_written:

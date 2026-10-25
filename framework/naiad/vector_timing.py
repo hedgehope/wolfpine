@@ -27,6 +27,13 @@ to stall.
   address (latency, port occupancy, counts), as a scalar access would be. A
   load's data is ready ``mem_startup + region latency + transfer`` cycles
   after issue; stores are posted.
+* **Memory RAW.** A store registers the bytes it writes with the SoC's
+  stores-in-flight table (:mod:`framework.naiad.store_hazards`), complete when
+  the LSU frees (``issue + transfer``); a load overlapping one still in flight
+  waits for it (``mem_raw``). A vector load after a vector store already waits
+  for the LSU, so this bites the core's scalar loads and other harts' loads.
+  Strided accesses are tracked byte-exactly, indexed ones by the bounding
+  interval of their element addresses.
 * ``vset{i}vl{i}`` cost one cycle and write rd like an ALU op. Scalar results
   (``vmv.x.s``, ``vcpop``, ``vfirst``, ``vfmv.f.s``) are ready when the
   instruction completes.
@@ -39,14 +46,17 @@ import math
 from dataclasses import dataclass
 
 from framework.naiad.design import DesignError
+from framework.naiad.store_hazards import footprint
 from framework.pe.rv.isa.v import fpu, integer, permute
 from framework.pe.rv.isa.v import isa as visa
 from framework.pe.rv.isa.v import mem as vmem
 from framework.pe.rv.isa.v.common import nregs
+from framework.pe.rv.isa.v.state import UINT
 
 VECTOR_BUSY = "vector_busy"
 VECTOR_RAW = "vector_raw"
 MEM = "mem"
+MEM_RAW = "mem_raw"
 
 
 @dataclass(frozen=True)
@@ -336,6 +346,9 @@ def classify(instr):
 class VectorTiming:
     """One hart's vector timing state."""
 
+    #: The hart's XLEN (the cost state sets it): strides are signed XLEN values.
+    xlen = 64
+
     def __init__(self, spec, vector_state, memory):
         self.spec = spec
         self.vs = vector_state
@@ -387,6 +400,24 @@ class VectorTiming:
         self.stall_until, self.stall_reason = until, reason
         return -1
 
+    def _footprint(self, op, addr, nbytes, register_file):
+        """The bytes a vector access touches (:func:`~framework.naiad.store_hazards.footprint`)."""
+        mode, eew, nf = op.mem
+        vs = self.vs
+        if mode == "strided":
+            xlen = self.xlen
+            stride = register_file[op.ssrc[1]].read_uint()
+            if stride >> (xlen - 1):
+                stride -= 1 << xlen
+            return footprint(addr, stride, vs.vl, nf * eew // 8)
+        if mode == "indexed" and vs.vl:
+            # Gather / scatter: the bounding interval of the element addresses.
+            rs2 = next(b for b, role in op.vsrc if role[0] == "i")
+            idx = vs.group(rs2, len(self._regs(rs2, ("i", eew))), UINT[eew])[: vs.vl]
+            lo, hi = int(idx.min()), int(idx.max())
+            return footprint(addr + lo, 0, 1, hi - lo + nf * vs.sew // 8)
+        return footprint(addr, 0, 1, nbytes)
+
     def issue(self, op, cycle, register_file):
         """Issue ``op`` at ``cycle``: the cycle its scalar result is ready, or -1 (stall)."""
         spec = self.spec
@@ -413,6 +444,13 @@ class VectorTiming:
             region = self.memory.lookup(addr)
             if region.port_free > cycle:
                 return self._stall(region.port_free, MEM)
+            inflight = self.memory.inflight
+            if op.kind == LOAD and inflight.until > cycle:
+                at = inflight.wait(
+                    self._footprint(op, addr, nbytes, register_file), cycle
+                )
+                if at:  # an earlier store is still writing these bytes
+                    return self._stall(at, MEM_RAW)
             bw = spec.mem_bytes_per_cycle
             if region.bandwidth is not None:
                 bw = min(bw, region.bandwidth)
@@ -422,6 +460,10 @@ class VectorTiming:
             latency = region.access(addr, nbytes, op.kind == STORE, cycle, t)
             self.lsu_free = cycle + t
             self.mem_busy_cycles += t
+            if op.kind == STORE and nbytes:
+                inflight.add(
+                    self._footprint(op, addr, nbytes, register_file), cycle + t, cycle
+                )
             if op.kind == LOAD and op.vdst is not None:
                 done = cycle + spec.mem_startup + latency + t
                 for r in self._regs(*op.vdst):

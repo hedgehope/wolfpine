@@ -250,8 +250,12 @@ class NaiadSoC:
                 self.matrix_units.append(attach_matrix_unit(core, unit))
         # Blocks with a clock_tick (the DMA engine) tick after the cores.
         clocked = [b for b in self.blocks.values() if hasattr(b, "clock_tick")]
-        self.clock = NaiadClock([*self.cores, *clocked])
         clints = [b for b in self.blocks.values() if b.spec.type == "clint"]
+        if multicore:  # wfi's timer wake-up (mtime >= mtimecmp) is checked each cycle
+            from framework.naiad.ip.clint import TimerWake
+
+            clocked.append(TimerWake(clints[0]))
+        self.clock = NaiadClock([*self.cores, *clocked])
         for core in self.cores:
             core.csrs.clock_owner = self.clock
             if isinstance(core.csrs, CSRFile64) and clints:

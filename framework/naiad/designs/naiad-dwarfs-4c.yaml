@@ -8,7 +8,8 @@
 # mtimecmp) and the HTIF. Memory contention: timing.shared_ports (default on)
 # shares each region's port, but L1's bandwidth is null (unlimited), as in the
 # one-hart preset, so the harts do not contend for L1; DRAM (24 B/cycle) is
-# shared. There is no cache coherence model (no caches in this design).
+# shared. No caches in this design; a `type: cache` block with `private: true`
+# gives each hart an MSI-snooped L1 (framework/naiad/ip/cache.py).
 #
 # Convention (framework.naiad.gen): every hart runs main; hart 0's return is the
 # exit. Kernels split work with naiad_hartid() / NAIAD_HARTS and synchronise

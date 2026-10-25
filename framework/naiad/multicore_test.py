@@ -147,9 +147,9 @@ def test_wfi_sleeps_until_msip_with_msie():
     hart1.register_file.wfi()  # msip still pending: wfi falls through
     assert hart1.active
     soc.reset()
-    hart1.csrs.write(0x304, 1 << 7)  # mie.MTIE: no timer model, so wfi is a nop
+    hart1.csrs.write(0x304, 1 << 7)  # mie.MTIE, mtimecmp 0 <= mtime: already due, a nop
     hart1.register_file.wfi()
-    assert hart1.active
+    assert hart1.active  # (sleeping until a later mtimecmp: coherence_test.py)
 
 
 def test_any_store_breaks_other_harts_reservations():
