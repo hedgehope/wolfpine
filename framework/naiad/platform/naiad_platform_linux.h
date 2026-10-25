@@ -113,4 +113,15 @@ static inline const char *naiad_clock_unit(void) { return "ns"; }
 
 #define naiad_counter(event) ((uint64_t)0)
 
+/* One thread: the multi-hart helpers degenerate, so a kernel that splits its
+ * work by naiad_hartid() / NAIAD_HARTS runs all of it on the one "hart 0". */
+#ifndef NAIAD_HARTS
+#define NAIAD_HARTS 1
+#endif
+typedef volatile int naiad_lock_t;
+static inline unsigned naiad_hartid(void) { return 0; }
+static inline void naiad_lock(naiad_lock_t *l) { (void)l; }
+static inline void naiad_unlock(naiad_lock_t *l) { (void)l; }
+static inline void naiad_barrier(void) {}
+
 #endif /* NAIAD_PLATFORM_LINUX_H */

@@ -166,6 +166,8 @@ class CSRFile64:
         #: The hart's ``VectorState`` once one is attached (framework.pe.rv.isa.v.attach):
         #: vstart / vxsat / vxrm / vcsr / vl / vtype / vlenb are forwarded to it.
         self.vector = None
+        #: Read-only CSRs an attached extension adds (VME's ``mtype``): address -> reader.
+        self.ext_csrs = {}
         self._hpm_base = {}
 
     def bind_hpm(self, n, reader):
@@ -209,6 +211,8 @@ class CSRFile64:
             return self._fcsr(pc).read_uint() & 0x1F
         if addr == CSR_FRM:
             return (self._fcsr(pc).read_uint() >> 5) & 0x7
+        if addr in self.ext_csrs:
+            return self.ext_csrs[addr]() & _M64
         raise UnknownCSRError(
             f"CSR {hex(addr)} read on RV64 core {self.core_label}{_at(pc)} is not "
             f"one this core implements (see framework/pe/rv/isa/zicsr64_isa.py). "

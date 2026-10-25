@@ -693,3 +693,30 @@ def test_ime_peak_and_normalise_merge(tmp_path):
     assert metrics.matrix_peak(d, "fp32", "fp32") == 512
     _, pinned, _ = DesignFactory(tmp_path).derive(IME_BASE, {}, {**budget, "vlen": 256})
     assert load_design(pinned).cores.vlen == 256
+
+
+def test_sparsity_figure_on_synthetic_rows(tmp_path):
+    pytest.importorskip("matplotlib")
+    from experiments.naiad import plot
+
+    assert plot._size_parts("256x0.25x16") == [256.0, 0.25, 16.0]
+    assert plot._size_parts("ame") == []
+    rows = [
+        {
+            "study": "sp",
+            "status": "ok",
+            "dwarf": "spmv",
+            "variant": "ame",
+            "size": f"256x{d}x{nv}",
+            "speedup": s,
+            "mv_ratio": ratio,
+            "ovr:timing.matrix.macs_per_cycle": macs,
+        }
+        for nv in (16, 1)
+        for macs, ratio in ((16, 0.5), (2048, 64.0))
+        for d, s in ((0.25, 2.0), (1.0, 3.0))
+    ]
+    rows.append({**rows[0], "variant": "rvv", "speedup": None})
+    paths = plot.plot_sparsity(rows, "sp", tmp_path)
+    assert sorted(p.name for p in paths) == ["sparsity-sp.png", "sparsity-sp.svg"]
+    assert plot.plot_sparsity(rows, "other", tmp_path) == []

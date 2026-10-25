@@ -464,3 +464,89 @@ instructions:
       2^esz bytes, no wider than the widest input format; amount is 0 to
       min(R, 15). td may be ta or tb; bytes of td outside the window become
       zero.
+
+# -- VME (Zvt) ------------------------------------------------------------------
+#
+# The vector-coupled mode's encodings: the VME TG's Zvt v0.4 (2026-08-31,
+# "Zvt Family of Vector Matrix Extensions"), as committed to riscv-opcodes
+# extensions/unratified/rv_zvt* in bf6a8a4 ("Add Zvt encodings (#429)",
+# 2026-08-19). Unlike the AME table above these are the draft's own words, not
+# custom-space ones: Zvt claims words RVV 1.0 leaves reserved (OP-V funct3 111
+# with bit 31 set and bits 27:25 != 000; OPMVX funct6 010000 with vs2 != 0;
+# OPMVX funct6 010111; LOAD-FP / STORE-FP width 111 with mew = 1) and the
+# second vector major opcode, OP-VE. framework/matrix/vme.py reads this
+# section (the AME decoder above ignores it); kernels/naiad/include/vme.h
+# assembles the words with .insn from the NAIAD_VME_* defines it generates.
+#
+# Each instruction gives `fixed` bit ranges ("hi..lo": value, riscv-opcodes
+# style; every bit an operand does not name is fixed) and its `operands`
+# ([lo, hi] inside the word). `ext` is the draft extension that provides it.
+# Where the PDF and riscv-opcodes differ, the PDF wins and the difference is
+# noted (msetmtype[i] write no rd in the PDF; riscv-opcodes leaves rd free).
+#
+# Known collision (validated by framework/matrix/vme.py): vtle*/vtse* are
+# bit-identical to Zvvm's vmtl.v / vmts.v (IME) with vd/vs3 = v0 and an
+# immediate lambda, so a hart has IME or VME, never both.
+vme:
+  opcodes: {op-v: 0x57, load-fp: 0x07, store-fp: 0x27, op-ve: 0x77}
+  instructions:
+    msetmtypei:
+      ext: Zvtbase
+      fixed: {"31..29": 4, "27..25": 4, "22..20": 4, "19..17": 0, "14..12": 7, "11..7": 0, "6..0": 0x57}
+      operands: {altfmt: [28, 28], vsew: [23, 24], mtwiden: [15, 16]}
+    msetmtype:
+      ext: Zvtbase
+      fixed: {"31..29": 4, "28": 0, "27..25": 2, "14..12": 7, "11..7": 0, "6..0": 0x57}
+      operands: {rs2: [20, 24], rs1: [15, 19]}
+    msettn:
+      ext: Zvtbase
+      fixed: {"31..29": 4, "28": 0, "27..25": 4, "24..23": 0, "22..20": 0, "14..12": 7, "6..0": 0x57}
+      operands: {rs1: [15, 19], rd: [7, 11]}
+    msettm:
+      ext: Zvtbase
+      fixed: {"31..29": 4, "28": 0, "27..25": 4, "24..23": 0, "22..20": 1, "14..12": 7, "6..0": 0x57}
+      operands: {rs1: [15, 19], rd: [7, 11]}
+    msettk:
+      ext: Zvtbase
+      fixed: {"31..29": 4, "28": 0, "27..25": 4, "24..23": 0, "22..20": 2, "14..12": 7, "6..0": 0x57}
+      operands: {rs1: [15, 19], rd: [7, 11]}
+    vtle:
+      ext: Zvtbase
+      fixed: {"28..25": 0x9, "14..12": 7, "11..7": 0, "6..0": 0x07}
+      operands: {eee: [29, 31], rs2: [20, 24], rs1: [15, 19]}
+    vtse:
+      ext: Zvtbase
+      fixed: {"28..25": 0x9, "14..12": 7, "11..7": 0, "6..0": 0x27}
+      operands: {eee: [29, 31], rs2: [20, 24], rs1: [15, 19]}
+    vtmv.v.t:
+      ext: Zvtbase
+      fixed: {"31..26": 0x10, "25": 1, "24..20": 0x1F, "14..12": 6, "6..0": 0x57}
+      operands: {rs1: [15, 19], vd: [7, 11]}
+    vtmv.t.v:
+      ext: Zvtbase
+      fixed: {"31..26": 0x17, "25": 1, "14..12": 6, "11..7": 0, "6..0": 0x57}
+      operands: {vs2: [20, 24], rs1: [15, 19]}
+    vtzero:
+      ext: Zvtbase
+      fixed: {"31..26": 0x10, "25": 1, "24..20": 0x1E, "19..15": 0, "14..12": 6, "7": 0, "6..0": 0x57}
+      operands: {mtd: [8, 11]}
+    vtdiscard:
+      ext: Zvtbase
+      fixed: {"31..26": 0x10, "25": 1, "24..20": 0x1C, "19..15": 0, "14..12": 6, "11..7": 0, "6..0": 0x57}
+      operands: {}
+    vtfmm.tvv:
+      ext: [Zvtofp8fmm, Zvtfp16fmm, Zvtfmm, Zvtdmm]
+      fixed: {"31..26": 0x3C, "25": 1, "14..12": 1, "8..7": 0, "6..0": 0x77}
+      operands: {vs2: [20, 24], vs1: [15, 19], mtd: [9, 11]}
+    vtfmm.alt.tvv:
+      ext: [Zvtofp8fmm, Zvtbf16fmm]
+      fixed: {"31..26": 0x3C, "25": 1, "14..12": 1, "8..7": 1, "6..0": 0x77}
+      operands: {vs2: [20, 24], vs1: [15, 19], mtd: [9, 11]}
+    vtmmu.tvv:
+      ext: Zvti8i32mm
+      fixed: {"31..26": 0x3C, "25": 1, "14..12": 0, "8..7": 0, "6..0": 0x77}
+      operands: {vs2: [20, 24], vs1: [15, 19], mtd: [9, 11]}
+    vtmms.tvv:
+      ext: Zvti8i32mm
+      fixed: {"31..26": 0x3C, "25": 1, "14..12": 0, "8..7": 1, "6..0": 0x77}
+      operands: {vs2: [20, 24], vs1: [15, 19], mtd: [9, 11]}

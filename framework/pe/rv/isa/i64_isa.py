@@ -34,6 +34,8 @@ from framework.pe.rv.isa.rv_isa import RV_ISA
 
 _M64 = 0xFFFFFFFFFFFFFFFF
 _M32 = 0xFFFFFFFF
+#: ``wfi`` (SYSTEM, funct12 0x105).
+_WFI = 0x10500073
 # pc / nextpc register indices (``REGISTER_NAME_MAPPING``): an integer index
 # is a list lookup, a name goes through RegisterFile.get's fallback (~0.5 us).
 _PC, _NEXTPC = 32, 33
@@ -58,8 +60,9 @@ def write_reg(register_file, rd, value):
 def store_clears_reservation(register_file, addr, size):
     """Drop an ``lr`` reservation that a store to ``[addr, addr+size)`` overlaps.
 
-    Single hart: the reservation (see ``a64_isa``) lives on the register file,
-    and this hart's own stores are the only stores there are.
+    The reservation (see ``a64_isa``) lives on the register file. This covers
+    the hart's own stores; on a multi-hart Naiad SoC the bus clears every
+    hart's reservation that any store overlaps (``MulticoreMemory``).
     """
     res = register_file.reservation
     if res is not None and addr < res[1] and res[0] < addr + size:
@@ -475,6 +478,15 @@ class RV64_I_ISA(RV_ISA):
                     f"core's extensions; see framework/pe/rv/isa/zicsr64_isa.py."
                 )
             return False
+        if instr == _WFI:
+            # A hint with no interrupts modelled: a nop, unless the platform
+            # routes it (a multi-hart Naiad SoC's CLINT puts the hart to sleep).
+            hook = getattr(register_file, "wfi", None)
+            if hook is not None:
+                hook()
+            if snoop:
+                RV_ISA.print_snoop(snoop, "wfi", "sleep" if hook else "nop")
+            return True
         is_ebreak = ((instr >> 20) & 0x1) == 1
         if is_ebreak and breakpoint_trap.trapping_enabled():
             if snoop:

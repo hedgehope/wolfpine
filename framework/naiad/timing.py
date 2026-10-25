@@ -138,6 +138,10 @@ class TimingSpec:
     matrix: AMETimingSpec | None = None
     #: None when the design's cores have no vector unit.
     vector: VectorTimingSpec | None = None
+    #: Multi-hart designs: True (the default) gives every region one port that
+    #: all harts share, so a region's ``bandwidth`` caps the harts together;
+    #: False gives each hart a private port. Ignored on one hart.
+    shared_ports: bool = True
 
     def region(self, name, type_name):
         """The timing for block ``name`` of type ``type_name``.
@@ -250,6 +254,10 @@ def _parse_matrix(raw, design):
         from framework.matrix.ime_timing import parse_ime_timing
 
         return parse_ime_timing(raw, design, _parse_fields, _number, _flag, DesignError)
+    if design.matrix.mode == "vme":
+        from framework.matrix.vme_timing import parse_vme_timing
+
+        return parse_vme_timing(raw, design, _parse_fields, _number, _flag, DesignError)
     zero_ok = lambda v, w: _number(v, w, minimum=0)  # noqa: E731
     rules = {
         "mma_ii": lambda v, w: _number(v, w, minimum=1, allow_none=True),
@@ -293,12 +301,13 @@ def parse_timing(raw, design):
     """The ``timing:`` section of ``design`` (blocks and ``matrix:`` already parsed), or None."""
     if raw is None:
         return None
-    _check_keys(raw, {"scalar", "memory", "matrix", "vector"}, "timing")
+    _check_keys(raw, {"scalar", "memory", "matrix", "vector", "shared_ports"}, "timing")
     return TimingSpec(
         scalar=_parse_scalar(raw.get("scalar")),
         memory=_parse_memory(raw.get("memory"), design),
         matrix=_parse_matrix(raw.get("matrix"), design),
         vector=parse_vector(raw.get("vector"), design, _parse_fields, _number, _flag),
+        shared_ports=_flag(raw.get("shared_ports", True), "timing.shared_ports"),
     )
 
 
@@ -352,15 +361,62 @@ class Region:
         return self.latency
 
 
-class MemoryTiming:
-    """Address -> :class:`Region`, over the design's mapped blocks (unmapped is a zero-cost region)."""
+class SharedPort:
+    """One region port that several harts' :class:`SharedPortRegion` s hold in common."""
 
-    def __init__(self, timing, blocks):
+    __slots__ = ("free",)
+
+    def __init__(self):
+        self.free = 0
+
+
+class SharedPortRegion(Region):
+    """A :class:`Region` whose port (``port_free``) is shared with the other harts'.
+
+    Counts stay per hart. Harts are ticked in order, so on a tie the lower hart
+    wins the port: a fixed-priority arbiter.
+    """
+
+    __slots__ = ("_port",)
+
+    def __init__(self, name, low, size, spec, port):
+        self._port = port
+        super().__init__(name, low, size, spec)
+
+    @property
+    def port_free(self):
+        return self._port.free
+
+    @port_free.setter
+    def port_free(self, value):
+        self._port.free = value
+
+
+class MemoryTiming:
+    """Address -> :class:`Region`, over the design's mapped blocks (unmapped is a zero-cost region).
+
+    ``ports`` (block name -> :class:`SharedPort`) shares each region's port with
+    every other ``MemoryTiming`` built with the same dict (one per hart).
+    """
+
+    def __init__(self, timing, blocks, ports=None):
         mapped = sorted((b for b in blocks.values() if b.mapped), key=lambda b: b.base)
-        self.regions = [
-            Region(b.name, b.base, b.size, timing.region(b.name, b.spec.type))
-            for b in mapped
-        ]
+        if ports is None:
+            self.regions = [
+                Region(b.name, b.base, b.size, timing.region(b.name, b.spec.type))
+                for b in mapped
+            ]
+        else:
+            self.regions = [
+                SharedPortRegion(
+                    b.name,
+                    b.base,
+                    b.size,
+                    timing.region(b.name, b.spec.type),
+                    ports.setdefault(b.name, SharedPort()),
+                )
+                for b in mapped
+            ]
         self.by_name = {r.name: r for r in self.regions}
         self._lows = [r.low for r in self.regions]
         self.unmapped = Region("unmapped", 0, 1, DEFAULT_REGION)
@@ -521,12 +577,23 @@ class NaiadCostState:
         self.branch_taken = s.branch_taken
         self.store_occupancy = s.store
         self.matrix = None
-        ime = getattr(matrix_unit, "mode", None) == "ime"
+        mode = getattr(matrix_unit, "mode", None)
+        ime = mode in (
+            "ime",
+            "vme",
+        )  # vector-coupled: the matrix model extends the vector one
         if matrix_unit is not None and timing.matrix is not None and not ime:
             self.matrix = AMETiming(timing.matrix, matrix_unit, memory)
         self.vector = None
         if vector_state is not None and timing.vector is not None:
-            if ime:  # IME's operands are vector groups: it extends the vector model
+            if mode == "vme":  # Zvt: vector operands, tile accumulators
+                from framework.matrix.vme_timing import VMETiming, VMETimingSpec
+
+                spec = timing.matrix or VMETimingSpec()
+                self.vector = VMETiming(
+                    timing.vector, vector_state, memory, spec, matrix_unit
+                )
+            elif ime:  # IME's operands are vector groups: it extends the vector model
                 from framework.matrix.ime_timing import IMETiming
 
                 self.vector = IMETiming(
@@ -596,6 +663,7 @@ class NaiadCostState:
             return _MATRIX, op.srcs, op.dst, op
         if self.vector is not None and (
             opcode == 0x57
+            or opcode == 0x77  # OP-VE (VME's multiplies; nothing else uses it)
             or (opcode in (0x07, 0x27) and (instr >> 12) & 0x7 in (0, 5, 6, 7))
         ):
             op = self.vector.decode(instr)
@@ -726,10 +794,21 @@ def install(soc):
     its fill cost. Stores update the cache's state but are posted, so their
     answer is not charged; DMA traffic does not go through the cache or the
     regions' ports.
+
+    On a multi-hart SoC each hart has its own cost state (scoreboard, units,
+    matrix and vector models). With ``timing.shared_ports`` (the default) the
+    harts share each region's port, so a region's ``bandwidth`` is the harts'
+    combined cap (fixed priority, hart 0 first); a region with unlimited
+    bandwidth (``null``, as the dwarfs' L1) has no contention. A cache block
+    is one shared cache: the harts' accesses all move its state. There is no
+    coherence model (Naiad caches are functional pass-throughs, so there is
+    nothing to keep coherent; MSI snooping is not modelled).
     """
     timing = soc.design.timing
+    # Multi-hart: one port per region for all harts (timing.shared_ports).
+    ports = {} if len(soc.cores) > 1 and timing.shared_ports else None
     for core in soc.cores:
-        memory = MemoryTiming(timing, soc.blocks)
+        memory = MemoryTiming(timing, soc.blocks, ports)
         for block in soc.blocks.values():
             fronts = getattr(block, "fronts", None)
             if fronts and callable(getattr(block, "access", None)):

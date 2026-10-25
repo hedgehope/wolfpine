@@ -9,6 +9,16 @@
  *   naiad_counter(EVENT)                        a counter-hub event, through its Zihpm
  *                                               counter if the design binds one, else
  *                                               the perfcounters block
+ *   naiad_hartid() / NAIAD_HARTS                this hart's mhartid and the hart count
+ *   naiad_barrier()                             all harts meet (a no-op on one hart)
+ *   naiad_lock(&l) / naiad_unlock(&l)           a spinlock on a naiad_lock_t
+ *
+ * Multi-hart designs (NAIAD_MULTICORE, from naiad.h): every hart runs main, and
+ * hart 0's return from main is the exit (see the generated crt0.S). The console
+ * is shared: naiad_printf / naiad_puts hold a lock for the whole string, so
+ * lines from different harts do not interleave mid-string, and each HTIF
+ * command is sent under a second lock (Spike polls tohost, so two harts must
+ * not both see it idle and overwrite each other's command).
  *
  * Include after nothing else: it pulls in the design's generated naiad.h (put the
  * generated directory on the include path). The same tohost/fromhost protocol is
@@ -46,7 +56,46 @@ extern volatile uint64_t fromhost;
  * read it back by symbol. 64-byte aligned, so tiles and DMA rows line up. */
 #define NAIAD_IO __attribute__((section(".noinit"), aligned(64)))
 
+#ifndef NAIAD_HARTS
+#define NAIAD_HARTS 1
+#endif
+
+/* A spinlock word (amoswap.w.aq / a release store); zero is unlocked. */
+typedef volatile int naiad_lock_t;
+
+#ifdef NAIAD_MULTICORE
+static inline unsigned naiad_hartid(void) {
+    unsigned long h;
+    __asm__ volatile("csrr %0, mhartid" : "=r"(h));
+    return (unsigned)h;
+}
+
+static inline void naiad_lock(naiad_lock_t *l) {
+    while (__atomic_exchange_n(l, 1, __ATOMIC_ACQUIRE)) {
+        while (*l) {
+        }
+    }
+}
+
+static inline void naiad_unlock(naiad_lock_t *l) { __atomic_store_n(l, 0, __ATOMIC_RELEASE); }
+
+/* naiad_libc.c: the HTIF command lock and the console (whole-string) lock. */
+extern naiad_lock_t naiad_htif_lock;
+extern naiad_lock_t naiad_console_lock;
+
+/* Sense-reversing barrier over all NAIAD_HARTS harts (naiad_libc.c). */
+void naiad_barrier(void);
+#else
+static inline unsigned naiad_hartid(void) { return 0; }
+static inline void naiad_lock(naiad_lock_t *l) { (void)l; }
+static inline void naiad_unlock(naiad_lock_t *l) { (void)l; }
+static inline void naiad_barrier(void) {}
+#endif
+
 static inline void naiad_htif_send(uint64_t cmd) {
+#ifdef NAIAD_MULTICORE
+    naiad_lock(&naiad_htif_lock);
+#endif
     while (tohost != 0) {
     }
 #if __riscv_xlen == 32
@@ -57,6 +106,9 @@ static inline void naiad_htif_send(uint64_t cmd) {
 #else
     tohost = cmd;
 #endif
+#ifdef NAIAD_MULTICORE
+    naiad_unlock(&naiad_htif_lock);
+#endif
 }
 
 /* Spike's console device does not ack a write through fromhost, so the only
@@ -65,10 +117,21 @@ static inline void naiad_putchar(int ch) {
     naiad_htif_send(((uint64_t)1 << 56) | ((uint64_t)1 << 48) | (uint8_t)ch);
 }
 
-static inline void naiad_puts(const char *s) {
+/* naiad_puts without the console lock (for code already holding it, as naiad_printf does). */
+static inline void naiad_puts_unlocked(const char *s) {
     while (*s) {
         naiad_putchar(*s++);
     }
+}
+
+static inline void naiad_puts(const char *s) {
+#ifdef NAIAD_MULTICORE
+    naiad_lock(&naiad_console_lock);
+#endif
+    naiad_puts_unlocked(s);
+#ifdef NAIAD_MULTICORE
+    naiad_unlock(&naiad_console_lock);
+#endif
 }
 
 __attribute__((noreturn)) static inline void naiad_exit(int code) {

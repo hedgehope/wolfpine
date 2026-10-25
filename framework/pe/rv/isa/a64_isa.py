@@ -6,16 +6,22 @@ on the low 32 bits of rs2, compares signed or unsigned *as 32-bit values* for
 sign-extended to 64 in rd. The simulator is single-stepped, so each
 read-modify-write is naturally atomic; aq / rl are accepted and ignored.
 
-Zalrsc on a single hart. ``lr`` loads (sign-extending a word) and registers a
+Zalrsc. ``lr`` loads (sign-extending a word) and registers a
 reservation for the bytes it read, held on the register file as
 ``reservation = (start, end)`` (``RV64I`` initialises it to ``None``). ``sc``
 succeeds, writing memory and putting 0 in rd, only if a reservation is held and
 covers every byte it would write; otherwise it writes nothing and puts 1 in rd.
 Either way the reservation is then gone. Every store this hart makes (``sb`` /
 ``sh`` / ``sw`` / ``sd`` in ``RV64_I_ISA`` and each AMO here) clears a
-reservation it overlaps. Stores by other bus masters (a DMA engine, another
-hart) are not observed: the reservation is per-core state with no snoop on the
-memory map, which is exact for the one-hart designs this core is built for.
+reservation it overlaps. The reservation set is exactly the bytes ``lr`` read
+(no wider granule), so only a store overlapping them breaks it.
+
+Across harts: the reservation is per-hart state, and the core itself does not
+see other bus masters. A multi-hart Naiad SoC puts a ``MulticoreMemory``
+(``framework.naiad.builder``) on the bus, which clears every hart's reservation
+that *any* store overlaps (another hart's scalar, FP, vector, matrix or AMO
+store, or a DMA write), so an ``lr``/``sc`` pair is atomic across harts. Harts
+are ticked one after another, so each AMO is atomic across harts as well.
 """
 
 from framework.memory.memory import MemoryStall

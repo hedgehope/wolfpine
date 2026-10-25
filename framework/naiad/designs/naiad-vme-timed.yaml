@@ -1,0 +1,90 @@
+# naiad-vme-timed: naiad-dwarfs (the dwarf kernels' memory map, scalar and RVV
+# timing, VLEN 256) with its AME unit replaced by the vector-coupled matrix mode
+# (VME, Zvt v0.4 as naiad-vme.yaml, TE = 32), timed at equal peak and memory
+# bandwidth to naiad-dwarfs' AME unit (as naiad-ime-timed.yaml is for IME). Same
+# addresses as naiad-dwarfs, so every dwarf kernel links and runs here unchanged.
+#
+# Equal resources (framework.matrix.timing.normalise(mode="vme")). The AME
+# budget is naiad-dwarfs' unit: peak 2048 MACs/cycle (4096 FLOPs) at one pass,
+# 12 KiB of operand storage, 64 B/cycle tile paths.
+#
+#   normalise(4096, 12288, 64, mode="vme", vlen=256, te=32) gives
+#     macs_per_cycle 2048                         equal peak (format_passes as AME's)
+#     vrf_read / vrf_write 96 / 32 B/cycle        VME adds no VRF ports: the RVV datapath's
+#     tile_bytes_per_cycle 64                     the tile port = the memory budget
+#     vector_mem_bytes_per_cycle 64               equal memory bandwidth (naiad-dwarfs' RVV: 32)
+#     storage 16 KiB tiles + 1 KiB VRF            ratio 1.42 (TE is a power of two: TE = 16,
+#                                                 the equal-storage pick, is 5 KiB, ratio 0.42)
+#     reference multiply (fp32): 32 x 32 x 1 at LMUL 4, 1024 MACs, 3 cycles
+#                    (operand reads 256 B / 96; compute 1024 * 4 / 2048 = 2)
+#
+# Not calibrated beyond what naiad-dwarfs cites: the multiply datapath inherits
+# the AME unit's numbers (pipeline depth, passes per format); the VRF ports are
+# the RVV datapath's by construction.
+name: naiad-vme-timed
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: l1
+  stack_size: 64KiB
+matrix:
+  mode: vme
+  te: 32
+  extensions: [Zvt8e, Zvt16e, Zvt64e, Zvtfmm, Zvtdmm, Zvtfp16fmm, Zvtbf16fmm,
+               Zvtofp8fmm, Zvti8i32mm]
+timing:
+  scalar:
+    alu: 1            # UC riscv.integer_unit.default 1 ("latency 1 and throughput 1")
+    mul: 2            # UC blackhole integer_unit: one cycle in EX1 + one in EX2, pipelined (silicon dep chain 1.985)
+    div: 6            # UC divide_general {6, max 33}: the floor of the range
+    div_pipelined: false
+    load: 2           # UC riscv.load_latency.minimum 2 (core-local data RAM)
+    store: 1
+    branch_taken: 0   # UC blackhole: correctly predicted branch 0.999 cycles; no predictor here, so taken = predicted
+    csr: 1
+    fp_add: 2         # UC blackhole: FP arithmetic is one cycle in EX1 + one in EX2
+    fp_mul: 2
+    fp_fma: 2
+  memory:
+    l1:
+      latency: 6      # + load 2 = 8: UC blackhole load_latency.l1_dcache_miss >= 8
+      bandwidth: null # UC l1: 16 banks x 16 access ports, 128 bits each a cycle; contention is not modelled
+    dram:
+      latency: 126    # UC noc.dram.access_latency (Blackhole read, DRAM minus L1)
+      bandwidth: 24   # UC dram.channel_serialisation: 24 GB/s per GDDR6 channel at 1 GHz
+  matrix:
+    macs_per_cycle: 2048        # = naiad-dwarfs' AME (normalise: peak / 2)
+    format_passes: {fp64: 16, fp32: 4, fp16: 2, bf16: 2, int8: 1}  # = naiad-dwarfs' AME
+    pipeline_depth: 5           # = naiad-dwarfs' AME (TIC MATH.MVMUL latency 5)
+    acc_forwarding: true        # a chained multiply accumulates in place, as AME's
+    vrf_read_bytes_per_cycle: 96   # normalise: 3 x VLEN / 8 (the RVV datapath's read ports)
+    vrf_write_bytes_per_cycle: 32  # normalise: VLEN / 8 (its write port)
+    tile_bytes_per_cycle: 64    # normalise: = mem_bytes_per_cycle (AME's tile paths)
+  vector:
+    datapath_bits: 256          # = naiad-dwarfs
+    startup: 4
+    div_ii: 8
+    mem_startup: 2
+    mem_bytes_per_cycle: 64     # normalise: = the AME tile paths' 64 B/cycle (naiad-dwarfs' RVV: 32)
+    indexed_elements_per_cycle: 1
+    chaining: false
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mma, matrix_macs,
+                 matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_vrf_a_read_bytes, matrix_vrf_b_read_bytes,
+                 matrix_tile_to_vec_bytes, matrix_vec_to_tile_bytes]
+  - {name: l1, type: scratchpad, base: 0x10000000, window: 2MiB, params: {size: 0x180000}}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

@@ -19,6 +19,16 @@ through ``fromhost`` (non-zero), so software waits on ``fromhost`` and then
 clears it; a console write is not acked, exactly as Spike's ``bcd`` device
 does not, so software waits only for ``tohost`` to clear before the next one.
 
+With several harts there is still one ``tohost``, and the **first exit command
+from any hart ends the run** (as on Spike): :meth:`NaiadSoC.halt` stops every
+core in the cycle the store lands. Each command is handled inside the store
+that rings it, so on Naiad two harts can never overwrite each other's command;
+the platform library still sends each command under a lock, because Spike
+polls ``tohost`` and would lose one. Console bytes therefore interleave per
+character at worst, and ``naiad_printf`` / ``naiad_puts`` hold a console lock
+for a whole string. By the generated crt0's convention hart 0's return from
+``main`` is the exit; other harts that return park.
+
 The doorbell is the store that covers ``tohost``'s *low* byte. An RV64 core
 writes the whole word with one ``sd``; an RV32 core writes the high word first
 and the low word last (``naiad_platform.h`` does this), and a lone ``sw`` to the

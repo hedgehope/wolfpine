@@ -590,6 +590,10 @@ def emit_gemm_header(design, *, mode=None, block=None, double_buffer=None, pairs
             from framework.naiad.emit.gemm_ime import emit_ime_gemm_header
 
             return emit_ime_gemm_header(design, block=block, pairs=pairs)
+        if design.matrix is not None and design.matrix.mode == "vme":
+            raise NotImplementedError(
+                "no emitted GEMM for VME (Zvt); the gemm dwarf's vme variant is hand-written (kernels/naiad/include/vme.h)"
+            )
     shape = design if isinstance(design, GemmShape) else GemmShape.from_design(design)
     mode = mode or shape.mode
     if mode not in MODES:

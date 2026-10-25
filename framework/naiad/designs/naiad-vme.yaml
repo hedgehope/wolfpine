@@ -1,0 +1,56 @@
+# naiad-vme: naiad-rvv (RV64 + RVV 1.0 at VLEN 256 / ELEN 64) plus the
+# vector-coupled matrix mode, VME: the RISC-V VME TG's Zvt v0.4 draft
+# ("Zvt Family of Vector Matrix Extensions", 2026-08-31; encodings in
+# riscv-opcodes extensions/unratified/rv_zvt* @ bf6a8a4).
+#
+# VME adds accumulator state but no operand state: its multiplies
+# (C[tm,tn] += A[tk,tm]^T . B[tk,tn], tk <= KMAX = 4 / 2 / 1 for 8 / 16 /
+# 32-64-bit inputs) read A and B from vector register groups, one LMUL group
+# per K-row, and accumulate into square tiles: 16 * TE * TE bytes, punned as
+# four TE x TE tiles at TEW 32 (eight / sixteen at 16 / 8, eight TE/2 x TE/2
+# at 64). Tiles move to and from vector registers and memory one row or
+# column per instruction. New CSR mtype (0xC23: tm, tk, mtwiden), set with
+# msetmtype[i] / msettm / msettk; tn is vl (msettn). Its encodings are the
+# draft's own (OP-V funct3 110/111 words RVV 1.0 leaves reserved, LOAD-FP /
+# STORE-FP width 111 with mew = 1, and OP-VE 0x77); kernels reach them through
+# kernels/naiad/include/vme.h (.insn, since clang 20 knows no Zvt).
+#
+# TE = 32 is the draft's largest at VLEN 256 / 4 = 64 that keeps a TEW-32 row
+# in one LMUL-4 group (fp32 multiplies are 32 x 32 x 1 outer products).
+#
+# Untimed (one instruction per cycle); naiad-vme-timed.yaml adds the cycle
+# model at equal peak and bandwidth to naiad-dwarfs.yaml's AME unit. Spike has
+# no Zvt, so these ELFs cannot be difftested.
+name: naiad-vme
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, v, zicsr, zicntr, zfbfmin, zvfh, zvfbfmin, zvfbfwma]
+  vlen: 256
+  elen: 64
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+matrix:
+  mode: vme
+  te: 32
+  # The draft's extension names; Zvtbase (the tile state, TEW-32 moves) is
+  # implied. Each computational extension needs its moves at the multiplicand
+  # and accumulator widths (Zvt8e / Zvt16e / Zvt64e), as the draft requires.
+  extensions: [Zvt8e, Zvt16e, Zvt64e, Zvtfmm, Zvtdmm, Zvtfp16fmm, Zvtbf16fmm,
+               Zvtofp8fmm, Zvti8i32mm]
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mma, matrix_macs,
+                 matrix_mem_to_tile_bytes, matrix_tile_to_mem_bytes,
+                 matrix_vrf_a_read_bytes, matrix_vrf_b_read_bytes,
+                 matrix_tile_to_vec_bytes, matrix_vec_to_tile_bytes]
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

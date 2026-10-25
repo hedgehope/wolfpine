@@ -329,6 +329,11 @@ def _parse_matrix(raw, cores=None):
         return None
     if isinstance(raw, dict) and str(raw.get("mode", "ame")).lower() == "ime":
         return _parse_ime_matrix(raw, cores)
+    if isinstance(raw, dict) and str(raw.get("mode", "ame")).lower() == "vme":
+        # Zvt v0.4; refuses an IME (zvv*) hart.
+        from framework.matrix.vme import parse_vme
+
+        return parse_vme(raw, cores, DesignError)
     keys = {"mode", "m", "n", "k", "tiles", "accs", "formats", "features", "k_chunk"}
     _check_keys(raw, keys | {"numerics", "fidelity", "acc_mem", "profile"}, "matrix")
     mode = str(raw.get("mode", "ame")).lower()
@@ -686,7 +691,44 @@ def validate(design):
         raise DesignError(
             f"program.stack_size {hex(design.program.stack_size)} does not fit block '{prog.name}'"
         )
+    _validate_multicore(design)
     return design
+
+
+def _validate_multicore(design):
+    """``cores.count > 1``: what the generated multi-hart crt0 and platform library rely on.
+
+    crt0 reads ``mhartid`` (Zicsr, RV64's per-hart CSR file) to pick each
+    hart's stack and releases the secondary harts through the CLINT's ``msip``;
+    the platform's barrier and console lock need atomics (A or Zaamo).
+    """
+    cores = design.cores
+    n = cores.count
+    if n == 1:
+        return
+    what = f"cores.count is {n}: a multi-hart design needs"
+    if cores.xlen != 64:
+        raise DesignError(f"{what} xlen 64 (the RV32 CSR file has no per-hart mhartid)")
+    if "zicsr" not in cores.isa:
+        raise DesignError(f"{what} zicsr in cores.isa (crt0 reads mhartid)")
+    if not {"a", "zaamo"} & set(cores.isa):
+        raise DesignError(
+            f"{what} a (or zaamo) in cores.isa (the barrier and console lock are AMOs)"
+        )
+    clints = design.blocks_of_type("clint")
+    if not clints or clints[0].base is None:
+        raise DesignError(
+            f"{what} a mapped clint block (crt0 releases secondary harts through msip)"
+        )
+    if 4 * n > 0x4000:
+        raise DesignError(
+            f"{what} at most {0x4000 // 4} harts (the CLINT's msip array)"
+        )
+    if n * design.program.stack_size >= design.program_memory.size:
+        raise DesignError(
+            f"{what} {n} stacks of program.stack_size {hex(design.program.stack_size)}, "
+            f"which do not fit block '{design.program_memory.name}'"
+        )
 
 
 def parse_design(raw, path=None):

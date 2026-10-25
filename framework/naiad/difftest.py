@@ -35,6 +35,10 @@ them:
   likely a consequence of the volatile read, not a core bug, but still a
   divergence (the comparison stops there).
 
+A multi-hart design runs Spike with ``-p<count>`` (same CLINT at
+``0x2000000``, same hart numbering) and compares console and exit code only;
+``--commits`` is single-hart.
+
 Spike is found as ``$NAIAD_SPIKE``, then ``spike`` on ``PATH``, then
 ``~/.local/bin/spike`` (where ``tools/naiad/build_spike.sh`` installs it).
 This module imports nothing heavy at load time, so it is cheap to import from
@@ -614,6 +618,12 @@ def difftest(
     if isinstance(design, (str, Path)):
         design = load_design(design)
     isa = isa or spike_isa(design.cores.march)
+    harts = design.cores.count
+    if commits and harts > 1:
+        raise DifftestError(
+            f"--commits compares one retirement stream; design '{design.name}' has {harts} harts "
+            f"(compare the console and exit code only)"
+        )
     naiad = run_naiad(design, elf, max_cycles=max_cycles, trace=commits)
 
     with tempfile.TemporaryDirectory(prefix="naiad-difftest-") as tmp:
@@ -621,7 +631,14 @@ def difftest(
         if commits:
             log = Path(log_dir or tmp) / f"{Path(elf).stem}.spike.commits"
             log.parent.mkdir(parents=True, exist_ok=True)
-        spike_out = run_spike(elf, isa, spike=spike, timeout=timeout, commit_log=log)
+        spike_out = run_spike(
+            elf,
+            isa,
+            spike=spike,
+            timeout=timeout,
+            commit_log=log,
+            extra_args=[f"-p{harts}"] if harts > 1 else (),
+        )
         problems = compare_console(naiad.outcome, spike_out, ignore)
         commit_diff = None
         if commits:

@@ -84,6 +84,32 @@ class NaiadMemory(DeviceMemory):
         return result
 
 
+class MulticoreMemory(NaiadMemory):
+    """The bus of a multi-hart SoC: every store also breaks the ``lr`` reservations it overlaps.
+
+    ``reservation_holders`` are the harts' register files (the builder sets
+    them); each holds its hart's Zalrsc reservation as ``(start, end)`` or None
+    (``framework.pe.rv.isa.a64_isa``). Any write through the bus (a hart's
+    scalar, FP, AMO, vector or matrix store, or a DMA write) clears every
+    reservation it overlaps, so another hart's ``sc`` then fails. A single-hart
+    SoC keeps the plain :class:`NaiadMemory`, whose stores cost nothing extra.
+    """
+
+    def __init__(self, memory_map):
+        super().__init__(memory_map)
+        self.reservation_holders = ()
+
+    def write(self, addr, value, size=None):
+        result = super().write(addr, value, size)
+        n = len(value) if size is None else size
+        end = addr + n
+        for rf in self.reservation_holders:
+            res = rf.reservation
+            if res is not None and addr < res[1] and res[0] < end:
+                rf.reservation = None
+        return result
+
+
 def make_core(xlen, isa, reset_pc, memory, core_id, vlen=None, elen=None):
     """Build one core.
 
@@ -174,11 +200,9 @@ class NaiadSoC:
     def __init__(self, design, count_all=False):
         self.design = design
         cores_spec = design.cores
-        if cores_spec.count != 1:
-            raise NaiadBuildError(
-                f"cores.count is {cores_spec.count}, but only single-hart designs are supported so far "
-                f"(the CSR file reports mhartid 0 for every hart, so crt0 cannot give them separate stacks)"
-            )
+        # Multi-hart rules (validated in design.py): RV64 with Zicsr, atomics and
+        # a CLINT; see the module docstring of framework.naiad.gen for crt0's boot.
+        multicore = cores_spec.count > 1
 
         self.blocks = {
             spec.name: IP_REGISTRY[spec.type](spec) for spec in design.blocks
@@ -187,7 +211,7 @@ class NaiadSoC:
         for block in self.blocks.values():
             if block.mapped:
                 mem_map[AddressRange(block.base, block.size)] = block
-        self.memory = NaiadMemory(mem_map)
+        self.memory = (MulticoreMemory if multicore else NaiadMemory)(mem_map)
 
         self.cores = [
             make_core(
@@ -201,6 +225,8 @@ class NaiadSoC:
             )
             for i in range(cores_spec.count)
         ]
+        if multicore:
+            self.memory.reservation_holders = tuple(c.register_file for c in self.cores)
         # The matrix unit is attached after construction, so the core factory
         # stays about the core: AME goes last in each hart's ISA chain.
         self.matrix_units = []
@@ -211,6 +237,13 @@ class NaiadSoC:
             for core in self.cores:
                 unit = IMEUnit(design.matrix, core.vector, cores_spec.xlen)
                 self.matrix_units.append(attach_ime(core, unit))
+        elif design.matrix is not None and design.matrix.mode == "vme":
+            from framework.matrix.vme_isa import VMEUnit
+            from framework.matrix.vme_isa import attach as attach_vme
+
+            for core in self.cores:
+                unit = VMEUnit(design.matrix, core.vector, cores_spec.xlen)
+                self.matrix_units.append(attach_vme(core, unit))
         elif design.matrix is not None:
             for core in self.cores:
                 unit = make_matrix_unit(design.matrix, cores_spec.xlen)
@@ -231,6 +264,9 @@ class NaiadSoC:
         self.image = None
         for block in self.blocks.values():
             block.attach(self)
+        if multicore:
+            for core in self.cores:
+                clints[0].bind_wfi(core)
         # The cycle model, before the counter hub so the hub finds each
         # ``rv_cost``. No ``timing:`` section leaves every core untimed.
         if design.timing is not None:
@@ -256,7 +292,13 @@ class NaiadSoC:
             for n, event in spec.hpm:
                 reader = hub.reader(event)
                 for core in self.cores:
-                    core.csrs.bind_hpm(n, reader)
+                    # On a multi-hart SoC each hart counts its own share of a
+                    # per-hart event (hart<N>.<event>); SoC-wide events are shared.
+                    own = f"hart{core.core_id}.{event}"
+                    if len(self.cores) > 1 and own in hub.names():
+                        core.csrs.bind_hpm(n, hub.reader(own))
+                    else:
+                        core.csrs.bind_hpm(n, reader)
             for block in self.blocks.values():
                 block.bind_counters(hub)
         except CounterError as e:

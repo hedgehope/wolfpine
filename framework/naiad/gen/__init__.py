@@ -7,6 +7,26 @@ file carries a do-not-edit banner naming the design it was generated from.
 The crt0 and linker script handle both XLENs: RV64 uses ``ld``/``sd`` and the
 same 8-byte ``.bss`` alignment as RV32, so only the core factory changes when the
 RV64 core arrives.
+
+**Multi-hart designs** (``cores.count > 1``; a single-hart design's files are
+exactly what they were) follow one convention, which the same ELF also gets on
+``spike -p<n>``:
+
+* Every hart starts at ``_start``, reads ``mhartid`` and takes its own stack:
+  hart ``h``'s top is ``_stack_top - h * STACK_SIZE``; the linker script keeps
+  ``NAIAD_HARTS * STACK_SIZE`` free below the top of program memory. There is
+  no TLS (``.tdata``/``.tbss`` are not supported). Each hart turns its own FP /
+  vector unit on (``mstatus`` is per hart).
+* Hart 0 zeroes ``.bss`` and then releases the others by setting their CLINT
+  ``msip``; until then they sleep in ``wfi`` with ``mie.MSIE`` set (no trap:
+  ``mstatus.MIE`` stays clear), and each clears its ``msip`` and ``mie`` on the
+  way out. A hart whose ``mhartid`` is ``NAIAD_HARTS`` or more parks for good.
+* **Every hart calls ``main``.** Kernels split work with ``naiad_hartid()`` and
+  ``NAIAD_HARTS`` and synchronise with ``naiad_barrier()``
+  (``naiad_platform.h``).
+* **Hart 0's return from ``main`` is the program's exit**; another hart that
+  returns parks in ``wfi`` for good. ``naiad_exit()`` from any hart ends the run
+  at once (the HTIF honours the first exit command it sees).
 """
 
 import re
@@ -61,6 +81,10 @@ def _matrix_defines(spec):
         from framework.matrix.ime import header_lines
 
         return header_lines(spec)
+    if spec.mode == "vme":
+        from framework.matrix.vme import header_lines as vme_header_lines
+
+        return vme_header_lines(spec)
     from framework.matrix.encodings import TABLE, header_defines
 
     lines = [
@@ -145,6 +169,12 @@ def gen_header(design):
         f"#define NAIAD_PROGRAM_MEMORY NAIAD_{_ident(prog.name)}_BASE",
         f"#define NAIAD_STACK_SIZE {_hex(design.program.stack_size)}",
     ]
+    if cores.count > 1:
+        lines += [
+            "/* multi-hart: every hart runs main (see naiad_platform.h, naiad_hartid / naiad_barrier) */",
+            "#define NAIAD_MULTICORE 1",
+            f"#define NAIAD_HARTS {cores.count}",
+        ]
     # The first block of each type the platform header uses, under a name-independent alias.
     for type_name, alias in (
         ("clint", "CLINT"),
@@ -173,12 +203,16 @@ def gen_header(design):
 
 def gen_linker(design):
     prog = design.program_memory
+    harts = design.cores.count
+    # One stack per hart, hart h's top at _stack_top - h * STACK_SIZE (crt0).
+    stacks = "STACK_SIZE" if harts == 1 else "NAIAD_HARTS * STACK_SIZE"
+    harts_line = "" if harts == 1 else f"NAIAD_HARTS = {harts};\n"
     return f"""{_banner(design, "/*")}
 OUTPUT_ARCH("riscv")
 ENTRY(_start)
 
 STACK_SIZE = {hex(design.program.stack_size)};
-
+{harts_line}
 MEMORY
 {{
   RAM (rwx) : ORIGIN = {hex(prog.base)}, LENGTH = {hex(prog.size)}
@@ -230,8 +264,8 @@ SECTIONS
   __heap_start = .;
 
   _stack_top = ORIGIN(RAM) + LENGTH(RAM);
-  _stack_bottom = _stack_top - STACK_SIZE;
-  ASSERT(_end <= _stack_bottom, "program overlaps the stack")
+  _stack_bottom = _stack_top - {stacks};
+  ASSERT(_end <= _stack_bottom, "program overlaps the stack{"s" if harts > 1 else ""}")
 }}
 """
 
@@ -259,6 +293,8 @@ def gen_crt0(design):
     # Vector instructions trap the same way while mstatus.VS is Off.
     if design.cores.has_vector and "zicsr" in isa:
         fp_on += "  /* mstatus.VS = Initial, so vector instructions do not trap. */\n  li    t0, 1 << 9\n  csrs  mstatus, t0\n"
+    if design.cores.count > 1:
+        return _gen_crt0_multicore(design, fp_on, wait_idle, exit_store)
     return f"""{_banner(design, "/*")}
   .section .text.init, "ax", @progbits
   .globl _start
@@ -292,6 +328,114 @@ _exit:
 {exit_store}
 3:
   j     3b
+
+  .section .tohost, "aw", @progbits
+  .balign 64
+  .globl tohost
+tohost:
+  .dword 0
+  .balign 64
+  .globl fromhost
+fromhost:
+  .dword 0
+"""
+
+
+def _gen_crt0_multicore(design, fp_on, wait_idle, exit_store):
+    """crt0 for ``cores.count > 1`` (RV64, Zicsr, a CLINT): the convention in the module docstring."""
+    harts = design.cores.count
+    msip = design.blocks_of_type("clint")[0].base
+    fp_on = fp_on.replace("t0", "t2")  # t0 holds mhartid here
+    return f"""{_banner(design, "/*")}
+  /* {harts} harts: every hart runs main; hart 0's return is the exit. */
+  .section .text.init, "ax", @progbits
+  .globl _start
+_start:
+  .option push
+  .option norelax
+  la    gp, __global_pointer$
+  .option pop
+  csrr  t0, mhartid
+  li    t1, {harts}
+  bgeu  t0, t1, 9f            /* not a hart this design has: park */
+
+  /* sp = _stack_top - mhartid * STACK_SIZE */
+  la    sp, _stack_top
+  li    t1, {hex(design.program.stack_size)}
+  mv    t2, t0
+5:
+  beqz  t2, 6f
+  sub   sp, sp, t1
+  addi  t2, t2, -1
+  j     5b
+6:
+{fp_on}  bnez  t0, 7f
+
+  /* Hart 0: zero .bss (8-byte stores; the linker script aligns both ends to 8). */
+  la    t0, __bss_start
+  la    t1, __bss_end
+1:
+  bgeu  t0, t1, 2f
+  sd    zero, 0(t0)
+  addi  t0, t0, 8
+  j     1b
+2:
+  fence rw, rw
+  /* ...then release harts 1..{harts - 1}: msip[h] = 1. */
+  li    t0, {hex(msip)}
+  li    t1, 1
+  li    t2, {harts}
+  li    t3, 1
+8:
+  bgeu  t3, t2, 10f
+  slli  t4, t3, 2
+  add   t4, t0, t4
+  sw    t1, 0(t4)
+  addi  t3, t3, 1
+  j     8b
+
+7:
+  /* Hart h > 0: sleep until hart 0 sets msip[h] (mie.MSIE wakes wfi; mstatus.MIE is clear, so no trap). */
+  li    t1, 1 << 3
+  csrs  mie, t1
+  li    t1, {hex(msip)}
+  slli  t2, t0, 2
+  add   t1, t1, t2
+11:
+  lw    t2, 0(t1)
+  bnez  t2, 12f
+  wfi
+  j     11b
+12:
+  sw    zero, 0(t1)
+  li    t2, 1 << 3
+  csrc  mie, t2
+  fence rw, rw
+
+10:
+  li    a0, 0
+  li    a1, 0
+  call  main
+  csrr  t0, mhartid
+  bnez  t0, 9f              /* only hart 0's return ends the program */
+
+  /* exit(main's return): tohost = (code << 1) | 1. */
+  .globl _exit
+_exit:
+  slli  a0, a0, 1
+  ori   a0, a0, 1
+  la    t0, tohost
+{wait_idle}
+{exit_store}
+3:
+  j     3b
+
+  /* A parked hart: mie is clear, so wfi never wakes (on Naiad and on Spike). */
+9:
+  csrw  mie, zero
+13:
+  wfi
+  j     13b
 
   .section .tohost, "aw", @progbits
   .balign 64

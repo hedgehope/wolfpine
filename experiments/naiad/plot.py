@@ -20,6 +20,9 @@ figure is written as PNG and SVG to ``out/<sweep>/figures/<figure>-<study>``:
     up to the worst seed.
 ``redundancy``
     Matrix-unit FLOPs over the algorithm's useful FLOPs, per dwarf.
+``sparsity``
+    Speedup over the baseline against block density, for sizes ``(n, density[, nv])``
+    (spmv), one line per variant, nv and swept override.
 
 Colours follow the dwarf, never its position: :data:`DWARF_ORDER` fixes the
 slot of every known dwarf, so a dwarf keeps its colour across figures and sweeps.
@@ -45,10 +48,12 @@ PALETTE = [
     "#008300",
     "#6250d6",
     "#e34948",
+    "#8f5b2e",
+    "#00838f",
 ]
 OTHER = "#8a8984"
 INK, INK_2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
-#: Dwarf -> palette slot: Tier-1 dwarfs first, then the harness's toy.
+#: Dwarf -> palette slot: Tier-1 dwarfs first, then the Phase D dwarfs, then the harness's toy.
 DWARF_ORDER = [
     "gemm",
     "jacobi",
@@ -57,6 +62,8 @@ DWARF_ORDER = [
     "reduce",
     "scan",
     "tensorprod",
+    "spmv",
+    "apsp",
     "toymm",
 ]
 
@@ -292,6 +299,8 @@ def _segments(row):
         "matrix.tile_to_mem": "tile → memory",
         "matrix.mem_to_acc": "memory → acc",
         "matrix.acc_to_mem": "acc → memory",
+        "matrix.vec_to_tile": "vector → tile",  # VME (Zvt) moves
+        "matrix.tile_to_vec": "tile → vector",
     }
     for col, value in row.items():
         if not col.startswith("bytes:") or not value:
@@ -609,6 +618,102 @@ def plot_feature_ranking(rows, study, out_dir):
     return _save(fig, out_dir, f"feature_ranking-{study}")
 
 
+def _size_parts(size):
+    """A size cell (``256x0.25x16``, or a bare number) as a list of numbers."""
+    out = []
+    for part in str(size).split("x"):
+        try:
+            out.append(float(part))
+        except ValueError:
+            return []
+    return out
+
+
+def plot_sparsity(rows, study, out_dir):
+    """Speedup over the baseline against block density (a size's second component, log axis).
+
+    For sizes ``(n, density[, nv])`` (spmv): one line per variant, ``nv`` and
+    swept override (the matrix:vector ratio); colour follows the ratio, the dash
+    follows nv. The dashed line at 1 is parity with the baseline.
+    """
+    pts = [
+        r
+        for r in _ok(rows, study)
+        if r.get("speedup") is not None and len(_size_parts(r["size"])) >= 2
+    ]
+    if not pts:
+        return []
+    plt = _plt()
+    ovr_cols = sorted(
+        {
+            k
+            for r in pts
+            for k in r
+            if k.startswith("ovr:") and r.get(k) not in (None, "")
+        }
+    )
+    ovr_cols = [c for c in ovr_cols if len({r.get(c) for r in pts}) > 1]
+
+    def ovr_key(r):
+        return tuple(r.get(c) for c in ovr_cols)
+
+    levels = sorted(
+        {ovr_key(r) for r in pts},
+        key=lambda t: [float(v) if isinstance(v, (int, float)) else 0 for v in t],
+    )
+    groups = {}
+    for r in pts:
+        parts = _size_parts(r["size"])
+        nv = int(parts[2]) if len(parts) > 2 else None
+        groups.setdefault((r["dwarf"], r["variant"], nv, ovr_key(r)), []).append(
+            (parts[1], r["speedup"], r.get("mv_ratio"))
+        )
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    nvs = sorted({k[2] for k in groups if k[2] is not None}, reverse=True)
+    styles = ["-", "--", ":", "-."]
+    for key in sorted(
+        groups, key=lambda k: (k[0], k[1], -(k[2] or 0), levels.index(k[3]))
+    ):
+        dwarf, variant, nv, level = key
+        line = sorted(groups[key], key=lambda t: t[0])
+        colour = PALETTE[levels.index(level) % len(PALETTE)]
+        ratios = {t[2] for t in line}
+        ratio = (
+            [f"ratio {float(next(iter(ratios))):.3g}"]
+            if len(ratios) == 1 and None not in ratios and "" not in ratios
+            else [f"{c[4:].rsplit('.', 1)[-1]}={v}" for c, v in zip(ovr_cols, level)]
+        )
+        label = " ".join(
+            [dwarf + _variant_suffix(variant)]
+            + ([f"nv={nv}"] if nv is not None else [])
+            + ratio
+        )
+        ax.plot(
+            [t[0] for t in line],
+            [t[1] for t in line],
+            styles[nvs.index(nv) % len(styles)] if nv in nvs else "-",
+            marker="o",
+            color=colour,
+            label=label,
+            markeredgecolor="white",
+            markeredgewidth=1.5,
+            zorder=3,
+        )
+    ax.axhline(1, color=INK_2, linewidth=1, linestyle="--", zorder=1)
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("Block density (nonzero blocks ÷ block positions)")
+    ax.set_ylabel("Speedup over the baseline (×)")
+    ax.set_title(f"Speedup vs block density: {study}")
+    ax.legend(loc="best", fontsize=8, handlelength=4)
+    _note(
+        fig,
+        "Colour: the swept override (ratio = matrix peak MACs/cycle ÷ vector peak FMAs/cycle); "
+        "line style: vectors per product (nv). Grey dashed line: parity.",
+    )
+    return _save(fig, out_dir, f"sparsity-{study}")
+
+
 # -- driver ----------------------------------------------------------------------------------
 
 
@@ -635,6 +740,8 @@ def plot_sweep(sweep_dir, studies=None, log=print):
                 made = plot_accuracy(rows, name, out_dir)
             elif fig == "feature_ranking":
                 made = plot_feature_ranking(rows, name, out_dir)
+            elif fig == "sparsity":
+                made = plot_sparsity(rows, name, out_dir)
             else:
                 made = plot_redundancy(rows, name, out_dir)
             if not made:

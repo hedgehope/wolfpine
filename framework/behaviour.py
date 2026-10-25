@@ -367,6 +367,11 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "frm, a spec that does not match the vector unit); a modelling "
             "boundary, not an architectural trap"
         ),
+        "VMEError": (
+            "the Naiad VME (Zvt) mode refusing something it does not model (a "
+            "non-RNE frm, a spec that does not match the vector unit, a bad "
+            "encodings table); a modelling boundary, not an architectural trap"
+        ),
         "MatrixAccessFault": (
             "a Naiad tile load that reaches unmapped memory; an access fault "
             "of a research SoC, not a Tenstorrent modelling guarantee"

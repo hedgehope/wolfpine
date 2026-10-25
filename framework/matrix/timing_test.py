@@ -74,9 +74,8 @@ def test_normalise_rejects_impossible_budgets(args, message):
         normalise(*args)
 
 
-def test_vme_is_a_stub():  # IME's normaliser is tested in ime_timing_test.py
-    with pytest.raises(NotImplementedError):
-        normalise(4096, 64 * 1024, 64, mode="vme")
+def test_vme_is_implemented():  # IME's / VME's normalisers: ime_timing_test.py, vme_timing_test.py
+    assert normalise(4096, 64 * 1024, 64, mode="vme").mode == "vme"
 
 
 def test_a_normalised_config_builds_as_a_design():

@@ -28,11 +28,14 @@ studies:
   # in half-octave steps is a ratio of 1/8..256. The RVV and scalar variants do
   # not depend on the matrix unit, so they run once per dwarf (only:); scalar
   # is the flat dotted reference line, and crossover.csv also gives each
-  # group's crossover against it (crossover_vs_scalar).
+  # group's crossover against it (crossover_vs_scalar). The vector LSU gets
+  # the AME tile path's 64 B/cycle (naiad-dwarfs' RVV default is 32), so the
+  # ratio is the only resource that differs.
   - name: crossover
-    description: speedup over RVV vs matrix:vector peak ratio, fp32/fp32, mid size
+    description: speedup over RVV vs matrix:vector peak ratio, fp32/fp32, mid size, equal memory bandwidth
     formats: [[fp32, fp32]]
     overrides:
+      timing.vector.mem_bytes_per_cycle: 64
       timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
                                      724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
     only:
@@ -97,3 +100,49 @@ studies:
     figures: [bytes]
     quick:
       sizes: [64]
+  # VME (Zvt v0.4): A/B through the VRF, C in accumulator tiles. TE is a power of two,
+  # so storage cannot be equal: te null is the largest within the 12 KiB (TE 16,
+  # 4 KiB tiles + the 1 KiB VRF), te 32 the first above it (16 KiB + 1 KiB).
+  - name: coupling_vme
+    description: gemm 128^3 fp32, VME at TE 16 (under equal storage) and TE 32 (over), VLEN 256, vs RVV
+    dwarfs: [gemm]
+    variants: [vme, rvv]
+    variant_designs: {vme: framework/naiad/designs/naiad-vme-timed.yaml}
+    sizes: [128]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+    normalise: {peak_flops_per_cycle: 4096, operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: vme, vlen: 256, te: [null, 32]}
+    only: {normalise: [vme]}
+    figures: [bytes]
+    quick:
+      sizes: [64]
+
+  # Sparse LA (spmv, BSR with 16 x 16 dense blocks): speedup over RVV against
+  # the block density at a fixed n = 256 (1 block .. all 256 blocks), for
+  # nv = 16 right-hand sides (one block = one full mma) and nv = 1 (a true
+  # SpMV: 15/16 of every mma is padding), at three fp32 matrix:vector ratios
+  # (macs_per_cycle 16 / 128 / 2048: 0.5 / 4 / 64 x RVV's 8 fp32 FMAs/cycle;
+  # 2048 is naiad-dwarfs' default). Equal memory bandwidth, as in crossover.
+  - name: sparsity
+    description: spmv speedup over RVV vs block density, n = 256, fp32, nv = 16 and 1, three ratios
+    dwarfs: [spmv]
+    variants: [ame, rvv]
+    formats: [[fp32, fp32]]
+    sizes: [[256, 0.00390625, 16], [256, 0.015625, 16], [256, 0.03125, 16], [256, 0.0625, 16],
+            [256, 0.125, 16], [256, 0.25, 16], [256, 0.5, 16], [256, 1.0, 16],
+            [256, 0.00390625, 1], [256, 0.015625, 1], [256, 0.03125, 1], [256, 0.0625, 1],
+            [256, 0.125, 1], [256, 0.25, 1], [256, 0.5, 1], [256, 1.0, 1]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.matrix.macs_per_cycle: [16, 128, 2048]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [sparsity]
+    quick:
+      sizes: [[256, 0.015625, 16], [256, 0.25, 16], [256, 1.0, 16],
+              [256, 0.015625, 1], [256, 0.25, 1], [256, 1.0, 1]]
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.matrix.macs_per_cycle: [16, 2048]

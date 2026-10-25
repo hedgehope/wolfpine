@@ -486,6 +486,7 @@ def normalise(
     accs=4,
     power_of_two=True,
     vlen=None,
+    te=None,
 ):
     """Derive a unit and its timing from a hardware budget, so modes compare at equal cost.
 
@@ -516,9 +517,16 @@ def normalise(
             acc_format=acc_format,
             vlen=vlen,
         )
+    # VME: tiles / accs do not apply; vlen pins VLEN (default 256), te pins TE.
     if mode == "vme":
-        return _NORMALISERS[mode](
-            peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle
+        return _normalise_vme(
+            peak_flops_per_cycle,
+            operand_bytes,
+            mem_bytes_per_cycle,
+            in_format=in_format,
+            acc_format=acc_format,
+            vlen=vlen,
+            te=te,
         )
     if mode != "ame":
         raise ValueError(f"unknown coupling mode {mode!r}; expected ame, ime or vme")
@@ -660,21 +668,113 @@ def _normalise_ime(
     return NormalisedConfig("ime", {"mode": "ime"}, timing, derived)
 
 
-def _normalise_vme(peak_flops_per_cycle, operand_bytes, mem_bytes_per_cycle):
-    """VME (Phase D): vector-length-agnostic matrix registers.
+def _normalise_vme(
+    peak_flops_per_cycle,
+    operand_bytes,
+    mem_bytes_per_cycle,
+    *,
+    in_format="fp32",
+    acc_format="fp32",
+    vlen=None,
+    te=None,
+):
+    """VME (Zvt v0.4): vector-register operands, ``16 * TE * TE`` bytes of accumulator tiles.
 
-    Sketch: matrix registers of ``R = VLEN / SEW`` rows by ``VLEN / SEW`` columns
-    (the proposal's ``MLEN = VLEN * VLEN / SEW`` bits each), with the
-    storage budget fixing ``VLEN`` from ``n_mregs * MLEN / 8 = operand_bytes``.
-    The outer-product form issues ``K`` rank-1 updates per tile, each
-    ``R * R`` MACs, so ``ii = ceil(R * R / macs)`` per update and the tile takes
-    ``K`` of them; loads move one ``VLEN``-bit row per cycle at most, so the
-    tile-load term is ``R * max(1, VLEN / 8 / mem_bytes_per_cycle)``. Pin the
-    definition to a dated task-group draft before implementing.
+    * **Storage.** The operand storage is the tile state plus the 32 vector
+      registers the operands pass through: ``16 * TE**2 + 4 * VLEN``. VLEN is the
+      core's, pinned (``vlen``; default 256, naiad-dwarfs' RVV), and TE is the
+      largest power of two with the total within ``operand_bytes`` and ``TE <=
+      VLEN / 4`` (the draft's bounds, ``TE >= 4``). ``te`` pins TE instead;
+      ``derived["storage_ratio"]`` says how far from equal storage either is.
+    * **Peak.** ``macs_per_cycle = peak_flops_per_cycle / 2``, as for AME.
+    * **Ports.** VME adds no VRF ports: the RVV datapath's three reads and one
+      write of VLEN a cycle (``datapath_bits = VLEN``) feed the operands and the
+      ``vtmv.v.t`` results. The tile port and the vector LSU get
+      ``mem_bytes_per_cycle``.
+    * **Reference multiply** (``derived``): a full ``ETE x ETE`` tile at KMAX for
+      ``(SEW, TWIDEN)`` = (input width, accumulator / input width), at the LMUL
+      ``msetmtype`` derives; its interval is ``max(compute, operand reads)``.
     """
-    raise NotImplementedError(
-        "VME normalisation is not defined yet (Phase D; pin the proposal first)"
+    from framework.matrix.formats import get_format
+    from framework.matrix.vme import KMAX, reference_geometry
+    from framework.matrix.vme import arith_row as vme_arith_row
+    from framework.matrix.vme_timing import VMETimingSpec
+
+    if peak_flops_per_cycle < 2 or peak_flops_per_cycle % 2:
+        raise ValueError(
+            f"peak_flops_per_cycle must be an even number >= 2, got {peak_flops_per_cycle}"
+        )
+    if mem_bytes_per_cycle is not None and mem_bytes_per_cycle <= 0:
+        raise ValueError(f"mem_bytes_per_cycle must be > 0, got {mem_bytes_per_cycle}")
+    in_fmt, acc_fmt = get_format(in_format), get_format(acc_format)
+    sew = 8 * in_fmt.dtype.itemsize
+    tw, rem = divmod(8 * acc_fmt.dtype.itemsize, sew)
+    rows = [
+        vme_arith_row(name, sew, tw, alt)
+        for name in ("vtfmm.tvv", "vtfmm.alt.tvv")
+        for alt in (0, 1)
+    ]
+    if (
+        rem
+        or (sew, tw) not in KMAX
+        or not any(
+            r is not None and (r.fmt_a, r.fmt_c) == (in_fmt.name, acc_fmt.name)
+            for r in rows
+        )
+    ):
+        raise ValueError(f"no Zvt multiply takes {in_fmt.name} into {acc_fmt.name}")
+    vlen = 256 if vlen is None else vlen
+    if vlen < 128 or vlen > 65536 or vlen & (vlen - 1):
+        raise ValueError(f"vlen must be a power of two in 128-65536, got {vlen}")
+    vrf = 4 * vlen
+    if te is None:
+        te = 4
+        while 2 * te <= vlen // 4 and 16 * (2 * te) ** 2 + vrf <= operand_bytes:
+            te *= 2
+        if 16 * te * te + vrf > operand_bytes:
+            raise ValueError(
+                f"{operand_bytes} bytes cannot hold the VRF ({vrf} B) and TE = 4 tiles"
+            )
+    elif te < 4 or te & (te - 1) or te > vlen // 4:
+        raise ValueError(
+            f"te must be a power of two in 4..VLEN/4 = {vlen // 4}, got {te}"
+        )
+    tm, tn, tk, lmul, macs_ref = reference_geometry(te, vlen, sew, tw)
+    macs = peak_flops_per_cycle // 2
+    read_bw, write_bw = 3 * vlen // 8, vlen // 8
+    tile_bw = mem_bytes_per_cycle if mem_bytes_per_cycle is not None else 64
+    spec = VMETimingSpec(
+        macs_per_cycle=macs,
+        vrf_read_bytes_per_cycle=read_bw,
+        vrf_write_bytes_per_cycle=write_bw,
+        tile_bytes_per_cycle=tile_bw,
     )
+    operand = tk * (tm + tn) * sew // 8
+    occ, compute, t_read = spec.mma_occupancy(macs_ref, operand, in_fmt.name, vlen)
+    timing = {
+        "macs_per_cycle": macs,
+        "vrf_read_bytes_per_cycle": read_bw,
+        "vrf_write_bytes_per_cycle": write_bw,
+        "tile_bytes_per_cycle": tile_bw,
+    }
+    derived = {
+        "vlen": vlen,
+        "te": te,
+        "tile_bytes": 16 * te * te,
+        "storage_bytes": 16 * te * te + vrf,
+        "storage_ratio": (16 * te * te + vrf) / operand_bytes,
+        "tm": tm,
+        "tn": tn,
+        "tk": tk,
+        "lmul": lmul,
+        "mma_macs": macs_ref,
+        "mma_compute_cycles": compute,
+        "mma_read_cycles": t_read,
+        "mma_ii": occ,
+        "achieved_flops_per_cycle": 2 * macs_ref / occ,
+        "vector_mem_bytes_per_cycle": mem_bytes_per_cycle,
+    }
+    return NormalisedConfig("vme", {"mode": "vme", "te": te}, timing, derived)
 
 
 _NORMALISERS = {"ime": _normalise_ime, "vme": _normalise_vme}

@@ -128,6 +128,8 @@ def matrix_peak(design, in_fmt, acc_fmt=None):
         return None
     if getattr(design.matrix, "mode", "ame") == "ime":
         return _ime_peak(design, in_fmt, acc_fmt or in_fmt)
+    if getattr(design.matrix, "mode", "ame") == "vme":
+        return _vme_peak(design, in_fmt, acc_fmt or in_fmt)
     m, n, k = design.matrix.m, design.matrix.n, design.matrix.k
     return m * n * k / design.timing.matrix.mma_interval(m, n, k, in_fmt)
 
@@ -147,6 +149,27 @@ def _ime_peak(design, in_fmt, acc_fmt):
     datapath = design.timing.vector.datapath_bits if design.timing.vector else vlen
     occ = spec.mma_occupancy(geo, in_fmt, datapath, c_read=not spec.c_bypass)[0]
     return geo.macs / occ
+
+
+def _vme_peak(design, in_fmt, acc_fmt):
+    """VME (Zvt): a full-tile multiply (``vme.reference_geometry``) over its occupancy (compute or VRF reads)."""
+    from framework.matrix.vme import KMAX, reference_geometry
+
+    sew = FORMAT_BITS[in_fmt]
+    tw, rem = divmod(FORMAT_BITS[acc_fmt], sew)
+    if rem or (sew, tw) not in KMAX:
+        return None
+    tm, tn, tk, _, macs = reference_geometry(
+        design.matrix.te, design.matrix.vlen, sew, tw
+    )
+    spec = design.timing.matrix
+    datapath = (
+        design.timing.vector.datapath_bits
+        if design.timing.vector
+        else design.matrix.vlen
+    )
+    occ = spec.mma_occupancy(macs, tk * (tm + tn) * sew // 8, in_fmt, datapath)[0]
+    return macs / occ
 
 
 def _scalar_peak(design, in_fmt, acc_fmt=None):

@@ -82,7 +82,10 @@ def test_defaults_and_aliases():
             {"mode": "ime"},
             r"matrix \(mode ime\): unknown key",
         ),  # AME keys; see ime_test.py
-        ({"mode": "vme"}, "not implemented yet"),
+        (
+            {"mode": "vme"},
+            r"matrix \(mode vme\): unknown key",
+        ),  # AME keys; see vme_test.py
         ({"mode": "xyz"}, "matrix.mode must be one of"),
         ({"tiles": 33}, "matrix.tiles must be in 1-32"),
         ({"accs": 0}, "matrix.accs must be in 1-32"),

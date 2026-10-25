@@ -115,9 +115,36 @@ static int put_unsigned(unsigned long long v, unsigned base, int upper, int widt
     return out;
 }
 
+#ifdef NAIAD_MULTICORE
+naiad_lock_t naiad_htif_lock;
+naiad_lock_t naiad_console_lock;
+
+/* Sense-reversing barrier: the last hart to arrive resets the count and flips
+ * the shared sense; the others spin until it matches their own. */
+static volatile unsigned naiad_barrier_count;
+static volatile unsigned naiad_barrier_sense;
+static unsigned naiad_barrier_local[NAIAD_HARTS];
+
+void naiad_barrier(void) {
+    unsigned h = naiad_hartid();
+    unsigned sense = naiad_barrier_local[h] ^ 1u;
+    naiad_barrier_local[h] = sense;
+    if (__atomic_add_fetch(&naiad_barrier_count, 1u, __ATOMIC_ACQ_REL) == NAIAD_HARTS) {
+        __atomic_store_n(&naiad_barrier_count, 0u, __ATOMIC_RELAXED);
+        __atomic_store_n(&naiad_barrier_sense, sense, __ATOMIC_RELEASE);
+    } else {
+        while (__atomic_load_n(&naiad_barrier_sense, __ATOMIC_ACQUIRE) != sense) {
+        }
+    }
+}
+#endif
+
 int naiad_printf(const char *fmt, ...) {
     va_list ap;
     int out = 0;
+#ifdef NAIAD_MULTICORE
+    naiad_lock(&naiad_console_lock);
+#endif
     va_start(ap, fmt);
     for (; *fmt; fmt++) {
         if (*fmt != '%') {
@@ -163,12 +190,12 @@ int naiad_printf(const char *fmt, ...) {
             break;
         }
         case 'p':
-            naiad_puts("0x");
+            naiad_puts_unlocked("0x");
             out += 2 + put_unsigned((uintptr_t)va_arg(ap, void *), 16, 0, width, pad);
             break;
         case 's': {
             const char *s = va_arg(ap, const char *);
-            naiad_puts(s);
+            naiad_puts_unlocked(s);
             out += strlen(s);
             break;
         }
@@ -193,5 +220,8 @@ int naiad_printf(const char *fmt, ...) {
         }
     }
     va_end(ap);
+#ifdef NAIAD_MULTICORE
+    naiad_unlock(&naiad_console_lock);
+#endif
     return out;
 }

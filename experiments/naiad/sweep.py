@@ -71,7 +71,8 @@ Study keys:
 ``ratio_keys``
     Override keys that move the ratio (they are not grouping keys for the crossover).
 ``figures``
-    Which figures this study feeds: ``crossover``, ``bytes``, ``accuracy``, ``redundancy``.
+    Which figures this study feeds: ``crossover``, ``bytes``, ``accuracy``, ``redundancy``,
+    ``feature_ranking``, ``sparsity``.
 ``quick``
     A mapping merged over the study under ``--quick`` (default: ``sizes: smallest``).
 
@@ -107,7 +108,14 @@ DEFAULT_RATIO_KEYS = [
     "timing.scalar.issue_width",
     "normalise.peak_flops_per_cycle",
 ]
-FIGURES = ("crossover", "bytes", "accuracy", "redundancy", "feature_ranking")
+FIGURES = (
+    "crossover",
+    "bytes",
+    "accuracy",
+    "redundancy",
+    "feature_ranking",
+    "sparsity",
+)
 STUDY_KEYS = {
     "name",
     "description",
@@ -456,7 +464,8 @@ def _apply_normalise(raw, params, in_fmt, acc_fmt):
     matrix = {k: v for k, v in cfg.matrix.items() if k not in ("formats", "mode")}
     deep_merge(raw.setdefault("matrix", {}), matrix)
     deep_merge(raw.setdefault("timing", {}).setdefault("matrix", {}), cfg.timing)
-    if cfg.mode == "ime":
+    # VLEN and the vector LSU (VME has no lambdas to rewrite).
+    if cfg.mode in ("ime", "vme"):
         _merge_ime(raw, cfg.derived)
     return dict(cfg.derived)
 

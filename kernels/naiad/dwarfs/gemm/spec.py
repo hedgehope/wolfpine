@@ -7,6 +7,10 @@ a 4 x 4 register-blocked FP loop computing in the accumulator's precision (fp32
 for 16-bit inputs, which it widens in software inside the timed region, since
 the dwarfs' design has no Zfh/Zfbfmin).
 
+The ``ame_mc`` variant is the AME driver with C's rows split across the harts
+of a multi-hart design (``naiad-dwarfs-4c.yaml``; each hart has its own unit),
+timed from a barrier to a barrier; on one hart it is the ame variant.
+
 ``size`` is n (square) or (m, n, k). Sizes that are not multiples of the 32 x 32
 output block exercise the driver's padded edges.
 """
@@ -14,7 +18,14 @@ output block exercise the driver's padded edges.
 import numpy as np
 
 NAME = "gemm"
-VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv", "ime": "ime"}
+VARIANTS = {
+    "ame": "ame",
+    "scalar": "scalar",
+    "rvv": "rvv",
+    "ime": "ime",
+    "ame_mc": "ame_mc",
+    "vme": "vme",
+}
 SIZES = (32, 64, 128)
 FORMATS = (
     ("fp64", "fp64"),
@@ -30,6 +41,9 @@ VARIANT_FORMATS = {
     # IME (Zvvm; needs an IME design, e.g. naiad-ime-timed.yaml): Zvvfp64mm, Zvvfp32mm,
     # Zvvbf16fp32mm, Zvvfp16fp32mm and Zvvbf16mm (bf16 C rounded after every sub-dot-product).
     "ime": FORMATS,
+    # VME (Zvt v0.4; needs a VME design, e.g. naiad-vme-timed.yaml): Zvtdmm, Zvtfmm, Zvtbf16fmm,
+    # Zvtfp16fmm; bf16 -> bf16 accumulates in fp32 tiles and rounds once on store (no bf16 C in Zvt).
+    "vme": FORMATS,
 }
 
 _TOLERANCE = {
