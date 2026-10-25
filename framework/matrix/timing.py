@@ -40,6 +40,13 @@ instruction queue between them, so every hazard is resolved at issue:
   still in flight waits for it (``mem_raw``), as do the core's scalar and
   vector loads.
 * ``azero``, ``tshift`` and ``mcfg`` are fixed latencies on no pipe.
+* The element-wise accumulator ops (custom-3: ``aew.*``, ``amacc.*``,
+  ``aewu``) stream the M x N accumulator through an element-wise datapath:
+  interval ``ceil(M * N * acc bytes / ewise_bytes_per_cycle)`` (``aewu``:
+  ``ewise_tx_factor`` times that), readable ``ewise_latency - 1`` (``aewu``:
+  ``ewise_tx_latency - 1``) after, on their own ``ewise`` pipe (so they
+  overlap mma) unless ``ewise_pipe: mma``. Uncalibrated (no Tensix analogue
+  is used: the SFPU's per-instruction cost would make them nearly free).
 * The Ztt-tracking register-to-register ops (``amov.t.a`` / ``amov.a.t``,
   ``tconv``, ``treduce`` / ``tprefix``) hold the mma pipe for an interval and
   are readable ``latency - 1`` after it; ``mma.at`` / ``mma.bt`` cost an mma;
@@ -104,9 +111,12 @@ _PIPE = {
     "tile_convert": "mma",
     "tile_reduce": "mma",
 }
+#: The element-wise accumulator ops (custom-3); their pipe is ``AMETimingSpec.ewise_pipe``.
+_EWISE_OPS = frozenset({"acc_ewise", "acc_fma", "acc_unary"})
 #: Execs that :meth:`AMETiming.issue` commits with the generic register-to-register rule.
 _UNIT_OPS = frozenset(
     {"acc_to_tile", "tile_to_acc", "tile_convert", "tile_reduce", "tile_shift2"}
+    | _EWISE_OPS
 )
 
 
@@ -164,6 +174,21 @@ class AMETimingSpec:
     # network of adders). Not calibrated: the Tensix has no prefix instruction.
     #: tshift2 latency on no pipe; None = ``tshift`` (TIC SHIFTXB).
     tshift2: int | None = None
+    # -- the element-wise accumulator ops (custom-3: aew.*, amacc.*, aewu; the
+    # epilogue-fusion study). Uncalibrated: an element-wise datapath beside the
+    # array that streams an accumulator at ewise_bytes_per_cycle (64 = one
+    # 16-wide fp32 row a cycle, the tile store path's width), an FP pipeline of
+    # ewise_latency, and an iterative recip / rsqrt / sqrt at a quarter rate.
+    #: Accumulator bytes an element-wise op reads per cycle (per operand); None = one cycle per op.
+    ewise_bytes_per_cycle: float | None = 64
+    #: Cycles from an element-wise op's last element to its result being readable, plus one.
+    ewise_latency: int = 4
+    #: aewu's interval is this many times the arithmetic ops'.
+    ewise_tx_factor: int = 4
+    #: aewu's latency.
+    ewise_tx_latency: int = 12
+    #: The pipe they hold: "ewise" (their own, so they overlap mma) or "mma" (share the array's issue slot).
+    ewise_pipe: str = "ewise"
 
     def mma_interval(self, m, n, k, in_format):
         if self.mma_ii is not None:
@@ -227,10 +252,11 @@ class AMETiming:
         self.acc_ready = [0] * unit.num_accs
         self.acc_mma_ready = [0] * unit.num_accs
         self.acc_read_free = [0] * unit.num_accs
-        self.pipe_free = {"mma": 0, "load": 0, "store": 0}
-        self.busy = {"mma": 0, "load": 0, "store": 0}
+        self.pipe_free = {"mma": 0, "load": 0, "store": 0, "ewise": 0}
+        self.busy = {"mma": 0, "load": 0, "store": 0, "ewise": 0}
         self.mmas = 0
         self.macs = 0
+        self.ewise_ops = 0
         self.stall_until = 0
         self.stall_reason = MATRIX_BUSY
 
@@ -242,6 +268,8 @@ class AMETiming:
             "matrix_mma": self.mmas,
             "matrix_macs": self.macs,
             "matrix_peak_macs_per_cycle": self.peak_macs_per_cycle,
+            "matrix_ewise_ops": self.ewise_ops,
+            "matrix_ewise_busy_cycles": self.busy["ewise"],
         }
 
     # -- decode --------------------------------------------------------------
@@ -353,6 +381,24 @@ class AMETiming:
             op.ii = passes * math.ceil(view_rows / spec.treduce_rows_per_cycle)
             op.latency = spec.treduce_latency
             op.tiles_read, op.tiles_written = (ops["ts"],), (ops["td"],)
+        elif kind in _EWISE_OPS:
+            fmt = unit.acc_formats.get(ops["fmt"])
+            eb = 8 if fmt is None else fmt.dtype.itemsize
+            op.pipe = "mma" if spec.ewise_pipe == "mma" else "ewise"
+            op.ii = transfer_cycles(unit.m * unit.n * eb, spec.ewise_bytes_per_cycle)
+            op.latency = spec.ewise_latency
+            if kind == "acc_unary":
+                op.ii *= spec.ewise_tx_factor
+                op.latency = spec.ewise_tx_latency
+            src = insn.params.get("src")
+            reads = [ops["as1"]]
+            if src == "acc":
+                reads.append(ops["as2"])
+            if kind == "acc_fma":
+                reads.append(ops["ad"])
+            op.accs_read = tuple(dict.fromkeys(reads))
+            op.accs_written = (ops["ad"],)
+            op.tiles_read = (ops["ts"],) if src == "tile" else ()
         else:  # tile_shift2: on no pipe, like tshift
             op.ii = spec.tshift if spec.tshift2 is None else spec.tshift2
             op.tiles_read, op.tiles_written = (ops["ta"], ops["tb"]), (ops["td"],)
@@ -432,6 +478,8 @@ class AMETiming:
             if pipe is not None:
                 self.pipe_free[pipe] = cycle + ii
                 self.busy[pipe] += ii
+            if kind in _EWISE_OPS:
+                self.ewise_ops += 1
             done = cycle + ii + op.latency - 1
             for t in op.tiles_written:
                 self.tile_ready[t] = done
@@ -507,12 +555,15 @@ class NormalisedConfig:
     ``matrix`` is a design's ``matrix:`` section and ``timing`` its
     ``timing.matrix`` section, ready to merge into a raw design mapping;
     ``derived`` records the arithmetic (shape, storage used, interval, achieved peak).
+    ``blocks`` maps a block *type* to params to merge into every block of that
+    type (the ``tensix`` mode's clock ratio and DMA bandwidth; empty otherwise).
     """
 
     mode: str
     matrix: dict
     timing: dict
     derived: dict
+    blocks: dict = field(default_factory=dict)
 
 
 def normalise(
@@ -558,6 +609,15 @@ def normalise(
             acc_format=acc_format,
             vlen=vlen,
         )
+    # Tensix: a fixed tile engine behind DMA; only its clock and the DMA are free.
+    if mode == "tensix":
+        return _normalise_tensix(
+            peak_flops_per_cycle,
+            operand_bytes,
+            mem_bytes_per_cycle,
+            in_format=in_format,
+            acc_format=acc_format,
+        )
     # VME: tiles / accs do not apply; vlen pins VLEN (default 256), te pins TE.
     if mode == "vme":
         return _normalise_vme(
@@ -570,7 +630,9 @@ def normalise(
             te=te,
         )
     if mode != "ame":
-        raise ValueError(f"unknown coupling mode {mode!r}; expected ame, ime or vme")
+        raise ValueError(
+            f"unknown coupling mode {mode!r}; expected ame, ime, vme or tensix"
+        )
     if peak_flops_per_cycle < 2 or peak_flops_per_cycle % 2:
         raise ValueError(
             f"peak_flops_per_cycle must be an even number >= 2, got {peak_flops_per_cycle}"
@@ -818,4 +880,94 @@ def _normalise_vme(
     return NormalisedConfig("vme", {"mode": "vme", "te": te}, timing, derived)
 
 
-_NORMALISERS = {"ime": _normalise_ime, "vme": _normalise_vme}
+#: The Blackhole Tensix FPU: one 32x32x32 tile per 16 cycles per fidelity phase
+#: (the Tensix instruction cost table, TIC, MATH.fidelity_phases:
+#: cycles_per_tile LoFi 16, mul_adds_per_cycle_lofi 4096), so 2048 MACs a Tensix
+#: cycle per phase: the same per-pass peak as naiad-dwarfs' AME (format_passes
+#: count AME passes as fidelity phases count Tensix ones).
+TENSIX_MACS_PER_CYCLE = 2048
+#: The Tensix operand storage next to the FPU, fixed by the tile (tt-isa-documentation,
+#: Blackhole TensixCoprocessor): SrcA and SrcB, 2 banks x 64 rows x 16 columns of
+#: 19-bit data each, and Dst, 1024 rows x 16 columns x 16 bits (512 x 32-bit rows).
+TENSIX_SRC_BYTES = 2 * 2 * 64 * 16 * 19 // 8
+TENSIX_DST_BYTES = 1024 * 16 * 2
+#: The tile's unpack (L1 -> Src) bandwidth per Tensix cycle (TIC UNPACK x4 throttle).
+TENSIX_UNPACK_BYTES_PER_CYCLE = 64
+
+
+def _normalise_tensix(
+    peak_flops_per_cycle,
+    operand_bytes,
+    mem_bytes_per_cycle,
+    *,
+    in_format="bf16",
+    acc_format="fp32",
+    dma_channels=4,
+):
+    """Tensix on the bus (MMIO + DMA): a fixed tile engine, so only its clock and the DMA move.
+
+    * **Peak.** The FPU's shape is fixed at :data:`TENSIX_MACS_PER_CYCLE` MACs a
+      Tensix cycle per fidelity phase, so the peak is matched by the tile's clock:
+      ``clock_ratio = (peak_flops_per_cycle / 2) / 2048`` Tensix cycles per Naiad
+      cycle (1 at naiad-dwarfs' 4096 FLOPs/cycle, 1/4 at 1024). Everything inside
+      the tile scales with that clock too: its baby cores' control code, the
+      unpackers and packers (``derived["tile_unpack_bytes_per_naiad_cycle"]``).
+    * **Memory.** ``mem_bytes_per_cycle`` is the DMA engine's total, split over
+      ``dma_channels`` (the channel count fixes the DMA block's window, so it is
+      not a parameter of the sweep): ``bytes_per_cycle = mem / channels``.
+    * **Storage cannot be equalised.** SrcA + SrcB + Dst are the tile's
+      (:data:`TENSIX_SRC_BYTES` + :data:`TENSIX_DST_BYTES`, about 41.5 KiB);
+      ``derived["storage_ratio"]`` says how far that is from ``operand_bytes``.
+      Nor can the tile shape (32x32 tiles, 16x16 faces), the fidelity (the
+      captured image's HiFi2) or the operand formats (the image's bf16 inputs).
+
+    ``timing`` sets ``macs_per_cycle`` of the design's AME unit (a tensix design
+    carries one; the tensix variant does not use it) to the same peak, so the
+    harness's ratio column, which reads that unit, reports the tile's per-pass
+    peak; ``blocks`` carries the ``tensix`` and ``dma`` block params.
+    """
+    from fractions import Fraction
+
+    if peak_flops_per_cycle < 2 or peak_flops_per_cycle % 2:
+        raise ValueError(
+            f"peak_flops_per_cycle must be an even number >= 2, got {peak_flops_per_cycle}"
+        )
+    if mem_bytes_per_cycle is None or mem_bytes_per_cycle <= 0:
+        raise ValueError(
+            f"mode tensix needs mem_bytes_per_cycle > 0 (the DMA's), got {mem_bytes_per_cycle}"
+        )
+    if mem_bytes_per_cycle % dma_channels:
+        raise ValueError(
+            f"mem_bytes_per_cycle {mem_bytes_per_cycle} does not split over {dma_channels} DMA channels"
+        )
+    macs = peak_flops_per_cycle // 2
+    ratio = Fraction(macs, TENSIX_MACS_PER_CYCLE)
+    ratio_str = ratio.numerator if ratio.denominator == 1 else f"{ratio}"
+    per_channel = mem_bytes_per_cycle // dma_channels
+    storage = TENSIX_SRC_BYTES + TENSIX_DST_BYTES
+    derived = {
+        "clock_ratio": ratio_str,
+        "tile_macs_per_tensix_cycle": TENSIX_MACS_PER_CYCLE,
+        "dma_channels": dma_channels,
+        "dma_bytes_per_cycle": per_channel,
+        "storage_bytes": storage,
+        "storage_ratio": storage / operand_bytes,
+        "tile_unpack_bytes_per_naiad_cycle": float(
+            TENSIX_UNPACK_BYTES_PER_CYCLE * ratio
+        ),
+        "achieved_flops_per_cycle": 2 * macs,
+    }
+    blocks = {
+        "tensix": {"clock_ratio": ratio_str},
+        "dma": {"bytes_per_cycle": per_channel},
+    }
+    return NormalisedConfig(
+        "tensix", {}, {"macs_per_cycle": macs}, derived, blocks=blocks
+    )
+
+
+_NORMALISERS = {
+    "ime": _normalise_ime,
+    "vme": _normalise_vme,
+    "tensix": _normalise_tensix,
+}

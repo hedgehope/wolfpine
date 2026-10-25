@@ -59,7 +59,7 @@ def test_variant_matches_golden(variant, formats, tmp_path):
     assert r.region_cycles > 0
     assert r.passed, r.error
     macs = r.counters.get("matrix.macs", 0)
-    if variant == "ame":
+    if variant in ("ame", "ame_mc"):  # ame_mc on one hart is ame
         # Default form: 5 mma per output tile per sweep, plus bf16's rounding mma
         # on every sweep but the last.
         mmas = SPEC.ITERS * TILES * 5 + (

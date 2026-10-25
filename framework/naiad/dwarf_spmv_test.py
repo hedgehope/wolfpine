@@ -69,7 +69,9 @@ def test_variant_matches_golden(variant, formats, tmp_path):
     assert r.region_cycles > 0
     assert r.passed, r.error
     nnzb = SPEC.dims(SMALLEST)[3]
-    assert r.counters.get("matrix.macs", 0) == (4096 * nnzb if variant == "ame" else 0)
+    assert r.counters.get("matrix.macs", 0) == (
+        4096 * nnzb if variant in ("ame", "ame_mc") else 0
+    )
 
 
 @needs_clang

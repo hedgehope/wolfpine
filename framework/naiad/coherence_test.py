@@ -19,12 +19,14 @@ from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import build
 from framework.naiad.design import DesignError, load_design, parse_design
 from framework.naiad.difftest import difftest, find_spike
-from framework.naiad.dwarfs import NAIAD_CC
+from framework.naiad.dwarfs import NAIAD_CC, multicore_design
 from framework.naiad.ip.cache import Cache, CoherentL1
 
 REPO = Path(__file__).resolve().parents[2]
 KERNELS = REPO / "kernels" / "naiad"
-DWARFS_4C = DESIGNS_DIR / "naiad-dwarfs-4c.yaml"
+DWARFS_4C = multicore_design(
+    4
+)  # naiad-dwarfs with 4 harts (generated, not a hand copy)
 RV64GC = DESIGNS_DIR / "naiad-rv64gc.yaml"
 L1 = 0x10000000
 LINE = 64
@@ -44,7 +46,7 @@ needs_spike = pytest.mark.skipif(
 
 
 def _raw(harts=2, cache=True, path=DWARFS_4C, **params):
-    """naiad-dwarfs-4c at ``harts`` harts; ``cache``: None (none), False (shared) or True (private)."""
+    """naiad-dwarfs at ``harts`` harts; ``cache``: None (none), False (shared) or True (private)."""
     raw = yaml.safe_load(Path(path).read_text())
     raw["cores"]["count"] = harts
     raw["name"] = (

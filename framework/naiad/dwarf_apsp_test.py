@@ -61,7 +61,7 @@ def test_variant_is_exact(variant, formats, tmp_path):
     nb = SMALLEST // 16
     # (nb^2 + 3) tropical mma per diagonal block: closure (4), panels, the rest.
     assert r.counters.get("matrix.macs", 0) == (
-        4096 * nb * (nb * nb + 3) if variant == "ame" else 0
+        4096 * nb * (nb * nb + 3) if variant in ("ame", "ame_mc") else 0
     )
 
 

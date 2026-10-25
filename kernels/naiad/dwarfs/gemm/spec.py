@@ -12,8 +12,10 @@ framework/naiad/emit/gemm_vme.py): A transposed through the tile state into a
 panel, B in place, a block shape the emitter picks for the design.
 
 The ``ame_mc`` variant is the AME driver with C's rows split across the harts
-of a multi-hart design (``naiad-dwarfs-4c.yaml``; each hart has its own unit),
-timed from a barrier to a barrier; on one hart it is the ame variant.
+of a multi-hart design (naiad-dwarfs with ``cores.count`` > 1, e.g.
+``dwarfs.multicore_design(4)``; each hart has its own unit), timed from a
+barrier to a barrier; on one hart it is the ame variant. ``rvv_mc`` is the same
+split of the rvv variant.
 
 The ``tensix`` variant offloads to a Tensix tile on the bus (``naiad-tensix.yaml``,
 kernels/naiad/include/tensix_accel.h): its region is the whole round trip (launch
@@ -35,6 +37,7 @@ VARIANTS = {
     "ame_mc": "ame_mc",
     "vme": "vme",
     "tensix": "tensix",
+    "rvv_mc": "rvv_mc",
 }
 SIZES = (32, 64, 128)
 FORMATS = (
@@ -48,6 +51,7 @@ FORMATS = (
 #: The RVV baseline runs every pair (Zvfh / Zvfbfwma widening FMAs; bf16/bf16 rounds the fp32 sum once).
 VARIANT_FORMATS = {
     "rvv": FORMATS,
+    "rvv_mc": FORMATS,
     # IME (Zvvm; needs an IME design, e.g. naiad-ime-timed.yaml): Zvvfp64mm, Zvvfp32mm,
     # Zvvbf16fp32mm, Zvvfp16fp32mm and Zvvbf16mm (bf16 C rounded after every sub-dot-product).
     "ime": FORMATS,

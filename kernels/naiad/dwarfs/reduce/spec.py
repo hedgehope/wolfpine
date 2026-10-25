@@ -35,11 +35,23 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "reduce"
-VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
+#: ``*_mc``: the same kernel split across the harts of a multi-hart design (``cores.count`` > 1;
+#: the source says how); on one hart each is its single-hart variant plus no-op barriers.
+#: ``ime`` / ``vme``: one call of the emitted GEMM driver against a stride-0 ones operand
+#: (``gemm/reduce_gemm.c``; needs an IME or VME design, e.g. naiad-ime-timed / naiad-vme-timed).
+VARIANTS = {
+    "ame": "ame",
+    "scalar": "scalar",
+    "rvv": "rvv",
+    "ame_mc": "ame_mc",
+    "rvv_mc": "rvv_mc",
+}
+VARIANTS.update({"ime": "gemm", "vme": "gemm"})
 SIZES = (4096, 16384, 65536)
 FORMATS = dwf.FORMATS
 #: The RVV baseline runs every pair (Zvfh / Zvfbfmin / Zvfbfwma widen the 16-bit inputs); scalar: F/D only.
-VARIANT_FORMATS = {"rvv": FORMATS}
+VARIANT_FORMATS = {"rvv": FORMATS, "rvv_mc": FORMATS}
+VARIANT_FORMATS.update({"ime": FORMATS, "vme": FORMATS})
 #: ``finish``: how the 16 partial sums become one. ``mma`` (default): astore, reload as a
 #: tile, one more mma. ``scalar``: 16 scalar adds. ``mmov``: as ``mma`` but the partials
 #: move accumulator -> tile by ``amov.t.a`` (AME ``acc_move``; Ztt ``mmov.m.a``).
@@ -75,6 +87,13 @@ def cflags(size, in_fmt, acc_fmt, switches=None):
     return [
         *dwf.fmt_cflags(in_fmt, acc_fmt),
         f"-DREDUCE_N={size}",
+        # Format names for the ime / vme variants' GEMM driver (unused by the others).
+        f"-DREDUCE_IN={in_fmt}",
+        f"-DREDUCE_ACC={acc_fmt}",
+        f"-DREDUCE_IN_UP={in_fmt.upper()}",
+        f"-DREDUCE_ACC_UP={acc_fmt.upper()}",
+        f"-DREDUCE_IN_{in_fmt.upper()}=1",
+        f"-DREDUCE_ACC_{acc_fmt.upper()}=1",
         *switch_cflags(switches),
     ]
 

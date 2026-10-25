@@ -1,0 +1,80 @@
+# One equal-resource coupling study across all four design points, against RVV:
+#
+#   AME     attached tiles + accumulators (naiad-dwarfs' unit, normalised)
+#   IME     Zvvm, operands and C in vector register groups (naiad-ime-timed)
+#   VME     Zvt, A/B in vector registers, C in accumulator tiles (naiad-vme-timed)
+#   Tensix  a Blackhole Tensix tile on the bus, MMIO + DMA (naiad-tensix)
+#
+#   python -m experiments.naiad.run coupling_all -j 4 && python -m experiments.naiad.plot coupling_all
+#   python -m experiments.naiad.run coupling_all --quick     # gemm 64^3, reduce 4096
+#
+# Held constant (framework.matrix.timing.normalise, one study per design point,
+# since each mode normalises its own way): peak matrix FLOPs/cycle (per pass:
+# format_passes / the Tensix fidelity phases apply on top, identically: fp32 4,
+# bf16 2 = HiFi2), 12 KiB of operand storage, 64 B/cycle of memory bandwidth
+# (the AME tile paths, the IME/VME vector LSU and tile port, the Tensix DMA's 4
+# channels, and the RVV baseline's LSU). Two peak levels: naiad-dwarfs' 4096
+# FLOPs/cycle and 1024.
+#
+# What cannot be equalised (see each normaliser's docstring):
+#   IME     VLEN must be a power of two: equal storage gives VLEN 2048 (8 KiB of
+#           the 12); VLEN 256 (the RVV design's, 1 KiB) is the realistic point.
+#   VME     TE is a power of two: TE 16 is the largest within 12 KiB (4 KiB tiles
+#           + 1 KiB VRF), TE 32 the first above (17 KiB).
+#   Tensix  the tile is fixed: 32x32 tiles, ~41.5 KiB of SrcA/SrcB/Dst, HiFi2,
+#           bf16 inputs only (the captured image), so fp32 has no Tensix point.
+#           The peak is matched by the tile's clock (clock_ratio 1 at 4096,
+#           1/4 at 1024), which also slows its unpackers, packers and baby
+#           cores; the 1.5 MiB L1 it stages through is not counted as storage.
+#
+# 256^3 is outside gemm's SIZES (32/64/128) but within every variant's limits
+# (Tensix: each operand <= 64 tiles).
+#
+# Beyond GEMM: reduce (n = 4096 / 16384 / 65536), whose AME variant is the
+# ones-tile reformulation; its ime / vme variants call the same emitted GEMM
+# driver the gemm variants use, against a ones operand (kernels/naiad/dwarfs/
+# reduce/gemm/reduce_gemm.c). There is no Tensix reduce (one captured image:
+# matmul_tiles), so the tensix study skips it.
+name: coupling_all
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: [gemm, reduce]
+sizes: {gemm: [64, 128, 256], reduce: all}
+formats: [[fp32, fp32], [bf16, fp32]]
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: same}
+ratio: {vector: rvv}
+overrides:
+  timing.vector.mem_bytes_per_cycle: 64
+figures: [coupling, bytes]
+quick:
+  sizes: {gemm: [64], reduce: smallest}
+
+studies:
+  - name: coupling_all_ame
+    description: AME normalised (8 tiles + 4 accumulators of 16 x 16 in 12 KiB) at two peaks
+    variants: [ame, rvv]
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ame, tiles: 8, accs: 4}
+    only: {normalise: [ame]}
+  - name: coupling_all_ime
+    description: IME (Zvvm) at equal storage (VLEN 2048) and VLEN 256, two peaks
+    variants: [ime, rvv]
+    variant_designs: {ime: framework/naiad/designs/naiad-ime-timed.yaml}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ime, vlen: [null, 256]}
+    only: {normalise: [ime]}
+  - name: coupling_all_vme
+    description: VME (Zvt) at TE 16 (under equal storage) and TE 32 (over), VLEN 256, two peaks
+    variants: [vme, rvv]
+    variant_designs: {vme: framework/naiad/designs/naiad-vme-timed.yaml}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: vme, vlen: 256, te: [null, 32]}
+    only: {normalise: [vme]}
+  - name: coupling_all_tensix
+    description: Tensix tile on the bus, clock ratio for equal peak, DMA at 64 B/cycle, bf16 in
+    variants: [tensix, rvv]
+    variant_designs: {tensix: framework/naiad/designs/naiad-tensix.yaml}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: tensix}
+    only: {normalise: [tensix]}

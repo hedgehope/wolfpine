@@ -24,6 +24,9 @@ Study keys:
     ``{dotted.key: [values]}``, the cartesian product of the value lists, each
     deep-merged onto the base design. A list element of the design is addressed
     by its ``name`` (``blocks.l1.params.latency``). A scalar is a one-value axis.
+    A mapping value for a name the list lacks *adds* that element
+    (``blocks.l1d: {type: cache, params: {...}}``); only unmapped blocks (no base
+    or window, e.g. a cache) may be added, so addresses still cannot move.
     The key ``kernel.cflags`` is not a design key: its values (a string or a list
     of strings) are appended to the kernel's cflags (feature switches).
 ``only``
@@ -41,7 +44,10 @@ Study keys:
     equal storage), the vector LSU's ``timing.vector.mem_bytes_per_cycle``, and
     ``matrix.lambdas`` to every lambda permissible at the new VLEN (a lambda
     list is VLEN-specific; the base's may be illegal or lack the reference
-    geometry's). None of this moves an address.
+    geometry's). For ``mode: tensix`` (a Tensix tile behind DMA) it sets the
+    ``tensix`` block's ``clock_ratio`` (equal peak) and the ``dma`` block's
+    ``bytes_per_cycle`` (equal bandwidth over its channels). None of this moves
+    an address.
 ``base_design``
     Repo-relative base design (default ``framework/naiad/designs/naiad-dwarfs.yaml``).
 ``variant_designs``
@@ -52,7 +58,9 @@ Study keys:
     ``matrix.mode: ime``, ``ame*`` needs ``ame``, ``vme*`` ``vme``) is skipped with
     a message, never run, so ``variants: all`` stays safe. Likewise a variant the
     spec's optional ``VARIANT_BLOCKS`` maps to a block type (gemm's ``tensix``
-    needs a ``tensix`` block) is skipped on a base design without one.
+    needs a ``tensix`` block) is skipped on a base design without one, and a
+    variant whose spec's ``VARIANT_FEATURES`` names a matrix feature the point's
+    derived design lacks (``ame_fused`` needs ``ewise``) is skipped per point.
 ``seed``, ``count_all``
     Input RNG seed (default 0); per-class and per-block counters (default true).
 ``seeds``
@@ -74,7 +82,9 @@ Study keys:
     Override keys that move the ratio (they are not grouping keys for the crossover).
 ``figures``
     Which figures this study feeds: ``crossover``, ``bytes``, ``accuracy``, ``redundancy``,
-    ``feature_ranking``, ``sparsity``.
+    ``feature_ranking``, ``sparsity``, ``coupling`` (one set over every study listing it),
+    ``scaling`` (speedup vs ``cores.count``, one figure and ``scaling.csv`` over every study
+    listing it; :mod:`experiments.naiad.scaling`).
 ``quick``
     A mapping merged over the study under ``--quick`` (default: ``sizes: smallest``).
 
@@ -117,6 +127,8 @@ FIGURES = (
     "redundancy",
     "feature_ranking",
     "sparsity",
+    "coupling",
+    "scaling",
 )
 STUDY_KEYS = {
     "name",
@@ -356,7 +368,14 @@ def apply_override(design, key, value):
         node = _child(node, part, key, create=True)
     last = parts[-1]
     if isinstance(node, list):
-        raise SweepError(f"override {key!r}: cannot replace a whole list element")
+        named = [i for i in node if isinstance(i, dict) and i.get("name") == last]
+        if not isinstance(value, dict):
+            raise SweepError(f"override {key!r}: cannot replace a whole list element")
+        if named:
+            deep_merge(named[0], value)
+        else:  # a new element (check_addresses lets only unmapped blocks through)
+            node.append({"name": last, **copy.deepcopy(value)})
+        return design
     if isinstance(value, dict) and isinstance(node.get(last), dict):
         deep_merge(node[last], value)
     else:
@@ -369,8 +388,13 @@ def block_layout(design):
 
 
 def check_addresses(base, derived, what="derived design"):
-    """Raise :class:`AddressMoved` unless every block keeps its base, size and window."""
+    """Raise :class:`AddressMoved` unless every block keeps its base, size and window.
+
+    A derived design may add unmapped blocks (no base, size or window: a cache),
+    which occupy no addresses; it may not drop a block or add a mapped one.
+    """
     want, got = block_layout(base), block_layout(derived)
+    got = {n: lay for n, lay in got.items() if n in want or lay != (None, None, None)}
     if set(want) != set(got):
         raise AddressMoved(
             f"{what}: blocks changed from {sorted(want)} to {sorted(got)}"
@@ -403,6 +427,7 @@ class DesignFactory:
         self.out_dir = Path(out_dir) / "designs"
         self._base = {}
         self._made = {}
+        self._designs = {}
 
     def base(self, path):
         path = Path(path)
@@ -410,6 +435,10 @@ class DesignFactory:
             raw = yaml.safe_load(path.read_text())
             self._base[path] = (raw, parse_design(copy.deepcopy(raw), path))
         return self._base[path]
+
+    def design(self, h):
+        """The parsed design :meth:`derive` wrote as ``h``."""
+        return self._designs[h]
 
     def derive(
         self, base_path, overrides, normalise=None, in_fmt="fp32", acc_fmt="fp32"
@@ -437,6 +466,7 @@ class DesignFactory:
                     f"overrides {applied} give an invalid design: {e}"
                 ) from e
             check_addresses(base, design, f"design with overrides {applied}")
+            self._designs[h] = design
             self.out_dir.mkdir(parents=True, exist_ok=True)
             header = (
                 f"# Derived by experiments.naiad from {Path(base_path).name}; do not edit.\n"
@@ -469,7 +499,18 @@ def _apply_normalise(raw, params, in_fmt, acc_fmt):
     # VLEN and the vector LSU (VME has no lambdas to rewrite).
     if cfg.mode in ("ime", "vme"):
         _merge_ime(raw, cfg.derived)
+    _merge_blocks(raw, cfg.blocks)
     return dict(cfg.derived)
+
+
+def _merge_blocks(raw, by_type):
+    """Merge ``{block type: params}`` (a normaliser's ``blocks``) into every block of that type."""
+    for btype, params in (by_type or {}).items():
+        hits = [b for b in raw.get("blocks") or [] if b.get("type") == btype]
+        if not hits:
+            raise SweepError(f"normalise needs a '{btype}' block; the design has none")
+        for block in hits:
+            deep_merge(block.setdefault("params", {}), params)
 
 
 def _merge_ime(raw, derived):
@@ -637,6 +678,14 @@ def expand(sweep, factory=None, log=print):
                                 except Exception as e:
                                     log(
                                         f"[{study.name}] skip {name}/{variant} {ovr}: {e}"
+                                    )
+                                    continue
+                                missing = dwarfs_mod.missing_features(
+                                    spec, variant, factory.design(h)
+                                )
+                                if missing:
+                                    log(
+                                        f"[{study.name}] skip {name}/{variant} {ovr}: needs matrix feature(s) {missing}"
                                     )
                                     continue
                                 cflags = ovr.get(CFLAGS_KEY)

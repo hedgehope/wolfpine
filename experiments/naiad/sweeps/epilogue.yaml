@@ -1,0 +1,196 @@
+# Epilogue fusion: does an element-wise epilogue inside the matrix unit close the
+# gap for the dwarfs that never beat RVV (fft, nbody)?
+#
+#   python -m experiments.naiad.run epilogue -j 4 && python -m experiments.naiad.plot epilogue
+#   python -m experiments.naiad.run epilogue --quick
+#
+# Variants (every one on naiad-dwarfs, RVV at VLEN 256 with a 256-bit datapath):
+#   ame        unfused: the element-wise phase (fft twiddles, nbody clamp / rsqrt /
+#              force) on the scalar core, tiles round-tripping through memory
+#   ame_rvv    unfused hybrid: the same phase on the RVV unit (fft: the twiddle
+#              pass; nbody: the weights, with the force sum as a second GEMM)
+#   ame_fused  fused: the phase on the accumulators (custom-3 aew.* / amacc.* /
+#              aewu, features ewise + ewise_tx; amov.t.a / tconv to hand results on)
+#   rvv        the baseline (speedup 1)
+# The element-wise datapath is uncalibrated: timing.matrix.ewise_bytes_per_cycle
+# (default 64 = 16 fp32 a cycle, twice RVV's 8), ewise_latency 4, aewu at a
+# quarter rate with latency 12 (framework/matrix/timing.py). The crossover studies
+# give each width its own study; 32 B/cycle is RVV's arithmetic width.
+name: epilogue
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: [fft, nbody]
+sizes: mid
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: [fp32, fp32]}
+ratio: {vector: rvv}
+# Every study lists the element-wise features (they only add header defines to the
+# kernels that do not use them) and gives the vector LSU the tile path's 64 B/cycle,
+# as talk_tier2's crossover does, so the ratio is the only resource that differs.
+overrides:
+  timing.vector.mem_bytes_per_cycle: 64
+  matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+
+studies:
+  # -- 1. speedup over RVV vs matrix:vector ratio, fused vs unfused -------------
+  # talk_tier2's crossover axis: macs_per_cycle 4..8192 is a fp32 ratio of 1/8..256.
+  - name: crossover
+    description: fft / nbody speedup over RVV vs ratio, fp32, mid size; unfused, RVV-epilogue hybrid and fused
+    variants: [ame, ame_rvv, ame_fused, rvv]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+  # The fused crossover again with the element-wise datapath at RVV's width (32 B/cycle)
+  # and at twice the default (128 B/cycle).
+  - name: crossover_ew32
+    description: ame_fused crossover with a 32 B/cycle (RVV-width) element-wise datapath
+    variants: [ame_fused, rvv]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_bytes_per_cycle: 32
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+      timing.matrix.ewise_bytes_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+        timing.matrix.ewise_bytes_per_cycle: 32
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+  - name: crossover_ew128
+    description: ame_fused crossover with a 128 B/cycle element-wise datapath
+    variants: [ame_fused, rvv]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_bytes_per_cycle: 128
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+      timing.matrix.ewise_bytes_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+        timing.matrix.ewise_bytes_per_cycle: 128
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # -- 2. feature ablation (feature_ranking's style) ------------------------------
+  # ame_fused at the default design (ratio 64 for fp32), mid size, fp32 and bf16
+  # (fft) / fp32 and fp64 (nbody: bf16 cancels in the expansion for every AME
+  # variant). Each abl_* study changes one thing and is compared with the same
+  # point in abl_default (the feature_ranking figure: change in region cycles).
+  - name: abl_default
+    description: ame_fused, the full element-wise feature set
+    variants: [ame_fused]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    figures: [feature_ranking]
+  - name: abl_no-rsqrt
+    description: ame_fused without ewise_tx (nbody's weights on the scalar core)
+    variants: [ame_fused]
+    dwarfs: [nbody]
+    formats: [[fp32, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise]]
+    figures: [feature_ranking]
+  - name: abl_no-amov
+    description: ame_fused without acc_move (results to a tile through memory; fft bf16 converts in software)
+    variants: [ame_fused]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, convert, ewise, ewise_tx]]
+    figures: [feature_ranking]
+  - name: abl_no-tconv
+    description: ame_fused without convert (fft bf16 rounds to in_fmt in a scalar pass)
+    variants: [ame_fused]
+    dwarfs: [fft]
+    formats: [[bf16, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, ewise, ewise_tx]]
+    figures: [feature_ranking]
+  - name: abl_no-fma
+    description: fft ame_fused with separate multiplies and adds (amacc off; reference = the same study's default kernel)
+    variants: [ame_fused]
+    dwarfs: [fft]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      kernel.cflags: [[], [-DFFT_EW_FMA=0]]
+    figures: [feature_ranking]
+  - name: abl_shared-pipe
+    description: ame_fused with the element-wise ops on the mma pipe (no overlap with mma)
+    variants: [ame_fused]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_pipe: mma
+    figures: [feature_ranking]
+  - name: abl_ew32
+    description: ame_fused with a 32 B/cycle element-wise datapath (RVV's width)
+    variants: [ame_fused]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_bytes_per_cycle: 32
+    figures: [feature_ranking]
+  - name: abl_ew128
+    description: ame_fused with a 128 B/cycle element-wise datapath
+    variants: [ame_fused]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_bytes_per_cycle: 128
+    figures: [feature_ranking]
+  - name: abl_rsqrt-x16
+    description: ame_fused with aewu at 1/16 rate (an iterative rsqrt), latency 24
+    variants: [ame_fused]
+    dwarfs: [nbody]
+    formats: [[fp32, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_tx_factor: 16
+      timing.matrix.ewise_tx_latency: 24
+    figures: [feature_ranking]
+  - name: abl_rsqrt-x1
+    description: ame_fused with aewu at full rate (a pipelined rsqrt), latency 8
+    variants: [ame_fused]
+    dwarfs: [nbody]
+    formats: [[fp32, fp32], [fp64, fp64]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.ewise_tx_factor: 1
+      timing.matrix.ewise_tx_latency: 8
+    figures: [feature_ranking]
+  # The unfused variants and RVV at the same design, for the report's table.
+  - name: reference
+    description: ame, ame_rvv and rvv at the default design, the ablations' formats
+    variants: [ame, ame_rvv, rvv]
+    formats: [[fp32, fp32], [bf16, fp32], [fp64, fp64]]

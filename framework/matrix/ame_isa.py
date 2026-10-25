@@ -1,4 +1,4 @@
-"""AME: the attached matrix unit as an RV ISA executor (custom-0 / custom-1 / custom-2).
+"""AME: the attached matrix unit as an RV ISA executor (custom-0 .. custom-3).
 
 The core offers each fetched word to this class like any other extension
 (``run(register_file, memory_space, snoop, instr)``, True when claimed). The
@@ -145,6 +145,30 @@ def _tile_shift2(unit, insn, ops, register_file, memory, instr):
     )
 
 
+def _ewise_src(unit, insn, ops, register_file):
+    """The second operand of an ``aew`` / ``amacc``: its source kind and index (or scalar value)."""
+    src = insn.params["src"]
+    if src == "acc":
+        return src, ops["as2"]
+    if src == "tile":
+        return src, ops["ts"]
+    return src, _gpr(register_file, ops["value"])
+
+
+def _acc_ewise(unit, insn, ops, register_file, memory, instr):
+    src, operand = _ewise_src(unit, insn, ops, register_file)
+    unit.ewise(ops["ad"], ops["as1"], src, operand, ops["fmt"], ops["op"], instr)
+
+
+def _acc_fma(unit, insn, ops, register_file, memory, instr):
+    src, operand = _ewise_src(unit, insn, ops, register_file)
+    unit.ewise_fma(ops["ad"], ops["as1"], src, operand, ops["fmt"], ops["neg"], instr)
+
+
+def _acc_unary(unit, insn, ops, register_file, memory, instr):
+    unit.ewise_unary(ops["ad"], ops["as1"], ops["fmt"], ops["op"], instr)
+
+
 #: ``exec`` names in the table -> executor.
 EXECUTORS = {
     "tile_load": _tile_load,
@@ -161,6 +185,9 @@ EXECUTORS = {
     "tile_convert": _tile_convert,
     "tile_reduce": _tile_reduce,
     "tile_shift2": _tile_shift2,
+    "acc_ewise": _acc_ewise,
+    "acc_fma": _acc_fma,
+    "acc_unary": _acc_unary,
 }
 
 

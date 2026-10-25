@@ -11,6 +11,16 @@ Variants:
   ``ame/fft_ame.c``.
 * ``ame_gauss``: the same with the 3-mma Gauss complex product (``-DFFT_GAUSS=1``
   on the same source): 25% fewer MACs, one more rounding and a cancelling combine.
+* ``ame_fused``: ``ame`` with the inter-stage twiddle multiply done on the
+  accumulators (the ``ewise`` feature: ``aew.at`` / ``amacc.at`` with the
+  twiddle block as two ``acc_fmt`` tiles) and the rounding back to ``in_fmt``
+  done by ``amov.t.a`` + ``tconv`` (``acc_move``, ``convert``; a scalar pass
+  without them), so the data never visits the scalar core. See
+  ``ame_fused/fft_ame_fused.c``. Needs a design listing ``ewise``
+  (:data:`VARIANT_FEATURES`).
+* ``ame_rvv``: ``ame`` with the scalar twiddle pass replaced by an RVV one
+  (the unfused hybrid: the data still goes accumulator -> memory -> vector
+  registers -> memory -> tile between stages). See ``ame_rvv/fft_ame_rvv.c``.
 * ``scalar``: iterative radix-2 Cooley-Tukey in fp32 (fp64 for an fp64
   accumulator) on the F/D unit.
 
@@ -32,7 +42,18 @@ round-to-odd, then RNE to bf16), so ``ml_dtypes`` is not needed.
 import numpy as np
 
 NAME = "fft"
-VARIANTS = {"ame": "ame", "ame_gauss": "ame_gauss", "scalar": "scalar", "rvv": "rvv"}
+VARIANTS = {
+    "ame": "ame",
+    "ame_gauss": "ame_gauss",
+    "ame_fused": "ame_fused",
+    "ame_rvv": "ame_rvv",
+    "scalar": "scalar",
+    "rvv": "rvv",
+}
+#: Built with the design's vector extensions (the hybrid's twiddle pass is RVV).
+VECTOR_VARIANTS = ("rvv", "ame_rvv")
+#: Matrix features a variant cannot build without (the harness skips it on a design lacking them).
+VARIANT_FEATURES = {"ame_fused": ("ewise",)}
 DEFAULT_BATCH = 4
 SIZES = (256, 1024, 4096)
 FORMATS = [("fp32", "fp32"), ("fp64", "fp64"), ("bf16", "fp32"), ("fp16", "fp32")]

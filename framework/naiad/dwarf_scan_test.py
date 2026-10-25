@@ -37,7 +37,7 @@ def test_variant_matches_golden(variant, formats, tmp_path):
     assert r.passed, r.error
     # 3 mma per tile, plus the carry mma on every tile after the first.
     assert r.counters.get("matrix.macs", 0) == (
-        4096 * (4 * TILES - 1) if variant == "ame" else 0
+        4096 * (4 * TILES - 1) if variant in ("ame", "ame_mc") else 0
     )
 
 

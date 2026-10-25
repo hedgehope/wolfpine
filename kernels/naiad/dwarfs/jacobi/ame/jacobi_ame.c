@@ -70,6 +70,12 @@
 
 #define N JACOBI_N
 #define TT ((N - 2) / 16) /* output tiles per dimension */
+/* The tile rows [JACOBI_ROW0, JACOBI_ROW1) the sweeps cover: all of them, unless an
+ * includer (jacobi/ame_mc, one run of rows per hart) defines them. */
+#ifndef JACOBI_ROW0
+#define JACOBI_ROW0 0
+#define JACOBI_ROW1 TT
+#endif
 #define IN DW_IN_FMT
 #define ACC DW_ACC_FMT
 #define RS ((long)N * DW_IN_BYTES)  /* input row stride, bytes */
@@ -232,7 +238,7 @@ static void make_constants(void) {
 
 static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
     mx_tload_a(0, IN, cst[C_Q], 16 * DW_IN_BYTES);
-    for (int I = 0; I < TT; I++) {
+    for (int I = JACOBI_ROW0; I < JACOBI_ROW1; I++) {
         const dw_in_t *c = src + (long)(1 + 16 * I) * N + 1;
         char *d = dst + (1 + 16 * I) * ds + des;
         mx_tload_a(1, IN, c - 16, RS); /* its column 15 is the tile row's left boundary column */
@@ -262,7 +268,7 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
 #else
 static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
     mx_tload_a(0, IN, cst[C_Q], 16 * DW_IN_BYTES);
-    for (int I = 0; I < TT; I++) {
+    for (int I = JACOBI_ROW0; I < JACOBI_ROW1; I++) {
         const dw_in_t *c = src + (long)(1 + 16 * I) * N + 1;
         char *d = dst + (1 + 16 * I) * ds + des;
         int J = 0;
@@ -335,7 +341,7 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
     mx_tload_a(1, IN, cst[JACOBI_TSHIFT ? C_AH : C_Q], 16 * DW_IN_BYTES);
     mx_tload_b(2, IN, cst[C_ELT], 16 * DW_IN_BYTES);
     mx_tload_b(3, IN, cst[C_ERT], 16 * DW_IN_BYTES);
-    for (int I = 0; I < TT; I++) {
+    for (int I = JACOBI_ROW0; I < JACOBI_ROW1; I++) {
         const dw_in_t *c = src + (long)(1 + 16 * I) * N + 1;
         char *d = dst + (1 + 16 * I) * ds + des;
         mx_tload_a(4, IN, c - 16, RS); /* its column 15 is the tile row's left boundary column */
@@ -368,7 +374,7 @@ static void to_input_format(dw_in_t *dst) {
     (void)dst;
 #elif DW_IN_FMT == NAIAD_MFMT_BF16
     mx_tload_a(0, ACC, cid, 16 * DW_ACC_BYTES);
-    for (int I = 0; I < TT; I++) {
+    for (int I = JACOBI_ROW0; I < JACOBI_ROW1; I++) {
         for (int J = 0; J < TT; J++) {
             long o = (long)(1 + 16 * I) * N + 1 + 16 * J;
             mx_tload_b(1, ACC, out + o, ORS);
@@ -378,7 +384,7 @@ static void to_input_format(dw_in_t *dst) {
         }
     }
 #else
-    for (int i = 1; i < N - 1; i++) {
+    for (int i = 1 + 16 * JACOBI_ROW0; i < 1 + 16 * JACOBI_ROW1; i++) {
         for (int j = 1; j < N - 1; j++) {
             dst[i * N + j] = dw_acc_to_in(out[i * N + j]);
         }
@@ -386,6 +392,7 @@ static void to_input_format(dw_in_t *dst) {
 #endif
 }
 
+#ifndef JACOBI_NO_MAIN /* jacobi/ame_mc has its own */
 int main(void) {
     make_constants();
     for (int i = 0; i < N * N; i++) {
@@ -415,3 +422,4 @@ int main(void) {
     region_cycles = naiad_cycles() - t0;
     return 0;
 }
+#endif

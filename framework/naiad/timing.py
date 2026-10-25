@@ -203,6 +203,12 @@ def _bandwidth(v, w):
     return _number(v, w, minimum=1, allow_none=True, allow_float=True)
 
 
+def _ewise_pipe(v, w):
+    if v not in ("ewise", "mma"):
+        raise DesignError(f"{w}: expected 'ewise' or 'mma', got {v!r}")
+    return v
+
+
 def _parse_scalar(raw):
     spec = _parse_fields(
         raw,
@@ -278,6 +284,8 @@ def _parse_matrix(raw, design):
             k: lambda v, w: _number(v, w, minimum=0, allow_none=True)
             for k in ("tconv", "tshift2")
         },
+        "ewise_bytes_per_cycle": _bandwidth,
+        "ewise_pipe": _ewise_pipe,
     }
     spec = _parse_fields(raw, AMETimingSpec, "timing.matrix", rules)
     passes = spec.format_passes
@@ -352,11 +360,18 @@ class Region:
         self.loads = self.stores = self.bytes = 0
 
     def access(self, addr, nbytes, is_write, cycle, t_cycles):
-        """Commit an access: count it, hold the port ``t_cycles``, and return its latency.
+        """Commit an access: count it, hold the port, and return its latency.
 
-        With a provider the provider's answer is the latency (and the provider's
-        own state moves); otherwise the region's. Stores are posted, so callers
-        use the return value only for loads.
+        The port is held for ``ceil(nbytes / bandwidth)`` cycles, the port's own
+        time for the bytes, at most ``t_cycles`` (the requester's transfer): a
+        requester whose path is narrower than the port (a 64 B/cycle tile path
+        on a 128 B/cycle port) takes longer than that, but leaves the rest of
+        the port to the other harts, so ``bandwidth`` is the harts' combined cap.
+        (Every shipped design's only finite region, DRAM, is narrower than every
+        unit path, so there both are the same.) With a provider the provider's
+        answer is the latency (and the provider's own state moves); otherwise
+        the region's. Stores are posted, so callers use the return value only
+        for loads.
         """
         if is_write:
             self.stores += 1
@@ -364,7 +379,7 @@ class Region:
             self.loads += 1
         self.bytes += nbytes
         if self.bandwidth is not None:
-            self.port_free = cycle + t_cycles
+            self.port_free = cycle + max(1, min(t_cycles, -(-nbytes // self.bandwidth)))
         if self.provider is not None:
             return self.provider.access(addr, nbytes, is_write)
         return self.latency

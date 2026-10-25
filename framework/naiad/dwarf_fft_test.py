@@ -51,7 +51,10 @@ def test_narrow_storage_rounds_once(fmt):
 
 @needs_clang
 @needs_ml_dtypes
-@pytest.mark.parametrize("variant", sorted(SPEC.VARIANTS))
+# Variants needing optional matrix features run in dwarf_fused_test.py.
+@pytest.mark.parametrize(
+    "variant", sorted(set(SPEC.VARIANTS) - set(SPEC.VARIANT_FEATURES))
+)
 @pytest.mark.parametrize("formats", [("fp32", "fp32"), ("bf16", "fp32")])
 def test_variant_matches_golden(variant, formats, tmp_path):
     r = run_point(SPEC, variant, SMALLEST, *formats, build_root=tmp_path)

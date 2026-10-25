@@ -164,7 +164,8 @@ DW_INLINE void stage(int R, int B, int mp) {
 static void stage16(int B, int mp) { stage(16, B, mp); }
 static void stage32(int B, int mp) { stage(32, B, mp); }
 
-/* y (acc_fmt) * twiddle -> x (in_fmt), for a non-final stage's output. */
+/* y (acc_fmt) * twiddle -> x (in_fmt), for a non-final stage's output (../ame_rvv: an RVV one). */
+#ifndef FFT_TWIDDLE_DEFINED
 static void twiddle(int R, int B, int mp, const acc_t *wr, const acc_t *wi) {
     for (int t = 0; t < FFT_BATCH; t++) {
         long o = (long)t * FFT_N;
@@ -189,6 +190,7 @@ static void twiddle(int R, int B, int mp, const acc_t *wr, const acc_t *wi) {
         }
     }
 }
+#endif
 
 int main(void) {
     uint64_t start = naiad_cycles();

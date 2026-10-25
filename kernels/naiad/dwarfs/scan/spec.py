@@ -39,7 +39,9 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "scan"
-VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
+#: ``*_mc``: the same kernel split across the harts of a multi-hart design (``cores.count`` > 1;
+#: the source says how); on one hart each is its single-hart variant plus no-op barriers.
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv", "ame_mc": "ame_mc"}
 SIZES = (4096, 16384, 65536)
 FORMATS = dwf.FORMATS
 #: The RVV baseline runs every pair (Zvfh / Zvfbfmin / Zvfbfwma widen the 16-bit inputs); scalar: F/D only.

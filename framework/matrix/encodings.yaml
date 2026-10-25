@@ -54,6 +54,7 @@ opcodes:
   custom-0: 0x0B
   custom-1: 0x2B
   custom-2: 0x5B
+  custom-3: 0x7B
 
 # Format codes (names from framework/matrix/formats.py). mma's acc_fmt field is
 # three bits wide, so only codes 0-7 can be accumulator formats.
@@ -82,6 +83,11 @@ features:
   mma_transpose: 7  # mma.at / mma.bt      (Ztt mmulatacc.2d / mmulbtacc.2d)
   reduce: 8         # treduce / tprefix    (Ztt mreduce{add,max,min}.{row,col}, mprefix{add,max}.{row,col})
   shift2: 9         # tshift2: NOT in Ztt, a candidate feature this study proposes
+  # The epilogue-fusion study's proposals (custom-3). Ztt v0.6 has the same
+  # arithmetic, but on M registers (madd/msub/mmul/mmax/mmin/mmuladd .ew and
+  # .ew.x, mrsqrt.ew): these act on the accumulators in place.
+  ewise: 10         # aew.aa / aew.at / aew.ax / amacc.aa / amacc.at
+  ewise_tx: 11      # aewu: recip / rsqrt / sqrt (Ztt: mrsqrt.ew only)
 
 # mcfg selectors.
 config:
@@ -464,6 +470,136 @@ instructions:
       2^esz bytes, no wider than the widest input format; amount is 0 to
       min(R, 15). td may be ta or tb; bytes of td outside the window become
       zero.
+
+  # -- custom-3: element-wise accumulator ops (the epilogue-fusion study) --------
+  #
+  # Element-wise arithmetic on accumulators in place, so a matrix kernel's
+  # element-wise phase (a twiddle multiply, a clamp, a reciprocal square root)
+  # never leaves the unit. The second operand is another accumulator (.aa), a
+  # tile (.at: the tile's top-left M x N block read as fmt elements, i.e. its
+  # "a" view when K = N, which is what tload.a of an M x N block of fmt leaves:
+  # the twiddle / bias / residual operand from memory) or a scalar (.ax: the
+  # low bits of x[rs2] read as one fmt element, Ztt's .ew.x forms).
+  #
+  # Numerics, bit-defined: fmt must be a float accumulator format (int32 is
+  # illegal). Every op is computed exactly and rounded once to fmt, round to
+  # nearest even (fp32 and narrower: in fp64, exact for a product and correctly
+  # rounded for a sum since 53 >= 2p + 2, the fused forms through TwoSum and a
+  # sticky bit; fp64: native, the fused forms exactly). max / min are IEEE
+  # 754-2019 maximum / minimum (a NaN operand gives NaN; -0 < +0). Status flags
+  # are not modelled. Timing: each op streams M x N fmt elements through an
+  # element-wise datapath at timing.matrix.ewise_bytes_per_cycle, on its own
+  # pipe by default (framework/matrix/timing.py).
+  aew.aa:
+    opcode: custom-3
+    form: r
+    funct3: 0
+    exec: acc_ewise
+    feature: ewise
+    params: {src: acc}
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      as2: {field: rs2, kind: acc}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      op: {bits: [29, 31], kind: uimm}
+    doc: >
+      acc[ad] = acc[as1] op acc[as2], element-wise, rounded once to fmt: op 0 =
+      add, 1 = sub (as1 - as2), 2 = mul, 3 = max, 4 = min, 5 = rsub (as2 - as1);
+      6 and 7 are illegal. ad may be as1 or as2 (Ztt madd/msub/mmul/mmax/mmin.ew,
+      on accumulators instead of M registers).
+
+  aew.at:
+    opcode: custom-3
+    form: r
+    funct3: 1
+    exec: acc_ewise
+    feature: ewise
+    params: {src: tile}
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      ts: {field: rs2, kind: tile}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      op: {bits: [29, 31], kind: uimm}
+    doc: >
+      acc[ad] = acc[as1] op T, as aew.aa, where T is tile ts's top-left M x N
+      block of fmt elements (the "a" view when K = N). The M x N block of fmt
+      elements must fit the tile storage.
+
+  aew.ax:
+    opcode: custom-3
+    form: r
+    funct3: 2
+    exec: acc_ewise
+    feature: ewise
+    params: {src: scalar}
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      value: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      op: {bits: [29, 31], kind: uimm}
+    doc: >
+      acc[ad] = acc[as1] op s, as aew.aa, where s is the low bits of x[value]
+      read as one fmt element (Ztt's .ew.x forms; x0 gives +0.0, so op 3 is a
+      clamp at zero).
+
+  amacc.aa:
+    opcode: custom-3
+    form: r
+    funct3: 3
+    exec: acc_fma
+    feature: ewise
+    params: {src: acc}
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      as2: {field: rs2, kind: acc}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      neg: {bits: [29, 29], kind: flag}
+    doc: >
+      acc[ad] = acc[ad] + acc[as1] * acc[as2] (neg = 0) or acc[ad] - acc[as1] *
+      acc[as2] (neg = 1), element-wise and fused: rounded once to fmt (Ztt
+      mmuladd.ew leaves fused or unfused to the implementation; here fused).
+
+  amacc.at:
+    opcode: custom-3
+    form: r
+    funct3: 4
+    exec: acc_fma
+    feature: ewise
+    params: {src: tile}
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      ts: {field: rs2, kind: tile}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      neg: {bits: [29, 29], kind: flag}
+    doc: >
+      acc[ad] = acc[ad] +/- acc[as1] * T, fused, with T tile ts's M x N block as
+      in aew.at.
+
+  aewu:
+    opcode: custom-3
+    form: r
+    funct3: 5
+    exec: acc_unary
+    feature: ewise_tx
+    operands:
+      ad: {field: rd, kind: acc}
+      as1: {field: rs1, kind: acc}
+      fmt: {bits: [25, 28], kind: acc_fmt}
+      op: {bits: [29, 31], kind: uimm}
+    doc: >
+      acc[ad] = f(acc[as1]), element-wise: op 0 = recip (1 / x), 1 = rsqrt
+      (1 / sqrt(x)), 2 = sqrt; 3-7 are illegal. recip and sqrt are correctly
+      rounded (RNE). rsqrt is RNE_fmt(RNE_64(1 / RNE_64(sqrt(x)))): for fp32 and
+      narrower within 0.5 ulp + 2^-50 relative (correctly rounded unless the
+      exact result is that close to a rounding boundary), for fp64 below 1.5 ulp.
+      IEEE specials: recip(+-0) = +-inf, rsqrt(+0) = +inf, rsqrt(-0) = -inf,
+      rsqrt / sqrt of x < 0 = NaN, rsqrt(+inf) = +0. Ztt mrsqrt.ew leaves its
+      accuracy to the implementation.
 
 # -- VME (Zvt) ------------------------------------------------------------------
 #

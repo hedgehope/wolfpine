@@ -1,7 +1,7 @@
 # naiad-tensix: naiad-dwarfs (whose notes follow this header) plus a Blackhole
 # Tensix tile on the bus as a loosely coupled accelerator, and the DMA engine
 # that feeds it. Everything else is naiad-dwarfs' and must stay in step with it
-# by hand (as naiad-dwarfs-4c does), so a dwarf's `tensix` variant here and its
+# by hand, so a dwarf's `tensix` variant here and its
 # `ame` variant on naiad-dwarfs differ only in where the matrix work runs: the
 # AME unit (still present, so `ame` also runs on this design with identical
 # cycles) or the Tensix tile behind MMIO + DMA.

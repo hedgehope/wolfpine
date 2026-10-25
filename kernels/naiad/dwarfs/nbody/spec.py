@@ -11,6 +11,15 @@ Variants:
   particle. See ``ame/nbody_ame.c``.
 * ``ame_fgemm``: the same distances, and the force sum as a second GEMM,
   ``F = W X - x * (W 1)``, so the scalar side only evaluates ``w``.
+* ``ame_fused``: the same two GEMMs with the pair weights computed on the
+  accumulators (``ewise`` / ``ewise_tx``: clamp, ``+ eps^2``, ``rsqrt``, cube,
+  diagonal mask) and moved to a tile with ``amov.t.a``, so the scalar side
+  touches no pair; ``w`` stays in ``acc_fmt`` and the force GEMM runs in
+  ``acc_fmt``. Softened gravity only. See ``ame_fused/nbody_ame_fused.c``.
+  Needs a design listing ``ewise`` (:data:`VARIANT_FEATURES`).
+* ``ame_rvv``: ``ame_fused``'s two GEMMs with the weights computed by RVV
+  from each astored D tile (``nbody_rvv``'s rsqrt7 + Newton), W loaded back
+  as a tile: the unfused hybrid. See ``ame_rvv/nbody_ame_rvv.c``.
 * ``scalar``: the direct pairwise loop, ``r^2`` from coordinate differences.
 
 ``size`` is ``n``, ``(n, dist)`` or ``(n, dist, law)``: ``dist`` is
@@ -30,7 +39,18 @@ Numpy only (bf16 by bit manipulation; no ``ml_dtypes``).
 import numpy as np
 
 NAME = "nbody"
-VARIANTS = {"ame": "ame", "ame_fgemm": "ame_fgemm", "scalar": "scalar", "rvv": "rvv"}
+VARIANTS = {
+    "ame": "ame",
+    "ame_fgemm": "ame_fgemm",
+    "ame_fused": "ame_fused",
+    "ame_rvv": "ame_rvv",
+    "scalar": "scalar",
+    "rvv": "rvv",
+}
+#: Built with the design's vector extensions (the hybrid's weights are RVV).
+VECTOR_VARIANTS = ("rvv", "ame_rvv")
+#: Matrix features a variant cannot build without (the harness skips it on a design lacking them).
+VARIANT_FEATURES = {"ame_fused": ("ewise",)}
 SIZES = (
     (64, "uniform"),
     (64, "clustered"),

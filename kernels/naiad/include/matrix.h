@@ -203,6 +203,57 @@ MX_INLINE void mx_tshift2(const int td, const int ta, const int tb, const int co
              td, ta, tb);
 }
 
+/* -- element-wise accumulator ops (custom-3; features ewise, ewise_tx) ------------
+ *
+ * The epilogue-fusion study's proposal: arithmetic on accumulators in place.
+ *   mx_aew_aa(d, a, b, fmt, op)        acc d = acc a op acc b             (ewise)
+ *   mx_aew_at(d, a, t, fmt, op)        acc d = acc a op tile t's M x N    (ewise)
+ *   mx_aew_ax(d, a, fmt, op, bits)     acc d = acc a op scalar (fmt bits) (ewise)
+ *   mx_amacc_aa(d, a, b, fmt, neg)     acc d +/-= acc a * acc b, fused    (ewise)
+ *   mx_amacc_at(d, a, t, fmt, neg)     acc d +/-= acc a * tile t, fused   (ewise)
+ *   mx_aewu(d, a, fmt, op)             acc d = recip / rsqrt / sqrt(acc a) (ewise_tx)
+ */
+#define MX_EW_ADD 0
+#define MX_EW_SUB 1 /* a - b */
+#define MX_EW_MUL 2
+#define MX_EW_MAX 3
+#define MX_EW_MIN 4
+#define MX_EW_RSUB 5 /* b - a */
+#define MX_EWU_RECIP 0
+#define MX_EWU_RSQRT 1
+#define MX_EWU_SQRT 2
+
+/* R-type, rd / rs1 literal indices, rs2 an x-register. */
+#define MX_R_IIR(insn, f7_, d_, a_, r2_)                                                               \
+    __asm__ volatile(".insn r %[op], %[f3], %[f7], x%[rd], x%[ra], %[b]"                           \
+                     :                                                                             \
+                     : [op] "i"(NAIAD_MI_##insn##_OPCODE), [f3] "i"(NAIAD_MI_##insn##_FUNCT3),     \
+                       [f7] "i"(f7_), [rd] "i"(d_), [ra] "i"(a_), [b] "r"(r2_))
+
+MX_INLINE void mx_aew_aa(const int d, const int a, const int b, const int fmt, const int op) {
+    MX_R_III(AEW_AA, (fmt << NAIAD_MI_AEW_AA_FMT_SHIFT) | (op << NAIAD_MI_AEW_AA_OP_SHIFT), d, a, b);
+}
+
+MX_INLINE void mx_aew_at(const int d, const int a, const int t, const int fmt, const int op) {
+    MX_R_III(AEW_AT, (fmt << NAIAD_MI_AEW_AT_FMT_SHIFT) | (op << NAIAD_MI_AEW_AT_OP_SHIFT), d, a, t);
+}
+
+MX_INLINE void mx_aew_ax(const int d, const int a, const int fmt, const int op, unsigned long bits) {
+    MX_R_IIR(AEW_AX, (fmt << NAIAD_MI_AEW_AX_FMT_SHIFT) | (op << NAIAD_MI_AEW_AX_OP_SHIFT), d, a, bits);
+}
+
+MX_INLINE void mx_amacc_aa(const int d, const int a, const int b, const int fmt, const int neg) {
+    MX_R_III(AMACC_AA, (fmt << NAIAD_MI_AMACC_AA_FMT_SHIFT) | (neg << NAIAD_MI_AMACC_AA_NEG_SHIFT), d, a, b);
+}
+
+MX_INLINE void mx_amacc_at(const int d, const int a, const int t, const int fmt, const int neg) {
+    MX_R_III(AMACC_AT, (fmt << NAIAD_MI_AMACC_AT_FMT_SHIFT) | (neg << NAIAD_MI_AMACC_AT_NEG_SHIFT), d, a, t);
+}
+
+MX_INLINE void mx_aewu(const int d, const int a, const int fmt, const int op) {
+    MX_R_III(AEWU, (fmt << NAIAD_MI_AEWU_FMT_SHIFT) | (op << NAIAD_MI_AEWU_OP_SHIFT), d, a, 0);
+}
+
 /* -- acc <-> memory without acc_mem: through scratch tiles ------------------------ */
 #if !defined(NAIAD_MATRIX_FEATURE_ACC_MEM) && defined(NAIAD_MATRIX_FEATURE_ACC_MOVE)
 #ifndef MX_SCRATCH_TILES

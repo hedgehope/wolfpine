@@ -1,0 +1,93 @@
+# Multicore scaling of the dwarfs: each `*_mc` variant (the single-hart kernel
+# split across harts by naiad_hartid(), synchronised by naiad_barrier()) on
+# 1, 2, 4 and 8 harts, against its own 1-hart run.
+#
+#   python -m experiments.naiad.run multicore_scaling -j 4 && python -m experiments.naiad.plot multicore_scaling
+#   python -m experiments.naiad.run multicore_scaling --quick      # smallest sizes
+#
+# Every design is naiad-dwarfs.yaml plus overrides: `cores.count` is the hart
+# axis (one core, AME unit and RVV unit per hart; timing.shared_ports on, so
+# each memory region's port and its `bandwidth` are shared), and the cache
+# axis adds an `l1d` block in front of L1 (null: none; a 32 KiB, 4-way,
+# 64 B-line cache with 1-cycle hits and L1's latency as the fill cost, shared
+# by every hart or, `private: true`, one per hart kept coherent by MSI
+# snooping; framework/naiad/ip/cache.py). The plain `ame` / `rvv` variants run
+# once (1 hart, `only:`) as references: on one hart each `*_mc` is that
+# variant plus no-op barriers.
+#
+# Sizes: mid, except where mid has fewer than 8 units of parallel work: gemm
+# 256 (eight 32-row blocks; 64 has two), jacobi 130 (eight 16-row tile rows;
+# 66 has four) and apsp 128 (49 phase-3 blocks per k; 64 has nine). gemm runs
+# AME only (its RVV baseline at 256 is ~2.5M cycles a point) at fp32 and
+# bf16 -> fp32. The `bandwidth*` studies give L1 a finite port (64 or
+# 128 B/cycle, shared by every hart; naiad-dwarfs' L1 is unlimited) without a
+# cache: one AME unit's tile path is 64 B/cycle, so this is where the harts
+# start to queue for memory.
+#
+# experiments.naiad.scaling (the `scaling` figure) writes scaling.csv: speedup
+# over the same variant on 1 hart with the same cache and L1 port, parallel
+# efficiency (speedup / harts), per-hart stall breakdown and the cache's
+# coherence counters.
+name: multicore_scaling
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: [jacobi, scan, reduce, spmv, apsp]
+variants: [ame, ame_mc, rvv, rvv_mc]
+formats: [[fp32, fp32]]
+sizes: {gemm: [256], jacobi: [130], apsp: [128], "*": mid}
+seed: 0
+count_all: true
+baseline: {variant: ame, formats: same}
+references: [rvv]
+only:
+  cores.count: ["*_mc"]
+figures: [scaling]
+quick:
+  sizes: {jacobi: [34], apsp: [32], "*": smallest}
+
+studies:
+  - name: scaling
+    description: speedup vs harts, fp32, no cache / shared L1 cache / private MSI L1 caches
+    overrides:
+      cores.count: [1, 2, 4, 8]
+      blocks.l1d:
+        - null
+        - {type: cache, params: {fronts: [l1], size: 32KiB, assoc: 4, line: 64, hit_latency: 1,
+                                 miss_latency: backing}}
+        - {type: cache, params: {fronts: [l1], size: 32KiB, assoc: 4, line: 64, hit_latency: 1,
+                                 miss_latency: backing, private: true}}
+
+  - name: scaling_gemm
+    description: gemm ame_mc speedup vs harts, fp32 and bf16 -> fp32, three cache configs
+    dwarfs: [gemm]
+    variants: [ame, ame_mc]
+    formats: [[fp32, fp32], [bf16, fp32]]
+    baseline: {variant: ame, formats: same}
+    references: []
+    overrides:
+      cores.count: [1, 2, 4, 8]
+      blocks.l1d:
+        - null
+        - {type: cache, params: {fronts: [l1], size: 32KiB, assoc: 4, line: 64, hit_latency: 1,
+                                 miss_latency: backing}}
+        - {type: cache, params: {fronts: [l1], size: 32KiB, assoc: 4, line: 64, hit_latency: 1,
+                                 miss_latency: backing, private: true}}
+    quick:
+      sizes: [64]
+
+  - name: bandwidth
+    description: speedup vs harts with a finite, shared L1 port (64 or 128 B/cycle), no cache
+    overrides:
+      cores.count: [1, 2, 4, 8]
+      timing.memory.l1.bandwidth: [64, 128]
+
+  - name: bandwidth_gemm
+    description: gemm ame_mc speedup vs harts with a finite, shared L1 port, fp32 and bf16 -> fp32
+    dwarfs: [gemm]
+    variants: [ame, ame_mc]
+    formats: [[fp32, fp32], [bf16, fp32]]
+    references: []
+    overrides:
+      cores.count: [1, 2, 4, 8]
+      timing.memory.l1.bandwidth: [64, 128]
+    quick:
+      sizes: [64]

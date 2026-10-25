@@ -56,7 +56,9 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "spmv"
-VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
+#: ``*_mc``: the same kernel split across the harts of a multi-hart design (``cores.count`` > 1;
+#: the source says how); on one hart each is its single-hart variant plus no-op barriers.
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv", "ame_mc": "ame_mc"}
 #: (n, block density): about four blocks per block row at every size.
 SIZES = ((128, 0.5), (256, 0.25), (512, 0.125))
 FORMATS = dwf.FORMATS

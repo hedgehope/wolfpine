@@ -51,7 +51,9 @@ dwf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dwf)
 
 NAME = "apsp"
-VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv"}
+#: ``*_mc``: the same kernel split across the harts of a multi-hart design (``cores.count`` > 1;
+#: the source says how); on one hart each is its single-hart variant plus no-op barriers.
+VARIANTS = {"ame": "ame", "scalar": "scalar", "rvv": "rvv", "ame_mc": "ame_mc"}
 SIZES = (32, 64, 128)
 #: The tropical mma works in one format: the distances are re-read as tiles every
 #: phase, so the accumulator format is the input format.

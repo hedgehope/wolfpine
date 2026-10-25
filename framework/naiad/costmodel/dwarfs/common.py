@@ -62,3 +62,33 @@ def mx_drain(e, accs):
                 accs_read=(0,),
                 tiles_written=(("scratch", x.tiles - 1 - i),),
             )
+
+
+def need_features(x, *features):
+    missing = [f for f in features if f not in x.features]
+    if missing:
+        raise Unsupported(f"the kernel needs matrix feature(s) {missing}")
+
+
+def ewise(e, fmt, accs_read, acc_written, tiles_read=(), tx=False):
+    """One element-wise accumulator op (custom-3) on the unit's ``ewise`` pipe (or ``mma``)."""
+    x = e.m.ame
+    e.mop(
+        x.ewise_ii(fmt, tx),
+        x.ewise_tx_latency if tx else x.ewise_latency,
+        tiles_read=tiles_read,
+        accs_read=accs_read,
+        accs_written=(acc_written,),
+        pipe="mma" if x.ewise_pipe == "mma" else "ewise",
+    )
+
+
+def amov_to_tile(e, acc, tile):
+    """``amov.t.a``: accumulator -> tile on the mma pipe."""
+    x = e.m.ame
+    e.mop(
+        math.ceil(x.m / x.acc_to_tile_rows_per_cycle),
+        x.acc_to_tile_latency,
+        accs_read=(acc,),
+        tiles_written=(tile,),
+    )

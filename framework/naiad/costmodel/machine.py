@@ -99,6 +99,21 @@ class AME:
     treduce_rows_per_cycle: int = 8
     treduce_latency: int = 5
     tshift2: int | None = None
+    ewise_bytes_per_cycle: float | None = 64
+    ewise_latency: int = 4
+    ewise_tx_factor: int = 4
+    ewise_tx_latency: int = 12
+    ewise_pipe: str = "ewise"
+
+    def ewise_ii(self, fmt, tx=False):
+        """Interval of one element-wise accumulator op (``aew.*`` / ``amacc.*``; ``aewu`` when ``tx``)."""
+        nb = self.m * self.n * FORMAT_BYTES[fmt]
+        ii = (
+            1
+            if self.ewise_bytes_per_cycle is None
+            else max(1, math.ceil(nb / self.ewise_bytes_per_cycle))
+        )
+        return ii * (self.ewise_tx_factor if tx else 1)
 
     def ii(self, fmt, m=None, n=None, k=None):
         """Initiation interval of one ``m x n x k`` mma on in-format ``fmt`` (the full tile by default)."""

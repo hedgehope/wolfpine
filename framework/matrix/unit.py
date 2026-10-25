@@ -37,6 +37,8 @@ COUNTER_NAMES = (
     "tile_to_acc_bytes",
     "mma",
     "macs",
+    "ewise_ops",
+    "ewise_elems",
 )
 
 
@@ -65,6 +67,67 @@ def _wide_dtype(fmt):
 #: ``treduce`` / ``tprefix`` op codes (the rs2 field) -> the binary fold.
 _REDUCE_OPS = (np.add, np.maximum, np.minimum)
 _PREFIX_OPS = (np.add, np.maximum)
+
+
+def _ieee_max(a, b):
+    """IEEE 754-2019 maximum: NaN if either is NaN, and -0 < +0."""
+    out = np.where(a > b, a, b)
+    zeros = (a == 0) & (b == 0)
+    out = np.where(zeros & ~(np.signbit(a) & np.signbit(b)), np.abs(out), out)
+    return np.where(np.isnan(a) | np.isnan(b), np.nan, out)
+
+
+def _ieee_min(a, b):
+    """IEEE 754-2019 minimum: NaN if either is NaN, and -0 < +0."""
+    out = np.where(a < b, a, b)
+    zeros = (a == 0) & (b == 0)
+    out = np.where(zeros & (np.signbit(a) | np.signbit(b)), -np.abs(out), out)
+    return np.where(np.isnan(a) | np.isnan(b), np.nan, out)
+
+
+#: ``aew.*`` op codes -> the binary op, on wide (fp64) operands.
+EWISE_OPS = (
+    np.add,
+    np.subtract,
+    np.multiply,
+    _ieee_max,
+    _ieee_min,
+    lambda a, b: b - a,
+)
+EWISE_OP_NAMES = ("add", "sub", "mul", "max", "min", "rsub")
+#: ``aewu`` op codes.
+EWISE_UNARY_NAMES = ("recip", "rsqrt", "sqrt")
+_EWISE_SUFFIX = {"acc": "aa", "tile": "at", "scalar": "ax"}
+
+
+def _fma_fp64_exact(a, b, c):
+    """``a * b + c`` in fp64 rounded once (RNE), elementwise (numpy has no fma).
+
+    numpy's ``a * b + c`` is right whenever it is exact; elsewhere the exact
+    value is formed as a rational (an fp64 is a dyadic rational, so this is
+    exact) and rounded by CPython's correctly rounded int / int division.
+    Non-finite results take numpy's (IEEE) value.
+    """
+    from fractions import Fraction
+
+    a, b, c = (np.asarray(v, np.float64) for v in (a, b, c))
+    with np.errstate(over="ignore", invalid="ignore"):
+        naive = a * b + c
+    out = naive.copy()
+    flat_out = out.reshape(-1)
+    for i, (x, y, z, n) in enumerate(
+        zip(a.reshape(-1), b.reshape(-1), c.reshape(-1), naive.reshape(-1))
+    ):
+        if not (np.isfinite(x) and np.isfinite(y) and np.isfinite(z)):
+            continue
+        exact = Fraction(float(x)) * Fraction(float(y)) + Fraction(float(z))
+        if exact == 0:
+            continue  # numpy's signed zero is IEEE's: x * y is then exact too
+        try:
+            flat_out[i] = exact.numerator / exact.denominator
+        except OverflowError:
+            flat_out[i] = np.inf if exact > 0 else -np.inf
+    return out
 
 
 class MatrixUnit:
@@ -461,6 +524,90 @@ class MatrixUnit:
         out = window[index].reshape(r, r * eb)
         self.tiles[td].fill(0)
         self.tiles[td, :r, : r * eb] = out
+
+    # -- element-wise accumulator ops (custom-3, the epilogue-fusion study) -----
+
+    def _ewise_format(self, fmt, instr, what):
+        if not fmt.is_float:
+            raise self.illegal(
+                instr, f"{what}: {fmt.name} is not a float accumulator format"
+            )
+
+    def _scalar_element(self, bits, fmt):
+        eb = fmt.dtype.itemsize
+        return np.frombuffer(
+            (bits & ((1 << (8 * eb)) - 1)).to_bytes(eb, "little"), fmt.dtype
+        )[0]
+
+    def _ewise_operand(self, src, index, fmt, instr, what):
+        """The second operand as wide (fp64) values: an accumulator, a tile's M x N block, or a scalar."""
+        if src == "acc":
+            x = self.acc_view(index, fmt)
+        elif src == "tile":
+            x = self._block(index, self.m, self.n, fmt, instr, what)
+        else:  # scalar: ``index`` is the x-register's value
+            x = self._scalar_element(index, fmt)
+        return np.asarray(x).astype(np.float64)
+
+    def _ewise_count(self):
+        self.stats["ewise_ops"] += 1
+        self.stats["ewise_elems"] += self.m * self.n
+
+    def ewise(self, d, s1, src, operand, fmt, op, instr=0):
+        """``aew.*``: ``acc[d] = acc[s1] op x2``, rounded once to ``fmt``.
+
+        ``src`` is ``"acc"`` / ``"tile"`` (``operand`` is its index) or
+        ``"scalar"`` (``operand`` is the x-register value).
+        """
+        what = f"aew.{_EWISE_SUFFIX[src]}"
+        self._ewise_format(fmt, instr, what)
+        if op >= len(EWISE_OPS):
+            raise self.illegal(
+                instr, f"{what}: op {op} (0-{len(EWISE_OPS) - 1} are defined)"
+            )
+        a = self.acc_view(s1, fmt).astype(np.float64)
+        b = self._ewise_operand(src, operand, fmt, instr, what)
+        with np.errstate(over="ignore", invalid="ignore"):
+            out = fmt.round(EWISE_OPS[op](a, b))
+        self.acc_view(d, fmt)[...] = out
+        self._ewise_count()
+
+    def ewise_fma(self, d, s1, src, operand, fmt, neg, instr=0):
+        """``amacc.*``: ``acc[d] = acc[d] +/- acc[s1] * x2``, fused (one rounding to ``fmt``)."""
+        what = f"amacc.{'aa' if src == 'acc' else 'at'}"
+        self._ewise_format(fmt, instr, what)
+        a = self.acc_view(s1, fmt).astype(np.float64)
+        b = self._ewise_operand(src, operand, fmt, instr, what)
+        c = self.acc_view(d, fmt).astype(np.float64)
+        if neg:
+            a = -a
+        if fmt.name == "fp64":
+            out = _fma_fp64_exact(a, b, c)
+        else:
+            from framework.matrix.mac import fma_round_once
+
+            out = fma_round_once(a, b, c, fmt.name)
+        self.acc_view(d, fmt)[...] = out
+        self._ewise_count()
+
+    def ewise_unary(self, d, s1, fmt, op, instr=0):
+        """``aewu``: ``acc[d] = recip / rsqrt / sqrt (acc[s1])`` (see encodings.yaml for the rounding)."""
+        self._ewise_format(fmt, instr, "aewu")
+        if op >= len(EWISE_UNARY_NAMES):
+            raise self.illegal(
+                instr, f"aewu: op {op} (0-{len(EWISE_UNARY_NAMES) - 1} are defined)"
+            )
+        x = self.acc_view(s1, fmt).astype(np.float64)
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            if op == 0:
+                out = 1.0 / x
+            elif op == 1:
+                out = 1.0 / np.sqrt(x)
+            else:
+                out = np.sqrt(x)
+            out = fmt.round(out)
+        self.acc_view(d, fmt)[...] = out
+        self._ewise_count()
 
     def config_word(self, selector, instr=0):
         if selector not in self._config_by_selector:

@@ -55,7 +55,10 @@ def test_lj_law_and_flop_count():
 
 @needs_clang
 @needs_ml_dtypes
-@pytest.mark.parametrize("variant", sorted(SPEC.VARIANTS))
+# Variants needing optional matrix features run in dwarf_fused_test.py.
+@pytest.mark.parametrize(
+    "variant", sorted(set(SPEC.VARIANTS) - set(SPEC.VARIANT_FEATURES))
+)
 def test_variant_matches_golden_fp32(variant, tmp_path):
     r = run_point(SPEC, variant, SMALLEST, "fp32", "fp32", build_root=tmp_path)
     assert r.exit_code == 0, r.console
@@ -65,7 +68,7 @@ def test_variant_matches_golden_fp32(variant, tmp_path):
     assert set(r.error) == {"force", "d2"}
     if variant.startswith("ame"):
         assert r.counters["matrix.macs"] == 16 * SMALLEST[0] ** 2 * (
-            2 if variant == "ame_fgemm" else 1
+            2 if variant in ("ame_fgemm", "ame_rvv") else 1
         )
 
 

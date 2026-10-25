@@ -20,9 +20,19 @@ figure is written as PNG and SVG to ``out/<sweep>/figures/<figure>-<study>``:
     up to the worst seed.
 ``redundancy``
     Matrix-unit FLOPs over the algorithm's useful FLOPs, per dwarf.
+``coupling``
+    One set over every study that lists it (a study per design point, each
+    normalised its own way): ``coupling_cycles`` / ``coupling_speedup`` (region
+    cycles and speedup over the baseline against size, a panel per format pair
+    and normalised peak, a line per design point labelled by its normalise
+    keys) and ``coupling_bytes`` (bytes per useful FLOP and path).
 ``sparsity``
     Speedup over the baseline against block density, for sizes ``(n, density[, nv])``
     (spmv), one line per variant, nv and swept override.
+``scaling``
+    One figure (and ``scaling.csv``) over every study that lists it: speedup of
+    the ``*_mc`` variants against ``cores.count``, a panel per cache / L1-port
+    configuration (:mod:`experiments.naiad.scaling`).
 
 Colours follow the dwarf, never its position: :data:`DWARF_ORDER` fixes the
 slot of every known dwarf, so a dwarf keeps its colour across figures and sweeps.
@@ -85,6 +95,8 @@ def variant_style(variant):
         return "-"
     if variant == "scalar":
         return ":"
+    if variant.endswith("_fused"):
+        return "-."
     return "--"
 
 
@@ -301,6 +313,12 @@ def _segments(row):
         "matrix.acc_to_mem": "acc → memory",
         "matrix.vec_to_tile": "vector → tile",  # VME (Zvt) moves
         "matrix.tile_to_vec": "tile → vector",
+        "matrix.vrf_a_read": "VRF → matrix (A, B)",  # IME / VME operand reads
+        "matrix.vrf_b_read": "VRF → matrix (A, B)",
+        "matrix.vrf_c_read": "VRF ↔ matrix (C)",  # IME: C lives in the VRF
+        "matrix.vrf_c_write": "VRF ↔ matrix (C)",
+        "vector.mem_to_vec_bytes": "memory → VRF",  # vector loads (byte_paths keeps the suffix)
+        "vector.vec_to_mem_bytes": "VRF → memory",
     }
     for col, value in row.items():
         if not col.startswith("bytes:") or not value:
@@ -321,15 +339,59 @@ def _segments(row):
     return segs
 
 
+#: Normaliser parameters (resolved, as the CSV's ``norm:`` columns hold them) that
+#: tell two points of one variant apart: a bar or series is labelled with each that varies.
+NORM_LABEL_KEYS = ("peak_flops_per_cycle", "vlen", "te", "d", "clock_ratio")
+_NORM_SHORT = {"peak_flops_per_cycle": "peak", "clock_ratio": "clock"}
+
+
+def norm_tags(rows, group=lambda r: (r["dwarf"], r["variant"])):
+    """``{id(row): "vlen=2048, ..."}``: the :data:`NORM_LABEL_KEYS` that vary within each row's ``group``."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(group(r), []).append(r)
+    tags = {}
+    for members in groups.values():
+        keys = [
+            k
+            for k in NORM_LABEL_KEYS
+            if len({str(r.get(f"norm:{k}")) for r in members}) > 1
+        ]
+        for r in members:
+            tags[id(r)] = ", ".join(
+                f"{_NORM_SHORT.get(k, k)}={r.get(f'norm:{k}')}"
+                for k in keys
+                if r.get(f"norm:{k}") not in (None, "")
+            )
+    return tags
+
+
+def bytes_bars(pts):
+    """``{(dwarf, variant label, size, formats): segments}``, one bar per point of the bytes figure.
+
+    Two normalised points of one variant (IME at two VLENs, VME at two TEs, two
+    peaks) are two bars: the variant label carries every normalise key that varies.
+    """
+    tags = norm_tags(
+        pts, lambda r: (r["dwarf"], r["variant"], r["size"], r["in_fmt"], r["acc_fmt"])
+    )
+    bars = {}
+    for r in pts:
+        tag = tags[id(r)].replace(
+            ", ", "\n"
+        )  # one fact per line, as the rest of the label
+        variant = r["variant"] + (f"\n{tag}" if tag else "")
+        key = (r["dwarf"], variant, r["size"], f"{r['in_fmt']}/{r['acc_fmt']}")
+        bars.setdefault(key, _segments(r))
+    return bars
+
+
 def plot_bytes(rows, study, out_dir):
     plt = _plt()
     pts = _ok(rows, study)
     if not pts:
         return []
-    bars = {}
-    for r in pts:
-        key = (r["dwarf"], r["variant"], r["size"], f"{r['in_fmt']}/{r['acc_fmt']}")
-        bars.setdefault(key, _segments(r))
+    bars = bytes_bars(pts)
     order = ["memory → tile", "tile → memory", "memory → acc", "acc → memory"]
     totals = {}
     for segs in bars.values():
@@ -379,6 +441,292 @@ def plot_bytes(rows, study, out_dir):
         "Whole run, from the counters: matrix-unit transfers, scalar loads/stores per memory block, and DMA.",
     )
     return _save(fig, out_dir, f"bytes-{study}")
+
+
+#: Coupling-figure design-point order (and colour slot): the variant, then its label keys.
+COUPLING_ORDER = ("ame", "ime", "vme", "tensix")
+_COUPLING_NAMES = {
+    "ame": "AME",
+    "ime": "IME",
+    "vme": "VME",
+    "tensix": "Tensix",
+    "rvv": "RVV",
+}
+#: Keys that name a design point; the peak is a panel, and the clock ratio follows it.
+_POINT_KEYS = tuple(
+    k for k in NORM_LABEL_KEYS if k not in ("peak_flops_per_cycle", "clock_ratio")
+)
+
+
+def _peak(r):
+    v = r.get("norm:peak_flops_per_cycle")
+    return None if v in (None, "") else int(float(v))
+
+
+def coupling_points(rows, baseline="rvv"):
+    """``{id(row): (order, label)}`` for the coupling figures: one design point per
+    variant and :data:`_POINT_KEYS` value set (``IME vlen=2048``), the baseline last."""
+    tags = {}
+    by_variant = {}
+    for r in rows:
+        by_variant.setdefault(r["variant"], []).append(r)
+    for variant, members in by_variant.items():
+        keys = [
+            k
+            for k in _POINT_KEYS
+            if len({str(r.get(f"norm:{k}")) for r in members}) > 1
+        ]
+        for r in members:
+            tag = " ".join(
+                f"{k}={r.get(f'norm:{k}')}"
+                for k in keys
+                if r.get(f"norm:{k}") not in (None, "")
+            )
+            name = _COUPLING_NAMES.get(variant, variant)
+            rank = (
+                COUPLING_ORDER.index(variant)
+                if variant in COUPLING_ORDER
+                else len(COUPLING_ORDER)
+            )
+            if variant == baseline:
+                rank = len(COUPLING_ORDER) + 1
+            sort_tag = tuple(float(r.get(f"norm:{k}") or 0) for k in keys)
+            tags[id(r)] = ((rank, variant, sort_tag), f"{name} {tag}".strip())
+    return tags
+
+
+def _size_num(size):
+    parts = _size_parts(size)
+    return parts[0] if parts else 0
+
+
+def plot_coupling(rows, studies, out_dir, stem, baseline="rvv"):
+    """The coupling comparison over several studies (one per design point, each with its own
+    normalisation): region cycles and speedup over ``baseline`` against problem size, one
+    panel per format pair (rows) and normalised peak (columns), one line per design point
+    (labelled by its normalise keys, so IME at two VLENs is two lines); plus bytes moved per
+    useful FLOP and path, at the highest peak. The baseline (peak-independent) is drawn in every
+    peak panel."""
+    pts = [
+        r
+        for r in rows
+        if r["study"] in studies and r["status"] == "ok" and r.get("region_cycles")
+    ]
+    paths = []
+    for dwarf in sorted({r["dwarf"] for r in pts}, key=lambda d: (d != "gemm", d)):
+        paths += _plot_coupling_dwarf(
+            [r for r in pts if r["dwarf"] == dwarf], dwarf, out_dir, stem, baseline
+        )
+    return paths
+
+
+def _plot_coupling_dwarf(pts, dwarf, out_dir, stem, baseline):
+    plt = _plt()
+    stem = f"{stem}-{dwarf}"
+    cube = "³" if dwarf == "gemm" else ""
+    # One row per (design point, size, formats, peak): the same baseline point recurs per study.
+    uniq = {}
+    for r in pts:
+        uniq.setdefault((r["point_id"], _peak(r)), r)
+    pts = list(uniq.values())
+    labels = coupling_points(pts, baseline)
+    order = sorted({labels[id(r)] for r in pts})
+    colour = {}
+    slot = 0
+    for _, name in order:
+        if name.startswith(_COUPLING_NAMES.get(baseline, baseline)):
+            colour[name] = INK_2
+        else:
+            colour[name] = PALETTE[slot % len(PALETTE)]
+            slot += 1
+    fmts = sorted(
+        {f"{r['in_fmt']}/{r['acc_fmt']}" for r in pts},
+        key=lambda f: (-_bits(f.split("/")[0]), f),
+    )
+    peaks = sorted({_peak(r) for r in pts if _peak(r) is not None}, reverse=True) or [
+        None
+    ]
+    base_rows = {
+        (r["dwarf"], r["size"], r["in_fmt"], r["acc_fmt"]): r["region_cycles"]
+        for r in pts
+        if r["variant"] == baseline
+    }
+    paths = []
+    for metric in ("cycles", "speedup"):
+        fig, axes = plt.subplots(
+            len(fmts),
+            len(peaks),
+            figsize=(5.2 * len(peaks) + 2.4, 3.6 * len(fmts)),
+            squeeze=False,
+            sharex=True,
+        )
+        for i, fmt in enumerate(fmts):
+            for j, peak in enumerate(peaks):
+                ax = axes[i][j]
+                series = {}
+                for r in pts:
+                    if f"{r['in_fmt']}/{r['acc_fmt']}" != fmt:
+                        continue
+                    if r["variant"] != baseline and _peak(r) != peak:
+                        continue
+                    if metric == "speedup":
+                        b = base_rows.get(
+                            (r["dwarf"], r["size"], r["in_fmt"], r["acc_fmt"])
+                        )
+                        if r["variant"] == baseline or not b:
+                            continue
+                        y = b / r["region_cycles"]
+                    else:
+                        y = r["region_cycles"]
+                    series.setdefault(labels[id(r)], []).append(
+                        (_size_num(r["size"]), y)
+                    )
+                for key in sorted(series):
+                    name = key[1]
+                    line = sorted(series[key])
+                    is_base = colour[name] == INK_2
+                    ax.plot(
+                        [p[0] for p in line],
+                        [p[1] for p in line],
+                        "--" if is_base else "-",
+                        marker="o",
+                        color=colour[name],
+                        label=name,
+                        markeredgecolor="white",
+                        markeredgewidth=1.5,
+                        zorder=3,
+                    )
+                if metric == "speedup":
+                    ax.axhline(1, color=INK_2, linewidth=1, linestyle="--", zorder=1)
+                ax.set_xscale("log", base=2)
+                ax.set_yscale("log")
+                sizes = sorted({_size_num(r["size"]) for r in pts})
+                ax.set_xticks(sizes, [f"{int(s)}{cube}" for s in sizes])
+                ax.minorticks_off()
+                ax.set_title(f"{fmt}, peak {peak} FLOPs/cycle" if peak else fmt)
+                if i == len(fmts) - 1:
+                    ax.set_xlabel(f"{dwarf} size" + (" (n³)" if cube else " (n)"))
+                if j == 0:
+                    ax.set_ylabel(
+                        "Region cycles"
+                        if metric == "cycles"
+                        else f"Speedup over {baseline} (×)"
+                    )
+        handles = {}
+        for row_axes in axes:
+            for ax in row_axes:
+                for h, lbl in zip(*ax.get_legend_handles_labels()):
+                    handles.setdefault(lbl, h)
+        names = [n for _, n in order if n in handles]
+        fig.legend(
+            [handles[n] for n in names],
+            names,
+            loc="upper left",
+            bbox_to_anchor=(1.0, 0.95),
+            fontsize=9,
+        )
+        fig.suptitle(
+            f"Coupling at equal resources, {dwarf}: "
+            + ("region cycles" if metric == "cycles" else f"speedup over {baseline}"),
+            fontweight="bold",
+        )
+        fig.tight_layout()
+        _note(
+            fig,
+            "Every design point normalised to the panel's peak matrix FLOPs/cycle (per pass; format_passes / "
+            "fidelity apply on top), 12 KiB operand storage where the mode allows it, 64 B/cycle memory bandwidth. "
+            f"{baseline} (dashed) does not depend on the peak. Tensix runs bf16 inputs only.",
+        )
+        paths += _save(fig, out_dir, f"coupling_{metric}-{stem}")
+    paths += _plot_coupling_bytes(
+        plt, pts, labels, order, colour, fmts, peaks[0], baseline, out_dir, stem, cube
+    )
+    return paths
+
+
+def _plot_coupling_bytes(
+    plt, pts, labels, order, colour, fmts, peak, baseline, out_dir, stem, cube
+):
+    """Stacked bytes per useful FLOP and path, a bar per design point and size, a panel per format pair."""
+    chosen = [r for r in pts if r["variant"] == baseline or _peak(r) == peak]
+    segs = {id(r): _segments(r) for r in chosen}
+    totals = {}
+    for sg in segs.values():
+        for n, v in sg.items():
+            totals[n] = totals.get(n, 0) + v
+    names = sorted((n for n in totals if totals[n]), key=lambda n: -totals[n])
+    if len(names) > len(PALETTE):
+        keep, fold = names[: len(PALETTE) - 1], set(names[len(PALETTE) - 1 :])
+        for sg in segs.values():
+            sg["other"] = sum(sg.pop(n, 0) for n in fold)
+        names = [*keep, "other"]
+    sizes = sorted({_size_num(r["size"]) for r in chosen})
+    fig, axes = plt.subplots(len(fmts), 1, figsize=(13, 3.8 * len(fmts)), squeeze=False)
+    for i, fmt in enumerate(fmts):
+        ax = axes[i][0]
+        here = [r for r in chosen if f"{r['in_fmt']}/{r['acc_fmt']}" == fmt]
+        points = [n for _, n in order if any(labels[id(r)][1] == n for r in here)]
+        ticks, xs = [], []
+        x = 0
+        for s in sizes:
+            for n in points:
+                r = next(
+                    (
+                        r
+                        for r in here
+                        if labels[id(r)][1] == n and _size_num(r["size"]) == s
+                    ),
+                    None,
+                )
+                if r is not None:
+                    flops = float(r.get("useful_flops") or 0) or 1.0
+                    bottom = 0.0
+                    for k, seg in enumerate(names):
+                        v = segs[id(r)].get(seg, 0) / flops
+                        ax.bar(
+                            x,
+                            v,
+                            0.8,
+                            bottom=bottom,
+                            color=OTHER
+                            if seg == "other"
+                            else PALETTE[k % len(PALETTE)],
+                            label=seg,
+                            edgecolor="white",
+                            linewidth=1.0,
+                        )
+                        bottom += v
+                    ticks.append(x)
+                    xs.append(f"{n}\n{int(s)}{cube}")
+                x += 1
+            x += 1
+        ax.set_xticks(ticks, xs, fontsize=7, rotation=90)
+        ax.grid(axis="x", visible=False)
+        ax.set_ylabel("Bytes per useful FLOP")
+        ax.set_title(f"{fmt}, peak {peak} FLOPs/cycle" if peak else fmt)
+    handles = {}
+    for row_axes in axes:
+        for h, lbl in zip(*row_axes[0].get_legend_handles_labels()):
+            handles.setdefault(lbl, h)
+    fig.legend(
+        [handles[n] for n in names if n in handles],
+        [n for n in names if n in handles],
+        loc="upper left",
+        bbox_to_anchor=(1.0, 0.95),
+        fontsize=9,
+    )
+    fig.suptitle(
+        f"Where each coupling spends its traffic, {stem.rsplit('-', 1)[-1]} (bytes per useful FLOP)",
+        fontweight="bold",
+    )
+    fig.tight_layout()
+    _note(
+        fig,
+        "Whole-run counters over the dwarf's useful FLOPs. memory → tile is AME's tile loads, IME's tile loads "
+        "into vector registers and VME's accumulator tile loads; VRF → matrix is the operand traffic IME / VME read "
+        "through the vector register file ports; DMA is the Tensix offload's traffic over the bus.",
+    )
+    return _save(fig, out_dir, f"coupling_bytes-{stem}")
 
 
 def plot_accuracy(rows, study, out_dir):
@@ -726,10 +1074,32 @@ def plot_sweep(sweep_dir, studies=None, log=print):
     meta = json.loads((sweep_dir / "meta.json").read_text())
     out_dir = sweep_dir / "figures"
     paths = []
+    coupling = [
+        name
+        for name, info in meta["studies"].items()
+        if "coupling" in (info.get("figures") or [])
+        and (not studies or name in studies)
+    ]
+    if coupling:  # one set of coupling figures over every study that feeds it
+        made = plot_coupling(rows, coupling, out_dir, sweep_dir.name)
+        if not made:
+            log(f"{', '.join(coupling)}: no data for the coupling figures")
+        paths += made
+    scaling_studies = [
+        name
+        for name, info in meta["studies"].items()
+        if "scaling" in (info.get("figures") or []) and (not studies or name in studies)
+    ]
+    if scaling_studies:  # one figure + scaling.csv over every study that feeds it
+        from experiments.naiad import scaling
+
+        paths += scaling.make(sweep_dir, scaling_studies, rows, log)[1:]
     for name, info in meta["studies"].items():
         if studies and name not in studies:
             continue
         for fig in info.get("figures") or []:
+            if fig in ("coupling", "scaling"):
+                continue
             if fig == "crossover":
                 made = plot_crossover(
                     rows, cross, name, out_dir, info.get("vector_baseline", "scalar")

@@ -15,14 +15,23 @@ only remove the distance arithmetic around them.
   3 FMAs. **ame_fgemm** also moves the force sum to the unit (a second mma
   per tile) at the price of rounding each weight to the input format.
 
+**ame_fused** computes the weights on the accumulators (custom-3 element-wise
+ops, an rsqrt) and runs the force GEMM in acc_fmt, so no pair touches the
+scalar side; ``ame_rvv`` (the RVV-weights hybrid) is not modelled.
+
 Formulas are the compiled loops of the n <= 256 build (``listings/nbody_*``);
 larger n drops the ``d2`` store and differs by one store a pair.
 """
 
 from framework.naiad.costmodel.dwarfs.common import (
     Unsupported,
+    amov_to_tile,
+    ewise,
+    mx_drain,
+    nbytes,
     need_acc_store,
     need_ame,
+    need_features,
     need_vector,
 )
 from framework.naiad.costmodel.engine import new_engine
@@ -280,4 +289,117 @@ def _ame_16(m, size, in_fmt, acc_fmt, fgemm):
     return base
 
 
-VARIANTS = {"scalar": scalar, "rvv": rvv, "ame": ame, "ame_fgemm": ame_fgemm}
+def ame_fused(m, size, in_fmt, acc_fmt):
+    """``ame_fused``: both GEMMs, the weights on the accumulators, two column tiles interleaved.
+
+    The operand build is ``ame``'s compiled per-particle loop plus the four
+    acc_fmt position stores per particle (and the 16-bit build's conversions
+    are not modelled: 16-bit inputs reuse the fp32 build, as ``ame``'s model
+    does). Per pair of column tiles, in the kernel's order: two distance mmas,
+    the ``d2`` astores (n <= 256), the element-wise chains (max, add, rsqrt,
+    amov, two muls, the mask on a diagonal tile, amov) with the next tiles'
+    loads between them, and the two force mmas in acc_fmt; the row block's F
+    is combined on the scalar side (3 loads, an FMA and a store per output).
+    """
+    x = need_ame(m)
+    if (x.m, x.n, x.k) != (16, 16, 16) or x.tiles < 8 or x.accs < 4:
+        raise Unsupported("nbody_ame_fused needs a 16 x 16 x 16 unit, 8 tiles, 4 accs")
+    if not x.acc_mem:
+        raise Unsupported("nbody_ame_fused needs aload/astore")
+    need_features(x, "ewise", "ewise_tx", "acc_move")
+    n, _ = shape(size)
+    if (in_fmt, acc_fmt) not in (
+        ("fp32", "fp32"),
+        ("fp64", "fp64"),
+        ("bf16", "fp32"),
+        ("fp16", "fp32"),
+    ):
+        raise Unsupported(f"nbody ame_fused formats {in_fmt}/{acc_fmt}")
+    if (n // 16) % 2:
+        raise Unsupported("nbody_ame_fused pairs the column tiles: n / 16 must be even")
+    tb, ab = 256 * nbytes(in_fmt), 256 * nbytes(acc_fmt)
+    ii, iif = x.ii(in_fmt), x.ii(acc_fmt)
+    P = _listing("nbody_ame_fp32_fp32")
+    e, vs = new_engine(m), VState()
+    P.follow(e, P.after(P.find("rdcycle")), A + 0x108, vs)
+
+    def build(i):
+        P.run(e, A + 0x108, A + 0x174, vs, last_taken=i < n - 1)
+        for _ in range(4):
+            e.store()
+
+    e.loop(n, build)
+    e.loop(256 // 4, lambda _: (e.alu(2), e.store()))  # the 1 - I mask
+    e.alu(4)
+    e.tload(2, ab)
+    e.tload(1, tb)
+    e.tload(3, tb)
+    t = _tiles(n)
+    save = n <= 256
+
+    def iblock(bi):
+        e.alu(3)
+        e.tload(0, tb)
+        e.azero(2)
+
+        def pair(bp):
+            D, B, T, X = (0, 3), (1, 3), (4, 6), (5, 7)
+            e.alu(3)
+            for c in (0, 1):
+                e.azero(D[c])
+            for c in (0, 1):
+                e.mma(D[c], 0, B[c], ii)
+            if save:
+                for c in (0, 1):
+                    e.alu(2)
+                    e.tstore(D[c], ab, acc=True)
+            for c in (0, 1):
+                ewise(e, acc_fmt, (D[c],), D[c])  # max
+                e.alu(1)
+                e.tload(X[c], ab)
+            for c in (0, 1):
+                ewise(e, acc_fmt, (D[c],), D[c])  # + eps^2
+                e.alu(1)
+                e.tload(B[c], tb)  # the next pair's distance operands
+            for c in (0, 1):
+                ewise(e, acc_fmt, (D[c],), D[c], tx=True)
+            for c in (0, 1):
+                amov_to_tile(e, D[c], T[c])
+            for _ in range(2):
+                for c in (0, 1):
+                    ewise(e, acc_fmt, (D[c],), D[c], tiles_read=(T[c],))
+            if bi // 2 == bp:  # the diagonal tile is in this pair
+                e.alu(2)
+                ewise(e, acc_fmt, (D[bi % 2],), D[bi % 2], tiles_read=(2,))
+            for c in (0, 1):
+                amov_to_tile(e, D[c], T[c])
+            for c in (0, 1):
+                e.mma(2, T[c], X[c], iif)
+            e.alu(2)
+
+        _split(e, t // 2, bi // 2, pair, lambda: pair(bi // 2))
+        e.tstore(2, ab, acc=True)
+
+        def out(_):
+            e.load(dst="s", fp=True)
+            for c in range(3):
+                e.load(dst=("x", c), fp=True)
+                e.load(dst=("f", c), fp=True)
+                e.op("fma", dst=("o", c), srcs=("s", ("x", c), ("f", c)))
+                e.store(srcs=(("o", c),), fp=True)
+            e.alu(2)
+
+        e.loop(16, out)
+
+    e.loop(t, iblock)
+    mx_drain(e, range(x.accs))
+    return e
+
+
+VARIANTS = {
+    "scalar": scalar,
+    "rvv": rvv,
+    "ame": ame,
+    "ame_fgemm": ame_fgemm,
+    "ame_fused": ame_fused,
+}

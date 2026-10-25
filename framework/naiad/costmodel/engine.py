@@ -88,7 +88,7 @@ class Engine:
         self.vlsu = 0
         self.tile_ready, self.tile_rfree = {}, {}
         self.acc_ready, self.acc_mready, self.acc_rfree = {}, {}, {}
-        self.pipe = {"mma": 0, "load": 0, "store": 0}
+        self.pipe = {"mma": 0, "load": 0, "store": 0, "ewise": 0}
         self.mem = {}
         self.busy = Counter()
         self.instret = Counter()

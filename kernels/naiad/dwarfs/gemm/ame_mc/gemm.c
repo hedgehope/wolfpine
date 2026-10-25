@@ -1,7 +1,7 @@
 /*
  * gemm, multi-hart AME variant: the ame variant's blocked driver (naiad_gemm.h),
  * with C's rows split across the design's harts (each hart has its own matrix
- * unit). Needs a multi-hart design (naiad-dwarfs-4c.yaml); on one hart it is the
+ * unit). Needs a multi-hart design (cores.count > 1); on one hart it is the
  * ame variant plus two no-op barriers.
  *
  * Rows go out in whole NAIAD_GEMM_MB-row blocks, as evenly as they divide, so

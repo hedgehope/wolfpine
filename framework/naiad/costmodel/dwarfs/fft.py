@@ -16,17 +16,25 @@
   the accumulator format, rounding back to the input format (software
   rounding for bf16 / fp16: 2x / 3x the instructions). The scalar pass, not
   the matrix unit, bounds it: ~25 cycles a point.
+* **ame_fused**: ``ame``'s mmas with the twiddle as four element-wise
+  accumulator ops per output block (the ``ewise`` feature) and the narrowing
+  store on the unit; no scalar pass, so the tile loads bound it.
+* ``ame_rvv`` (the RVV-twiddle hybrid) is not modelled: it would need its
+  compiled listing.
 """
 
 import math
 
 from framework.naiad.costmodel.dwarfs.common import (
     Unsupported,
+    amov_to_tile,
     compute_fmt,
+    ewise,
     mx_drain,
     nbytes,
     need_acc_store,
     need_ame,
+    need_features,
     need_vector,
 )
 from framework.naiad.costmodel.engine import new_engine
@@ -474,4 +482,104 @@ def ame_gauss(m, size, in_fmt, acc_fmt):
     return _ame(m, size, in_fmt, acc_fmt, gauss=True)
 
 
-VARIANTS = {"scalar": scalar, "rvv": rvv, "ame": ame, "ame_gauss": ame_gauss}
+def ame_fused(m, size, in_fmt, acc_fmt):
+    """``ame_fused``: ``ame``'s mmas, the twiddle on the accumulators, no scalar pass.
+
+    Per 16 x 16 output block: the DFT mmas as ``ame``; then, but for the last
+    stage, four element-wise ops against the twiddle tiles (loaded once per
+    (k block, column block)) and the store to the next stage's planes (an
+    astore pair, or amov.t.a + tconv + tstore each for 16-bit inputs). The
+    scalar side is loop control only (a few ALU ops per block, from the C).
+    """
+    x = need_ame(m)
+    if (x.m, x.n, x.k) != (16, 16, 16) or x.tiles < 8 or x.accs < 3:
+        raise Unsupported(
+            "fft_ame_fused needs a 16x16x16 unit with 8 tiles and 3 accumulators"
+        )
+    if not x.acc_mem:
+        raise Unsupported("fft_ame_fused needs aload/astore")
+    need_features(x, "ewise")
+    n, batch = shape(size)
+    if n not in PLANS:
+        raise Unsupported(f"no fft plan for n={n}")
+    narrow = in_fmt != acc_fmt
+    if narrow and not {"acc_move", "convert"} <= set(x.features):
+        raise Unsupported("the software-conversion ablation is not modelled")
+    tb, ab = 256 * nbytes(in_fmt), 256 * nbytes(acc_fmt)
+    ii = x.ii(in_fmt)
+    conv_ii = x.epilogue if x.tconv is None else x.tconv
+    e = new_engine(m)
+    e.alu(8)
+    radices = PLANS[n]
+    b = 1
+    for s, r in enumerate(radices):
+        mp = n // (b * r)
+        last = s == len(radices) - 1
+        e.alu(8)
+        if r == 16:
+            for t in (3, 4, 5):
+                e.tload(t, tb)
+
+        # Scalar counts from the compiled block loop (fp32, n = 1024): moves and
+        # address arithmetic around the matrix words, one stack reload per block.
+        def block(_, r=r, last=last):
+            e.azero(0)
+            e.azero(1)
+            e.alu(6)
+            for _kk in range(r // 16):
+                e.tload(0, tb)
+                e.tload(1, tb)
+                e.alu(1)
+                if r != 16:
+                    for t in (3, 4, 5):
+                        e.tload(t, tb)
+                    e.alu(1)
+                e.mma(0, 3, 0, ii)
+                e.mma(0, 5, 1, ii)
+                e.mma(1, 4, 0, ii)
+                e.mma(1, 3, 1, ii)
+                e.alu(4)
+            e.alu(4)
+            if last:
+                e.tstore(0, ab, acc=True)
+                e.tstore(1, ab, acc=True)
+                e.alu(4)
+                return
+            ewise(e, acc_fmt, (0,), 2, tiles_read=(7,))
+            ewise(e, acc_fmt, (1, 2), 2, tiles_read=(6,))
+            ewise(e, acc_fmt, (0,), 0, tiles_read=(6,))
+            ewise(e, acc_fmt, (0, 1), 0, tiles_read=(7,))
+            e.load()
+            e.alu(5)
+            for a in (0, 2):
+                if narrow:
+                    amov_to_tile(e, a, 2)
+                    e.mop(conv_ii, tiles_read=(2,), tiles_written=(2,))
+                    e.tstore(2, tb)
+                else:
+                    e.tstore(a, ab, acc=True)
+
+        if mp >= 16:
+
+            def column(_, last=last):
+                e.alu(4)
+                if not last:
+                    e.tload(6, ab)
+                    e.tload(7, ab)
+                e.loop(batch * b, block)
+
+            e.loop((r // 16) * (mp // 16), column)
+        else:
+            e.loop(batch * max(1, b // 16) * (r // 16), block)
+        b *= r
+    mx_drain(e, range(x.accs))
+    return e
+
+
+VARIANTS = {
+    "scalar": scalar,
+    "rvv": rvv,
+    "ame": ame,
+    "ame_gauss": ame_gauss,
+    "ame_fused": ame_fused,
+}

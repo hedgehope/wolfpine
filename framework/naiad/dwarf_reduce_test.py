@@ -26,7 +26,8 @@ def test_size_must_be_whole_tile_groups():
 
 @needs_clang
 @needs_ml_dtypes
-@pytest.mark.parametrize("variant", sorted(SPEC.VARIANTS))
+# ime / vme need an IME / VME design: dwarf_reduce_gemm_test.py runs them.
+@pytest.mark.parametrize("variant", sorted(set(SPEC.VARIANTS) - {"ime", "vme"}))
 @pytest.mark.parametrize("formats", [("fp32", "fp32"), ("bf16", "fp32")])
 def test_variant_matches_golden(variant, formats, tmp_path):
     r = run_point(SPEC, variant, SMALLEST, *formats, build_root=tmp_path)
@@ -36,7 +37,7 @@ def test_variant_matches_golden(variant, formats, tmp_path):
     assert r.passed, r.error
     # One mma per 256 inputs, plus the finishing mma.
     assert r.counters.get("matrix.macs", 0) == (
-        4096 * (SMALLEST // 256 + 1) if variant == "ame" else 0
+        4096 * (SMALLEST // 256 + 1) if variant in ("ame", "ame_mc") else 0
     )
 
 
