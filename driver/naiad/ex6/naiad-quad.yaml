@@ -1,0 +1,26 @@
+# naiad-quad: four RV64IMA harts on one DRAM, for driver/naiad/ex6.
+#
+# naiad-base-rv64 with cores.count: 4 and the A extension (the platform's
+# spinlocks and barrier use AMOs). The hart count is baked into the generated
+# crt0.S (it releases harts 1..3 through the CLINT's msip), so a multi-hart
+# program is built against a multi-hart design: `--set cores.count=4` at run
+# time does not change an ELF built for one hart.
+name: naiad-quad
+cores:
+  count: 4
+  xlen: 64
+  isa: [i, m, a, zicsr, zicntr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params: {counters: [cycle, instret, mtime, htif_chars]}
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}
