@@ -463,7 +463,7 @@ def test_defaults_are_filled_in():
 @pytest.mark.parametrize(
     "timing, message",
     [
-        ({"scalar": {"issue_width": 2}}, "only single issue"),
+        ({"scalar": {"issue_width": 3}}, r"only single \(1\) and dual \(2\)"),
         ({"scalar": {"alu": 0}}, "must be >= 1"),
         ({"scalar": {"bogus": 1}}, "unknown key"),
         ({"scalar": {"div_pipelined": 1}}, "true or false"),

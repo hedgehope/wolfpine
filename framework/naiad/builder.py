@@ -45,10 +45,43 @@ class NaiadClock(Clock):
     def __init__(self, clockables, on_tick=None):
         super().__init__(clockables, on_tick)
         self.current_cycle = 0
+        self.issue_width = 1
+        self._cores = self._others = ()
+
+    def set_issue_width(self, width, cores):
+        """Tick each of ``cores`` ``width`` times per cycle (issue slots), the other items once.
+
+        For the dual-issue timing model (``timing.scalar.issue_width: 2``,
+        :mod:`framework.naiad.timing`): the interpreter executes at most one
+        instruction per tick, so a cycle gives every core ``width`` ticks, all
+        with the cycle's number (slot-major: every core's slot 0, then every
+        core's slot 1), and then ticks the rest (DMA, CLINT wake-up, Tensix)
+        once. A core's ``csrs.cycles`` (``cycle``/``mcycle``) counts cycles:
+        the extra slots' increments are taken back.
+        """
+        self.issue_width = width
+        self._cores = tuple(cores)
+        self._others = tuple(c for c in self.clock_items if c not in self._cores)
 
     def clock_tick(self, cycle):
         self.current_cycle = cycle
-        super().clock_tick(cycle)
+        if self.issue_width == 1:
+            super().clock_tick(cycle)
+            return
+        cores = self._cores
+        for core in cores:
+            core.clock_tick(cycle)
+        for _ in range(1, self.issue_width):
+            counted = [getattr(core.csrs, "cycles", None) for core in cores]
+            for core in cores:
+                core.clock_tick(cycle)
+            for core, n in zip(cores, counted):
+                if n is not None:
+                    core.csrs.cycles = n
+        for item in self._others:
+            item.clock_tick(cycle)
+        if self.on_tick is not None:
+            self.on_tick(cycle)
 
     def reset(self):
         super().reset()

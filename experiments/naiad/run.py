@@ -41,7 +41,7 @@ from experiments.naiad.sweep import (
 SWEEPS = Path(__file__).resolve().parent / "sweeps"
 VECTOR_NOTE = (
     "A study's 'vector' baseline is its baseline.variant (rvv: the dwarfs' RVV variants, scalar: F/D) "
-    "and its ratio.vector model (rvv: timing.vector.datapath_bits / SEW; scalar: issue_width)."
+    "and its ratio.vector model (rvv: timing.vector.datapath_bits / SEW; scalar: 1 FMA/cycle)."
 )
 
 

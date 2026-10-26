@@ -28,8 +28,37 @@ tick that is and when its result may be read.
   store, an RVV / IME / VME store on the vector LSU, on any hart -- is still
   writing waits until that store completes (``mem_raw``): the per-SoC table in
   :mod:`framework.naiad.store_hazards` holds the policy.
-* ``issue_width`` is fixed at 1: the interpreter retires at most one
-  instruction per tick, so wider issue needs a different clocking scheme.
+* ``issue_width`` is 1 (the default) or 2: see **Dual issue** below.
+
+**Dual issue** (``issue_width: 2``, opt-in) is an in-order two-wide front end
+in the style of SiFive's U74 or SpacemiT's X60: two ALU pipes, and one each of
+memory, multiply/divide, FP and vector/matrix dispatch. The interpreter still
+executes one instruction per tick, so the SoC clock gives every core
+``issue_width`` ticks (*issue slots*) per cycle, all with the same cycle number,
+before it ticks the other blocks (DMA, CLINT wake-up, the Tensix tile) once,
+and ``cycle`` / ``mcycle`` count cycles, not slots
+(:meth:`framework.naiad.builder.NaiadClock.set_issue_width`). Slot 0 is the
+single-issue model unchanged. The next instruction issues in slot 1 of the
+same cycle only if:
+
+* slot 0 issued an instruction this cycle, and it was not a branch or jump
+  (control ends the issue group, taken or not);
+* neither is a CSR access or a system word (``ecall``, ``fence``, ``wfi``,
+  unknown words): those issue alone;
+* they do not both need one of the single pipes: memory (scalar loads, stores
+  and AMOs, RVV loads/stores, AME tile loads/stores, Zvvm/Zvt tile loads and
+  stores), multiply/divide, FP, or the vector/matrix dispatch port (every RVV,
+  Zvvm, Zvt or AME word, ``vset{i}vl{i}`` and ``mset*`` included). So a vector
+  or matrix instruction pairs with scalar ALU work, a scalar multiply or a
+  scalar FP op, never with another vector or matrix instruction, and a vector
+  or tile memory access never pairs with a scalar one;
+* it passes every check the single-issue model makes at that cycle: a RAW on
+  slot 0's result fails it (every latency is >= 1), as do a busy unit, port or
+  LSU and a pending penalty (a taken branch's, AME's ``overlap: false``).
+
+A slot-1 refusal is not a stall: the stall counters count the cycles in which
+slot 0 could not issue, and the refused instruction is offered again in slot 0
+of the next cycle. ``timing.paired`` counts the instructions issued in slot 1.
 
 **Memory regions** are the design's mapped blocks. Each takes its ``latency``
 (cycles beyond ``load``) and ``bandwidth`` (bytes/cycle, ``null`` unlimited)
@@ -56,6 +85,8 @@ from dataclasses import dataclass, field, fields
 from framework.matrix.timing import AMETiming, AMETimingSpec
 from framework.naiad.design import DesignError, _check_keys, parse_int
 from framework.naiad.store_hazards import StoresInFlight
+from framework.naiad.vector_timing import LOAD as VLOAD
+from framework.naiad.vector_timing import STORE as VSTORE
 from framework.naiad.vector_timing import VectorTiming, VectorTimingSpec, parse_vector
 
 #: Stall reasons, in report order.
@@ -90,7 +121,7 @@ _M64 = (1 << 64) - 1
 class ScalarTimingSpec:
     """``timing.scalar``: per-class result latencies (cycles) and the scalar pipeline's shape."""
 
-    #: Instructions issued per cycle. Only 1 is modelled.
+    #: Instructions issued per cycle: 1, or 2 (the in-order dual-issue front end; module docstring).
     issue_width: int = 1
     alu: int = 1
     #: Pipelined.
@@ -220,10 +251,10 @@ def _parse_scalar(raw):
             "branch_taken": lambda v, w: _number(v, w, minimum=0),
         },
     )
-    if spec.issue_width != 1:
+    if spec.issue_width not in (1, 2):
         raise DesignError(
-            f"timing.scalar.issue_width is {spec.issue_width}, but only single issue is modelled "
-            f"(the interpreter retires at most one instruction per tick)"
+            f"timing.scalar.issue_width is {spec.issue_width}, but only single (1) and dual (2) "
+            f"issue are modelled"
         )
     return spec
 
@@ -823,6 +854,120 @@ class NaiadCostState:
         return a < b if f3 in (4, 6) else a >= b
 
 
+# -- dual issue -------------------------------------------------------------------
+
+# The pipes an instruction needs (a bit mask). The first four are single: two
+# instructions that both need one of them do not issue in the same cycle.
+_P_MEM, _P_MULDIV, _P_FP, _P_VEC = 1, 2, 4, 8
+_P_SINGLE = _P_MEM | _P_MULDIV | _P_FP | _P_VEC
+_P_CTRL = 16  # a branch or jump: nothing issues after it in its cycle
+_P_ALONE = 32  # a CSR access or system word: issues alone
+
+_KIND_PIPES = {
+    _ALU: 0,
+    _MUL: _P_MULDIV,
+    _DIV: _P_MULDIV,
+    _LOAD: _P_MEM,
+    _STORE: _P_MEM,
+    _BRANCH: _P_CTRL,
+    _JUMP: _P_CTRL,
+    _CSR: _P_ALONE,
+    _FP_ADD: _P_FP,
+    _FP_MUL: _P_FP,
+    _FP_FMA: _P_FP,
+    _FP_DIV: _P_FP,
+    _FP_SQRT: _P_FP,
+    _FP_MISC: _P_FP,
+    _NONE: _P_ALONE,
+}
+
+
+def _vector_is_mem(op):
+    """True for a vector-unit op that moves memory: an RVV, Zvvm (IME) or Zvt (VME) load or store."""
+    insn = getattr(op, "insn", None)  # Zvt
+    if insn is not None:
+        return insn.name in ("vtle", "vtse")
+    d = getattr(op, "d", None)  # Zvvm
+    if d is not None:
+        return d.insn.kind in ("load", "store")
+    return op.kind in (VLOAD, VSTORE)
+
+
+class DualIssueCostState(NaiadCostState):
+    """:class:`NaiadCostState` for ``issue_width: 2``: the pairing rules of the module docstring.
+
+    The SoC clock ticks the core twice per cycle with the same cycle number;
+    the first tick of a cycle is slot 0 (exactly the single-issue model), the
+    second slot 1, which issues only an instruction that pairs with slot 0's.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._pipes_of = {}
+        super().__init__(*args, **kwargs)
+
+    def reset(self):
+        super().reset()
+        self._cycle = -1
+        #: The pipes of the instruction slot 0 issued this cycle (None: it issued none,
+        #: or slot 1 has been offered).
+        self._slot0 = None
+        self.paired = 0
+
+    def counters(self):
+        out = super().counters()
+        out["paired"] = self.paired
+        return out
+
+    def _pipes(self, instr):
+        pipes = self._pipes_of.get(instr)
+        if pipes is None:
+            if instr & 0x3 != 0x3:
+                pipes = 0
+            else:
+                decoded = self._decoded.get(instr)
+                if decoded is None:
+                    decoded = self._decoded[instr] = self._decode(instr)
+                kind, _, _, extra = decoded
+                if kind == _MATRIX:
+                    pipes = _P_VEC | (_P_MEM if extra.pipe in ("load", "store") else 0)
+                elif kind == _VECTOR:
+                    pipes = _P_VEC | (_P_MEM if _vector_is_mem(extra) else 0)
+                else:
+                    pipes = _KIND_PIPES[kind]
+            self._pipes_of[instr] = pipes
+        return pipes
+
+    def can_issue(self, instr, cycle_num, register_file):
+        if cycle_num != self._cycle:  # slot 0
+            self._cycle = cycle_num
+            if NaiadCostState.can_issue(self, instr, cycle_num, register_file):
+                self._slot0 = self._pipes(instr)
+                return True
+            self._slot0 = None
+            return False
+        # slot 1
+        first = self._slot0
+        if first is None:
+            return False
+        self._slot0 = None
+        pipes = self._pipes(instr)
+        if (
+            (first | pipes) & _P_ALONE
+            or first & _P_CTRL
+            or first & pipes & _P_SINGLE
+            or cycle_num < self._stall_until
+        ):
+            return False
+        if NaiadCostState.can_issue(self, instr, cycle_num, register_file):
+            self.paired += 1
+            return True
+        # Not a stall cycle: undo the one count the refusal made (_stall). The
+        # stall time it recorded stands: slot 0 of a later cycle waits for it.
+        self.stall_by_reason[self._stall_reason] -= 1
+        self.pending_stall -= 1
+        return False
+
+
 def install(soc):
     """Give every hart of ``soc`` a :class:`NaiadCostState` from its design's ``timing:`` section.
 
@@ -854,6 +999,8 @@ def install(soc):
     ports = {} if len(soc.cores) > 1 and timing.shared_ports else None
     # One memory, so one table of stores in flight that every hart's loads check.
     inflight = StoresInFlight()
+    width = timing.scalar.issue_width
+    cost_state = DualIssueCostState if width == 2 else NaiadCostState
     for core in soc.cores:
         memory = MemoryTiming(timing, soc.blocks, ports, inflight)
         for block in soc.blocks.values():
@@ -867,10 +1014,12 @@ def install(soc):
                     block.backing_latency = lambda addr, m=memory: (
                         m.lookup(addr).latency
                     )
-        core.rv_cost = NaiadCostState(
+        core.rv_cost = cost_state(
             timing,
             memory,
             soc.design.cores.xlen,
             getattr(core, "matrix", None),
             getattr(core, "vector", None),
         )
+    if width > 1:
+        soc.clock.set_issue_width(width, soc.cores)

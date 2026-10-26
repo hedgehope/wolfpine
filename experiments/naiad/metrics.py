@@ -9,8 +9,8 @@ at the same study, dwarf, size and seed, the baseline's formats (the study's
 cycle *for the row's input format* (``m*n*k / mma_interval``, so it follows
 ``macs_per_cycle``, ``format_passes`` and ``mma_ii``) over the vector
 baseline's peak FMAs per cycle. The baseline model is the study's
-``ratio.vector``: ``scalar`` (F/D: FMA is pipelined, so the peak is
-``timing.scalar.issue_width`` FMAs a cycle), ``rvv`` (the design's
+``ratio.vector``: ``scalar`` (F/D: FMA is pipelined on the one FP pipe, so
+the peak is one FMA a cycle at either ``timing.scalar.issue_width``), ``rvv`` (the design's
 ``timing.vector.datapath_bits`` over the SEW the FMA runs at: the wider of the
 row's input and accumulator formats, and at least 32 bits when either is bf16,
 which RVV can only multiply-add widening into fp32; so 8 fp32 / 4 fp64 / 16
@@ -173,8 +173,9 @@ def _vme_peak(design, in_fmt, acc_fmt):
 
 
 def _scalar_peak(design, in_fmt, acc_fmt=None):
-    issue = 1 if design.timing is None else design.timing.scalar.issue_width
-    return float(issue)
+    # One FP pipe: dual issue (framework.naiad.timing) pairs an FMA with
+    # non-FP work, never with a second FMA.
+    return 1.0
 
 
 def rvv_sew(in_fmt, acc_fmt=None):

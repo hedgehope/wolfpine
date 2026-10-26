@@ -1,0 +1,99 @@
+# Front-end sensitivity: the coupling study (coupling_all.yaml) and the tier-2
+# crossover (talk_tier2.yaml's crossover study) at timing.scalar.issue_width 1
+# and 2 (framework.naiad.timing: an in-order dual-issue front end; two ALU
+# pipes, one each of memory, mul/div, FP and vector/matrix dispatch).
+#
+#   python -m experiments.naiad.run dual_issue -j 8
+#   python -m experiments.naiad.run dual_issue --quick
+#
+# Every study is its parent's, plus the issue_width axis on every variant (the
+# RVV baseline included), so each speedup is against RVV on the same front end.
+# issue_width is dropped from ratio_keys: it does not move the matrix:vector
+# ratio (one FP pipe; RVV's peak is the datapath's), so it is a grouping key and
+# each width gets its own crossover.
+#
+# The kernels are unchanged: the VME and IME emitters schedule for one scalar
+# instruction a cycle and do not read issue_width.
+name: dual_issue
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: same}
+ratio: {vector: rvv}
+ratio_keys:
+  - timing.matrix.macs_per_cycle
+  - timing.matrix.mma_ii
+  - timing.matrix.format_passes
+  - normalise.peak_flops_per_cycle
+
+studies:
+  # talk_tier2's crossover study, both widths.
+  - name: crossover
+    description: speedup over RVV vs matrix:vector peak ratio, fp32/fp32, mid size, issue width 1 and 2
+    base_design: framework/naiad/designs/naiad-dwarfs.yaml
+    dwarfs: all
+    variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]
+    sizes: mid
+    formats: [[fp32, fp32]]
+    baseline: {variant: rvv, formats: [fp32, fp32]}
+    references: [scalar]
+    overrides:
+      timing.scalar.issue_width: [1, 2]
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    quick:
+      overrides:
+        timing.scalar.issue_width: [1, 2]
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # coupling_all.yaml's four studies, both widths.
+  - name: coupling_ame
+    description: AME normalised (8 tiles + 4 accs of 16 x 16 in 12 KiB) at two peaks, issue width 1 and 2
+    dwarfs: [gemm, reduce]
+    variants: [ame, rvv]
+    sizes: {gemm: [64, 128, 256], reduce: all}
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides: {timing.scalar.issue_width: [1, 2], timing.vector.mem_bytes_per_cycle: 64}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ame, tiles: 8, accs: 4}
+    only: {normalise: [ame]}
+    quick: {sizes: {gemm: [64], reduce: smallest}}
+  - name: coupling_ime
+    description: IME (Zvvm) at equal storage (VLEN 2048) and VLEN 256, two peaks, issue width 1 and 2
+    dwarfs: [gemm, reduce]
+    variants: [ime, rvv]
+    variant_designs: {ime: framework/naiad/designs/naiad-ime-timed.yaml}
+    sizes: {gemm: [64, 128, 256], reduce: all}
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides: {timing.scalar.issue_width: [1, 2], timing.vector.mem_bytes_per_cycle: 64}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: ime, vlen: [null, 256]}
+    only: {normalise: [ime]}
+    quick: {sizes: {gemm: [64], reduce: smallest}}
+  - name: coupling_vme
+    description: VME (Zvt) at TE 16 and TE 32, VLEN 256, two peaks, issue width 1 and 2
+    dwarfs: [gemm, reduce]
+    variants: [vme, rvv]
+    variant_designs: {vme: framework/naiad/designs/naiad-vme-timed.yaml}
+    sizes: {gemm: [64, 128, 256], reduce: all}
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides: {timing.scalar.issue_width: [1, 2], timing.vector.mem_bytes_per_cycle: 64}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: vme, vlen: 256, te: [null, 32]}
+    only: {normalise: [vme]}
+    quick: {sizes: {gemm: [64], reduce: smallest}}
+  - name: coupling_tensix
+    description: Tensix tile on the bus, clock ratio for equal peak, DMA at 64 B/cycle, bf16 in, issue width 1 and 2
+    dwarfs: [gemm, reduce]
+    variants: [tensix, rvv]
+    variant_designs: {tensix: framework/naiad/designs/naiad-tensix.yaml}
+    sizes: {gemm: [64, 128, 256], reduce: all}
+    formats: [[fp32, fp32], [bf16, fp32]]
+    overrides: {timing.scalar.issue_width: [1, 2], timing.vector.mem_bytes_per_cycle: 64}
+    normalise: {peak_flops_per_cycle: [4096, 1024], operand_bytes: 12288, mem_bytes_per_cycle: 64,
+                mode: tensix}
+    only: {normalise: [tensix]}
+    quick: {sizes: {gemm: [64], reduce: smallest}}
