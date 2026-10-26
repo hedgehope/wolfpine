@@ -32,11 +32,15 @@ examples:
   eval "$(wolfpine env blackhole)"               turn it on in this shell
   eval "$(wolfpine env off)"                     restore what was there before
   wolfpine doctor                                show what would be used
+  wolfpine run naiad prog.elf                    an RV64 ELF on the Naiad reference design
+  wolfpine run naiad --design naiad-rvv --set timing.scalar.issue_width=2 prog.elf
 
 options such as --tt-metal go before the target: everything after it is the command.
 """
 
 HW = "hw"
+#: Not a tt-metal target: ``run naiad`` runs an ELF on a Naiad design in this process.
+NAIAD = "naiad"
 TARGETS = (*ARCHES, HW)
 
 #: Every variable ``env``/``run`` may change, and so every one ``env off`` restores.
@@ -192,6 +196,10 @@ def cmd_run(args):
     command = args.command
     if command and command[0] == "--":
         command = command[1:]
+    if args.target == NAIAD:
+        from framework.naiad.run import target_main
+
+        return target_main(command)
     env = target_env(args.target, dict(os.environ), args.tt_metal)
     env.pop(SAVED, None)
     if not command:
@@ -245,6 +253,12 @@ def cmd_doctor(args):
             executable,
         )
 
+    from framework.naiad.run import DESIGNS_DIR, design_names
+
+    report(
+        "naiad designs", f"{DESIGNS_DIR}  ({len(design_names())})", bool(design_names())
+    )
+
     env = os.environ
     try:
         root, source = resolve_tt_metal(args.tt_metal, env)
@@ -287,11 +301,13 @@ def build_parser():
     run = sub.add_parser(
         "run",
         parents=[tt_metal],
-        help="run one command (default: a subshell) with tt-metal pointed at a target",
+        help="run one command (default: a subshell) with tt-metal pointed at a target, or an ELF on Naiad",
     )
-    run.add_argument("target", choices=TARGETS)
+    run.add_argument("target", choices=(*TARGETS, NAIAD))
     run.add_argument(
-        "command", nargs=argparse.REMAINDER, help="the program and its arguments"
+        "command",
+        nargs=argparse.REMAINDER,
+        help="the program and its arguments (naiad: [--design D] [--set K=V] prog.elf; see `run naiad --help`)",
     )
     run.set_defaults(func=cmd_run)
 
