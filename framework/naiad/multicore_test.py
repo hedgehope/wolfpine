@@ -3,9 +3,11 @@
 The end-to-end checks build ``kernels/naiad/multicore`` (an amoadd counter, an
 lr/sc counter, a spinlock and a reusable barrier on every hart) for 2 and 4
 harts, run it on Naiad and, when Spike is installed, difftest it on
-``spike -p<n>``; and run the gemm ``ame_mc`` dwarf on the 4-hart preset.
+``spike -p<n>``. The gemm ``ame_mc`` dwarf on the 4-hart preset is in
+``experiments/naiad/tests/multicore_dwarfs_test.py``.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -17,16 +19,15 @@ import yaml
 from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import MulticoreMemory, NaiadMemory, build
 from framework.naiad.design import DesignError, load_design, parse_design
-from framework.naiad.difftest import difftest, find_spike
-from framework.naiad.dwarfs import NAIAD_CC, load_spec, multicore_design, run_point
+from framework.naiad.difftest import difftest
 from framework.naiad.gen import gen_crt0, gen_header, gen_linker
+from framework.pe.rv.difftest import find_spike
 
 REPO = Path(__file__).resolve().parents[2]
 KERNELS = REPO / "kernels" / "naiad"
 RV64GC = DESIGNS_DIR / "naiad-rv64gc.yaml"
-DWARFS_4C = multicore_design(
-    4
-)  # naiad-dwarfs with 4 harts (generated, not a hand copy)
+DWARFS = DESIGNS_DIR / "naiad-dwarfs.yaml"
+NAIAD_CC = os.environ.get("NAIAD_CC", "/opt/llvm/20.1.7/bin/clang")
 CLINT = 0x02000000
 
 needs_clang = pytest.mark.skipif(
@@ -41,6 +42,13 @@ needs_spike = pytest.mark.skipif(
 def _raw(path=RV64GC, **cores):
     raw = yaml.safe_load(Path(path).read_text())
     raw["cores"].update(cores)
+    return raw
+
+
+def _dwarfs_4c():
+    """naiad-dwarfs with 4 harts, as ``experiments.naiad.dwarfs.multicore_design(4)`` generates it."""
+    raw = _raw(DWARFS, count=4)
+    raw["name"] = f"{raw['name']}-4c"
     return raw
 
 
@@ -103,7 +111,7 @@ def test_multicore_crt0_linker_and_header():
 
 
 def test_multicore_soc_has_per_hart_cores_and_units():
-    soc = build(load_design(DWARFS_4C))
+    soc = build(parse_design(_dwarfs_4c()))
     assert isinstance(soc.memory, MulticoreMemory)
     assert [c.csrs.read(0xF14) for c in soc.cores] == [0, 1, 2, 3]
     assert len({id(u) for u in soc.matrix_units}) == 4
@@ -168,13 +176,13 @@ def test_any_store_breaks_other_harts_reservations():
 
 
 def test_shared_ports_couple_the_harts_regions():
-    soc = build(load_design(DWARFS_4C))
+    soc = build(parse_design(_dwarfs_4c()))
     dram = [c.rv_cost.memory.by_name["dram"] for c in soc.cores]
     dram[0].port_free = 77
     assert [r.port_free for r in dram] == [77] * 4
     dram[2].loads += 1
     assert [r.loads for r in dram] == [0, 0, 1, 0]  # counts stay per hart
-    raw = _raw(DWARFS_4C)
+    raw = _dwarfs_4c()
     raw["timing"]["shared_ports"] = False
     private = build(parse_design(raw))
     dram = [c.rv_cost.memory.by_name["dram"] for c in private.cores]
@@ -183,7 +191,7 @@ def test_shared_ports_couple_the_harts_regions():
 
 
 def test_counters_are_per_hart_with_aggregates():
-    soc = build(load_design(DWARFS_4C))
+    soc = build(parse_design(_dwarfs_4c()))
     names = soc.counter_hub.names()
     for h in range(4):
         assert f"hart{h}.instret" in names
@@ -258,37 +266,3 @@ def test_multicore_agrees_with_spike(tmp_path, harts):
     result = difftest(design, elf)
     assert result.ok, result.report()
     assert b"PASS" in result.naiad.console
-
-
-@needs_clang
-def test_gemm_ame_mc_matches_golden_and_speeds_up(tmp_path):
-    spec = load_spec("gemm")
-    one = run_point(spec, "ame", 128, "fp32", "fp32", build_root=tmp_path)
-    four = run_point(
-        spec, "ame_mc", 128, "fp32", "fp32", design=DWARFS_4C, build_root=tmp_path
-    )
-    assert four.exit_code == 0, four.console
-    assert four.passed, four.error
-    assert (
-        four.error["C"]["normwise"] == one.error["C"]["normwise"]
-    )  # same blocks, same sums
-    # 4 row blocks of 32 over 4 harts: well over 2x (measured 3.2x).
-    assert one.region_cycles / four.region_cycles > 2.5
-    assert four.counters["matrix.macs"] == 128**3
-    assert all(four.counters[f"hart{h}.matrix.macs"] == 128**3 // 4 for h in range(4))
-
-
-@needs_clang
-def test_gemm_ame_mc_with_padded_edges_serialises_correctly(tmp_path):
-    spec = load_spec("gemm")
-    r = run_point(
-        spec,
-        "ame_mc",
-        (72, 40, 24),
-        "fp32",
-        "fp32",
-        design=DWARFS_4C,
-        build_root=tmp_path,
-    )
-    assert r.exit_code == 0, r.console
-    assert r.passed, r.error

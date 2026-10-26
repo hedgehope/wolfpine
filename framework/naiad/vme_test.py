@@ -1,9 +1,8 @@
-"""VME on Naiad: the ``matrix: {mode: vme}`` schema, the generator, the builder wiring and counters,
-and the gemm dwarf's ``vme`` variant end to end (clang 20). Spike has no Zvt, so nothing here is difftested."""
+"""VME on Naiad: the ``matrix: {mode: vme}`` schema, the generator, the builder wiring and counters.
+The gemm dwarf's ``vme`` variant end to end (clang 20) is ``experiments/naiad/tests/vme_dwarf_test.py``.
+Spike has no Zvt, so nothing here is difftested."""
 
 import importlib.util
-import os
-import shutil
 
 import pytest
 
@@ -24,11 +23,6 @@ pytestmark = pytest.mark.skipif(
 
 VME = DESIGNS_DIR / "naiad-vme.yaml"
 VME_TIMED = DESIGNS_DIR / "naiad-vme-timed.yaml"
-NAIAD_CC = os.environ.get("NAIAD_CC", "/opt/llvm/20.1.7/bin/clang")
-needs_clang = pytest.mark.skipif(
-    shutil.which(NAIAD_CC) is None or shutil.which("make") is None,
-    reason=f"needs make and {NAIAD_CC}",
-)
 
 
 def _raw(matrix, isa=("i", "m", "f", "d", "v", "zicsr"), vlen=256):
@@ -152,43 +146,3 @@ def test_builder_attaches_vme_after_rvv_with_counters_and_mtype():
     soc.reset()
     assert core.csrs.read(0xC23) == 0
     assert not core.matrix.buf.any()
-
-
-# -- the gemm dwarf's vme variant ----------------------------------------------------------------------
-
-
-def _formats():
-    from framework.naiad.dwarfs import load_spec
-
-    return load_spec("gemm").VARIANT_FORMATS["vme"]
-
-
-@needs_clang
-@pytest.mark.parametrize("pair", _formats(), ids="/".join)
-def test_gemm_dwarf_vme_variant(tmp_path, pair):
-    from framework.naiad.dwarfs import load_spec, run_point
-
-    spec = load_spec("gemm")
-    r = run_point(spec, "vme", 64, *pair, design=VME_TIMED, build_root=tmp_path)
-    assert r.exit_code == 0, r.console
-    assert r.passed, r.error
-    assert r.region_cycles
-    assert r.counters["matrix.macs"] >= 64**3
-    assert r.counters["matrix.mma"] > 0
-
-
-@needs_clang
-@pytest.mark.parametrize("size", [(40, 24, 20), (17, 9, 7)])
-@pytest.mark.parametrize(
-    "pair",
-    [("fp32", "fp32"), ("bf16", "fp32"), ("fp64", "fp64"), ("bf16", "bf16")],
-    ids="/".join,
-)
-def test_gemm_dwarf_vme_ragged_edges(tmp_path, size, pair):
-    from framework.naiad.dwarfs import load_spec, run_point
-
-    r = run_point(
-        load_spec("gemm"), "vme", size, *pair, design=VME, build_root=tmp_path
-    )
-    assert r.exit_code == 0, r.console
-    assert r.passed, r.error

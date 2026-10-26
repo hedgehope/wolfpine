@@ -103,7 +103,7 @@ from pathlib import Path
 
 import yaml
 
-from framework.naiad import dwarfs as dwarfs_mod
+from experiments.naiad import dwarfs as dwarfs_mod
 from framework.naiad.design import parse_design
 
 REPO = Path(__file__).resolve().parents[2]

@@ -11,7 +11,7 @@
 # whose scalar half/bf16 moves the kernels use). Only the `rvv` (and other
 # vector-coupled) variants are compiled with V in -march: the scalar and AME
 # variants are built with this ISA list minus the vector extensions
-# (framework/naiad/dwarfs.py), so the compiler cannot auto-vectorise a
+# (experiments/naiad/dwarfs.py), so the compiler cannot auto-vectorise a
 # baseline that is meant to be scalar.
 #
 # naiad-ame-timed: naiad-ame with the cycle model on, calibrated against the

@@ -13,47 +13,21 @@ New IP is added by registering a class and naming its type in a design; the
 builder never special-cases a block by name.
 """
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+from framework.util.schema import DesignError, parse_int
+from framework.util.schema import check_keys as _check_keys
+
 #: Single-letter extensions in the order ``-march`` wants them.
 _SINGLE_LETTER_ORDER = "mafdqcbv"
-
-_SIZE_SUFFIXES = {
-    "": 1,
-    "k": 1 << 10,
-    "kib": 1 << 10,
-    "m": 1 << 20,
-    "mib": 1 << 20,
-    "g": 1 << 30,
-    "gib": 1 << 30,
-}
-
-
-class DesignError(ValueError):
-    pass
-
 
 #: The vector base extensions (either one gives the core a vector unit), and
 #: the vector sub-extensions that need one.
 VECTOR_EXTENSIONS = ("v", "zve64d")
 VECTOR_SUBEXTENSIONS = ("zvfh", "zvfbfmin", "zvfbfwma")
-
-
-def parse_int(value, what):
-    """An int from YAML: a plain int, or a string like ``0x1000`` / ``64KiB``."""
-    if isinstance(value, bool):
-        raise DesignError(f"{what}: expected an integer, got {value!r}")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        m = re.fullmatch(r"\s*(0x[0-9a-fA-F_]+|\d[\d_]*)\s*([a-zA-Z]*)\s*", value)
-        if m and m.group(2).lower() in _SIZE_SUFFIXES:
-            return int(m.group(1), 0) * _SIZE_SUFFIXES[m.group(2).lower()]
-    raise DesignError(f"{what}: expected an integer, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -163,7 +137,7 @@ class CountersSpec:
     """The design's ``counters:`` section: Zihpm bindings and on-demand event families.
 
     ``hpm`` is ``((n, event), ...)``: ``mhpmcounter<n>`` reads hub event ``event``
-    (see ``framework.naiad.counters``). The binding is fixed by the design, not
+    (see ``framework.ip.counters``). The binding is fixed by the design, not
     chosen at run time through ``mhpmevent``, so ``naiad.h`` can give each event
     its CSR number as a constant (``csrr`` needs an immediate) and a kernel reads
     a counter with one instruction and no setup. Event names are checked against
@@ -188,7 +162,7 @@ class Design:
     path: str | None = None
     matrix: MatrixSpec | None = None
     counters: CountersSpec = field(default_factory=CountersSpec)
-    #: The cycle model (``framework.naiad.timing.TimingSpec``); None runs untimed.
+    #: The cycle model (``framework.pe.rv.timing.core.TimingSpec``); None runs untimed.
     timing: object = None
 
     def block(self, name):
@@ -211,16 +185,6 @@ class Design:
                 f"design '{self.name}' has no dram block and names no program.memory"
             )
         return drams[0]
-
-
-def _check_keys(mapping, allowed, what):
-    if not isinstance(mapping, dict):
-        raise DesignError(f"{what}: expected a mapping, got {type(mapping).__name__}")
-    unknown = sorted(set(mapping) - set(allowed))
-    if unknown:
-        raise DesignError(
-            f"{what}: unknown key(s) {unknown}; expected some of {sorted(allowed)}"
-        )
 
 
 def _parse_cores(raw):
@@ -562,7 +526,7 @@ def _parse_matrix_numerics(raw, lists, k_chunk):
 
 def _parse_counters(raw, cores):
     """The ``counters:`` section: ``hpm: {n: event}`` and ``enable: [family, ...]``."""
-    from framework.naiad.counters import FAMILIES
+    from framework.ip.counters import FAMILIES
     from framework.pe.rv.isa.zicsr64_isa import HPM_COUNTERS
 
     if raw is None:

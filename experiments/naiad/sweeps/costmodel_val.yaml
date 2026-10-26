@@ -1,6 +1,6 @@
 # Cost-model validation points beyond the talk sweeps (framework/naiad/costmodel): size scaling,
 # formats at the smallest size, and design perturbations the formulas were not built on.
-#   python -m experiments.naiad.run costmodel_val -j 6 && python -m framework.naiad.costmodel.validate --extra experiments/naiad/out/costmodel_val
+#   python -m experiments.naiad.run costmodel_val -j 6 && python -m experiments.naiad.costmodel_validate --extra experiments/naiad/out/costmodel_val
 name: costmodel_val
 base_design: framework/naiad/designs/naiad-dwarfs.yaml
 dwarfs: all

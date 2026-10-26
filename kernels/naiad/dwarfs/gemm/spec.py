@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """gemm: dense linear algebra, the sanity anchor. C = A . B, A m x k, B k x n.
 
 The AME variant is the emitted micro-kernel's blocked driver (naiad_gemm.h,

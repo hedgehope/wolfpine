@@ -1,7 +1,7 @@
 """IME's cycle model: Zvvm instructions on the vector unit's register file and ports.
 
 Timing only (the functional side is :mod:`framework.matrix.ime_isa`).
-:class:`IMETiming` extends the RVV model (:class:`framework.naiad.vector_timing.VectorTiming`)
+:class:`IMETiming` extends the RVV model (:class:`framework.pe.rv.timing.vector.VectorTiming`)
 because IME has no state of its own: its operands are vector register groups,
 so it shares the RVV scoreboard (one ready cycle per vector register), the
 vector load/store unit, and the VRF's ports. A design in ``mode: ime`` gives
@@ -51,7 +51,7 @@ transfer is ``segments`` contiguous runs in memory, and the LSU starts
 Counted at full ``VL`` (masked-off elements still take their lane), as the
 RVV model counts.
 A tile store registers its rows (``LD``-strided) with the stores-in-flight
-table (:mod:`framework.naiad.store_hazards`) until the LSU frees; a load
+table (:mod:`framework.pe.rv.timing.store_hazards`) until the LSU frees; a load
 overlapping it waits (``mem_raw``).
 """
 
@@ -59,8 +59,8 @@ import math
 from dataclasses import dataclass, field
 
 from framework.matrix import ime
-from framework.naiad.store_hazards import footprint
-from framework.naiad.vector_timing import (
+from framework.pe.rv.timing.store_hazards import footprint
+from framework.pe.rv.timing.vector import (
     CFG,
     MEM,
     MEM_RAW,
@@ -400,7 +400,7 @@ class IMETiming(VectorTiming):
         nl = vs.vl // ls
         if ld == 0:
             ld = (vs.vlen // vs.sew // lam) if d.transposing else ls
-        # Memory RAW: rows of the tile at ld elements (framework.naiad.store_hazards).
+        # Memory RAW: rows of the tile at ld elements (framework.pe.rv.timing.store_hazards).
         eb = vs.sew // 8
         rows, row_elems = (ls, nl) if d.transposing else (nl, ls)
         fp = footprint(addr, ld * eb, rows, row_elems * eb)

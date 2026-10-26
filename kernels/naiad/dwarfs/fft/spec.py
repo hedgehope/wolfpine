@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """fft: spectral methods. Batched complex 1D FFT, DFT-16/32 blocks on the matrix unit.
 
 Variants:

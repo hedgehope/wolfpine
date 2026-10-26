@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """Graph traversal / dynamic programming: all-pairs shortest paths in the (min, +) semiring.
 
 Problem. A directed graph on n nodes with integer edge weights in [1, 16]: a

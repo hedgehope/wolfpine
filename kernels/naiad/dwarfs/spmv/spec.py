@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """Sparse linear algebra: Block-Sparse-Row (BSR) sparse matrix times a block of vectors, Y = A X.
 
 Problem. ``A`` is n x n, stored as BSR with 16 x 16 blocks (the AME tile shape):

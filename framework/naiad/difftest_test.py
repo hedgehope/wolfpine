@@ -13,12 +13,12 @@ from pathlib import Path
 import pytest
 
 from framework.naiad import DESIGNS_DIR
-from framework.naiad.difftest import (
+from framework.naiad.difftest import difftest
+from framework.pe.rv.difftest import (
     RunOutcome,
     SpikeCommit,
     compare_commits,
     compare_console,
-    difftest,
     find_spike,
     parse_spike_commits,
     spike_isa,
@@ -126,7 +126,7 @@ def test_parse_spike_vector_writes():
 
 
 def test_is_vector_instr():
-    from framework.naiad.difftest import is_vector_instr
+    from framework.pe.rv.difftest import is_vector_instr
 
     assert is_vector_instr(VADD_V2)
     assert is_vector_instr(VSETVLI)

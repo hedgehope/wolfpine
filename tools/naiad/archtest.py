@@ -41,9 +41,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from framework.naiad.difftest import (  # noqa: E402
+from framework.naiad.difftest import run_naiad  # noqa: E402
+from framework.pe.rv.difftest import (  # noqa: E402
     find_spike,
-    run_naiad,
     run_spike,
     spike_isa,
 )

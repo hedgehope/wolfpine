@@ -1,11 +1,10 @@
 """The VME (Zvt) GEMM emitter: geometry, the block-shape choice, the K-loop schedules (replayed
-symbolically against the register image they must produce), header determinism, and the
-emitted driver end to end at shapes the gemm dwarf's own tests do not reach (clang 20)."""
+symbolically against the register image they must produce), and header determinism. The emitted
+driver end to end (clang 20) is ``experiments/naiad/tests/gemm_vme_dwarf_test.py``."""
 
 import copy
 import importlib.util
 import math
-import shutil
 
 import pytest
 import yaml
@@ -17,11 +16,6 @@ from framework.naiad.emit.gemm import emit_gemm_header, main
 
 VME = DESIGNS_DIR / "naiad-vme.yaml"
 VME_TIMED = DESIGNS_DIR / "naiad-vme-timed.yaml"
-NAIAD_CC = "/opt/llvm/20.1.7/bin/clang"
-needs_clang = pytest.mark.skipif(
-    shutil.which(NAIAD_CC) is None or shutil.which("make") is None,
-    reason=f"needs make and {NAIAD_CC}",
-)
 needs_ml_dtypes = pytest.mark.skipif(
     importlib.util.find_spec("ml_dtypes") is None, reason="needs ml_dtypes"
 )
@@ -292,40 +286,3 @@ def test_cli_writes_a_real_header_for_a_vme_design(tmp_path):
     text = out.read_text()
     assert '#error "naiad_gemm.h:' not in text
     assert "naiad_gemm_fp32_fp32_block(" in text
-
-
-# -- end to end ------------------------------------------------------------------------------------
-
-
-@needs_clang
-@needs_ml_dtypes
-@pytest.mark.parametrize(
-    "size, pair",
-    [
-        (
-            (32, 32, 32),
-            ("fp64", "fp64"),
-        ),  # N < the 2 x 4 block: a narrow variant, B in place
-        (
-            (64, 96, 64),
-            ("fp32", "fp32"),
-        ),  # 96 = 64 + 32: the full block, then the narrow one
-        (
-            (16, 64, 300),
-            ("fp32", "fp32"),
-        ),  # K past one chunk: C reloaded (the _acc path)
-        (
-            (33, 64, 40),
-            ("bf16", "fp32"),
-        ),  # K not a multiple of the body: the padded path
-    ],
-    ids=lambda v: "x".join(map(str, v)) if isinstance(v[0], int) else "/".join(v),
-)
-def test_emitted_driver_end_to_end(tmp_path, size, pair):
-    from framework.naiad.dwarfs import load_spec, run_point
-
-    r = run_point(
-        load_spec("gemm"), "vme", size, *pair, design=VME_TIMED, build_root=tmp_path
-    )
-    assert r.exit_code == 0, r.console
-    assert r.passed, r.error

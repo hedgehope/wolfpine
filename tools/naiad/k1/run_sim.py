@@ -18,7 +18,8 @@ DEFAULT_DESIGN = REPO_ROOT / "framework" / "naiad" / "designs" / "naiad-rvv.yaml
 
 
 def run(sim, design, elf, max_cycles):
-    from framework.naiad.difftest import run_naiad, run_spike, spike_isa
+    from framework.naiad.difftest import run_naiad
+    from framework.pe.rv.difftest import run_spike, spike_isa
 
     if sim == "naiad":
         try:

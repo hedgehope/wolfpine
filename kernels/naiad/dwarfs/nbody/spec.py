@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """nbody: N-body. All-pairs squared distances as a GEMM (the expansion), forces on the scalar side.
 
 Variants:

@@ -22,8 +22,8 @@ from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import build
 from framework.naiad.design import DesignError, load_design, parse_design
 from framework.naiad.run import main
-from framework.naiad.timing import NaiadCostState
 from framework.pe.rv.isa.isa64_testing import b_type, csr, i_type, r_type
+from framework.pe.rv.timing.core import NaiadCostState
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KERNELS = REPO_ROOT / "kernels" / "naiad"

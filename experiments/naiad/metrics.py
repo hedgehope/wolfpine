@@ -173,7 +173,7 @@ def _vme_peak(design, in_fmt, acc_fmt):
 
 
 def _scalar_peak(design, in_fmt, acc_fmt=None):
-    # One FP pipe: dual issue (framework.naiad.timing) pairs an FMA with
+    # One FP pipe: dual issue (framework.pe.rv.timing.core) pairs an FMA with
     # non-FP work, never with a second FMA.
     return 1.0
 

@@ -1,11 +1,12 @@
 """Private per-hart caches with MSI snooping (``cache.private: true``), and wfi's timer wake-up.
 
-Unit checks drive :class:`~framework.naiad.ip.cache.CoherentL1` views directly;
+Unit checks drive :class:`~framework.ip.cache.CoherentL1` views directly;
 the end-to-end ones build ``kernels/naiad/coherence`` (false sharing, padded
 counters, a shared AMO counter) and ``kernels/naiad/wfi_timer`` (every hart
 sleeps in ``wfi`` until its own ``mtimecmp``).
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -15,18 +16,17 @@ from pathlib import Path
 import pytest
 import yaml
 
+from framework.ip.cache import Cache, CoherentL1
 from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import build
 from framework.naiad.design import DesignError, load_design, parse_design
-from framework.naiad.difftest import difftest, find_spike
-from framework.naiad.dwarfs import NAIAD_CC, multicore_design
-from framework.naiad.ip.cache import Cache, CoherentL1
+from framework.naiad.difftest import difftest
+from framework.pe.rv.difftest import find_spike
 
 REPO = Path(__file__).resolve().parents[2]
 KERNELS = REPO / "kernels" / "naiad"
-DWARFS_4C = multicore_design(
-    4
-)  # naiad-dwarfs with 4 harts (generated, not a hand copy)
+NAIAD_CC = os.environ.get("NAIAD_CC", "/opt/llvm/20.1.7/bin/clang")
+DWARFS = DESIGNS_DIR / "naiad-dwarfs.yaml"  # _raw sets the hart count
 RV64GC = DESIGNS_DIR / "naiad-rv64gc.yaml"
 L1 = 0x10000000
 LINE = 64
@@ -45,7 +45,7 @@ needs_spike = pytest.mark.skipif(
 )
 
 
-def _raw(harts=2, cache=True, path=DWARFS_4C, **params):
+def _raw(harts=2, cache=True, path=DWARFS, **params):
     """naiad-dwarfs at ``harts`` harts; ``cache``: None (none), False (shared) or True (private)."""
     raw = yaml.safe_load(Path(path).read_text())
     raw["cores"]["count"] = harts

@@ -12,9 +12,10 @@ import pytest
 from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import build
 from framework.naiad.design import DesignError, load_design, parse_design
-from framework.naiad.difftest import difftest, find_spike
+from framework.naiad.difftest import difftest
 from framework.naiad.gen import gen_crt0, gen_header
 from framework.naiad.run import main
+from framework.pe.rv.difftest import find_spike
 from framework.pe.rv.isa.v import RV64_V_ISA
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

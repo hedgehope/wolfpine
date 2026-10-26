@@ -1,25 +1,7 @@
-"""Plain memories: ``dram`` (sparse, for large windows) and ``scratchpad`` (dense).
+"""Moved to :mod:`framework.ip.memories`; ``framework.naiad.ip.memories`` is an alias of it, kept for older imports."""
 
-Both subclass the Wolfpine memory leaves directly rather than wrapping them, so
-the RV core's instruction-fetch fast path (``resolve_plain_ram_span``) still
-recognises them as plain RAM.
-"""
+import sys
 
-from framework.memory.memory import AddressableMemory, SparseAddressableMemory
-from framework.naiad.ip.base import IPBlock
+from framework.ip import memories as _moved
 
-
-class DRAMBlock(IPBlock, SparseAddressableMemory):
-    """Main memory. Backed by chunks allocated on first write, so a 1 GiB window costs nothing up front."""
-
-    def __init__(self, spec):
-        IPBlock.__init__(self, spec)
-        SparseAddressableMemory.__init__(self, spec.size)
-
-
-class ScratchpadBlock(IPBlock, AddressableMemory):
-    """A small, dense on-chip memory."""
-
-    def __init__(self, spec):
-        IPBlock.__init__(self, spec)
-        AddressableMemory.__init__(self, spec.size)
+sys.modules[__name__] = _moved

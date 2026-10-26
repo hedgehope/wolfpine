@@ -26,6 +26,8 @@ GEN := $(BUILD)/gen
 ELF := $(BUILD)/$(PROG).elf
 
 GEN_SOURCES := $(wildcard $(REPO_ROOT)/framework/naiad/*.py $(REPO_ROOT)/framework/naiad/gen/*.py $(REPO_ROOT)/framework/naiad/ip/*.py) \
+               $(wildcard $(REPO_ROOT)/framework/ip/*.py $(REPO_ROOT)/framework/ip/tensix/*.py $(REPO_ROOT)/framework/pe/rv/timing/*.py) \
+               $(REPO_ROOT)/framework/util/schema.py \
                $(REPO_ROOT)/framework/matrix/encodings.yaml $(REPO_ROOT)/framework/matrix/encodings.py
 NAIAD_PY := PYTHONPATH=$(REPO_ROOT)$${PYTHONPATH:+:$$PYTHONPATH} $(PYTHON)
 

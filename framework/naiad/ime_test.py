@@ -1,6 +1,7 @@
 """IME on Naiad: the ``matrix: {mode: ime}`` schema, the generator, the builder wiring and
-counters, the GEMM emitter's IME mode, and the clang end-to-end kernels (gemm_ime and the
-gemm dwarf's ``ime`` variant). Spike has no Zvvm, so nothing here is difftested."""
+counters, the GEMM emitter's IME mode, and the clang end-to-end gemm_ime kernel (the gemm
+dwarf's ``ime`` variant is ``experiments/naiad/tests/ime_dwarf_test.py``). Spike has no Zvvm,
+so nothing here is difftested."""
 
 import importlib.util
 import os
@@ -289,37 +290,3 @@ def test_gemm_ime_passes_and_matches_numpy(tmp_path, design):
     )  # fp32 8 x 8 x 4, bf16 8 x 8 x 8
     if design == IME_TIMED:
         assert int(o["cycles_fp32"][0]) > 0
-
-
-@needs_clang
-@pytest.mark.parametrize(
-    "pair", ["fp32:fp32", "fp64:fp64", "bf16:fp32", "fp16:fp32", "bf16:bf16"]
-)
-def test_gemm_dwarf_ime_variant(tmp_path, pair):
-    from framework.naiad.dwarfs import load_spec, run_point
-
-    spec = load_spec("gemm")
-    assert spec.VARIANTS["ime"] == "ime"
-    in_fmt, acc_fmt = pair.split(":")
-    r = run_point(
-        spec, "ime", 32, in_fmt, acc_fmt, design=IME_TIMED, build_root=tmp_path
-    )
-    assert r.exit_code == 0, r.console
-    assert r.passed, r.error
-    assert r.counters["matrix.macs"] == 32**3
-    assert 0 < r.region_cycles < r.cycles
-
-
-@needs_clang
-def test_gemm_dwarf_ime_ragged_edges(tmp_path):
-    from framework.naiad.dwarfs import load_spec, run_point
-
-    spec = load_spec("gemm")
-    for size in ((40, 24, 20), (17, 9, 7)):
-        for in_fmt, acc_fmt in (("fp32", "fp32"), ("bf16", "fp32")):
-            r = run_point(
-                spec, "ime", size, in_fmt, acc_fmt, design=IME, build_root=tmp_path
-            )
-            assert r.passed, (size, in_fmt, r.error, r.console)
-            m, n, k = size
-            assert r.counters["matrix.macs"] >= m * n * k

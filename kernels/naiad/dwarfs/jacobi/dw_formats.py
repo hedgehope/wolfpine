@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """Host-side format helpers shared by the jacobi, reduce and scan dwarf specs (numpy only).
 
 The C side is ``dw_fmt.h`` next to this file. A spec loads this module by path

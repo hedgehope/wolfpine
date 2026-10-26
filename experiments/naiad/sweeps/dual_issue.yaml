@@ -1,6 +1,6 @@
 # Front-end sensitivity: the coupling study (coupling_all.yaml) and the tier-2
 # crossover (talk_tier2.yaml's crossover study) at timing.scalar.issue_width 1
-# and 2 (framework.naiad.timing: an in-order dual-issue front end; two ALU
+# and 2 (framework.pe.rv.timing.core: an in-order dual-issue front end; two ALU
 # pipes, one each of memory, mul/div, FP and vector/matrix dispatch).
 #
 #   python -m experiments.naiad.run dual_issue -j 8

@@ -349,10 +349,6 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "the Naiad-vs-Spike differential runner's setup failure (no Spike "
             "binary); a host-tool problem, raised before any simulator runs"
         ),
-        "DwarfError": (
-            "a dwarf kernel that is unknown or fails to build; a host-tool "
-            "problem in the experiment harness, raised before any simulator runs"
-        ),
         "Unsupported": (
             "the Naiad cost model declining a (dwarf, variant, size, design) it "
             "has no model for; a host-tool answer, raised before any simulator runs"

@@ -1324,7 +1324,7 @@ def _parse_spike_signature(text, size):
 
 
 def run_spike_sig(elf, isa=SPIKE_ISA, spike=None, timeout=60):
-    from framework.naiad.difftest import find_spike
+    from framework.pe.rv.difftest import find_spike
 
     spike = spike or find_spike()
     if spike is None:

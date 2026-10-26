@@ -1,6 +1,6 @@
 """IME's cycle model (``timing.matrix`` in ``mode: ime``): schema and microbenchmarks with analytic counts.
 
-The method of ``framework/naiad/vector_timing_test.py``: a hand-encoded body
+The method of ``framework/pe/rv/timing/vector_test.py``: a hand-encoded body
 between two ``rdcycle`` reads. An instruction issuing at ``c1 + 1 + x``
 followed directly by the second read gives ``x + 2``. The configuration (a
 ``vsetvl`` carrying lambda) runs before the first read.
@@ -192,7 +192,7 @@ def test_rvv_writer_of_an_mma_operand_waits_for_its_read():
 
 
 def test_rvv_only_programs_time_as_the_plain_vector_model():
-    from framework.naiad.vector_timing import VectorTiming
+    from framework.pe.rv.timing.vector import VectorTiming
 
     body = [_vadd(0, 1, 2), _vadd(3, 4, 5), _vadd(6, 0, 3)]
     t_ime, soc = _run(

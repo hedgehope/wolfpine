@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """MapReduce, reduction: the sum of a length-n vector as a product with a ones tile.
 
 Reformulation (the ``ame`` variant). ``x`` is read as n / 256 consecutive 16 x 16

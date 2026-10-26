@@ -25,7 +25,7 @@ CC = os.environ.get("NAIAD_CC", fz.DEFAULT_CC)
 
 
 def _have_tools():
-    from framework.naiad.difftest import find_spike
+    from framework.pe.rv.difftest import find_spike
 
     return find_spike() is not None and Path(CC).is_file()
 

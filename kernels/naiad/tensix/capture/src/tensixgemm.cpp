@@ -4,7 +4,7 @@
 // with TT_SIM_RECORD set (see ../capture.sh). The wire trace it leaves holds
 // everything a Tensix worker needs to run kernels/compute/gemm.cpp: the five
 // baby cores' firmware, the init handshake, the compiled TRISC kernels, the
-// launch message (CB config, runtime args). framework.naiad.tensix_image turns
+// launch message (CB config, runtime args). framework.ip.tensix.image turns
 // that trace into an image the Naiad host program loads into the tile's L1,
 // with no tt-metal host involved at run time.
 //

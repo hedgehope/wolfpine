@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """Structured grid: JACOBI_ITERS sweeps of a star Jacobi stencil, as shift / banded matrix products.
 
 Problem. An n x n grid ``u`` with a fixed boundary ring; each sweep replaces every

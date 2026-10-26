@@ -7,8 +7,8 @@
 #   kernels/naiad/tensix/capture/capture.sh fp32       # just one
 #
 # For each output format it builds src/ (once), runs the capture program with
-# TT_SIM_RECORD, keeps only the worker's messages (framework.naiad.tensix_image
-# --filter) as framework/naiad/tensix_images/bh_gemm_bf16_<out>.trace, and
+# TT_SIM_RECORD, keeps only the worker's messages (framework.ip.tensix.image
+# --filter) as framework/ip/tensix/images/bh_gemm_bf16_<out>.trace, and
 # regenerates the C image header kernels/naiad/include/tensix_gemm_<out>.h.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,11 +31,11 @@ for out in "${@:-fp32 bf16}"; do
     echo "[capture] bf16 -> $o ($FIDELITY)"
     (cd "$SRC" && TENSIXGEMM_OUT="$o" TENSIXGEMM_FIDELITY="$FIDELITY" TT_SIM_RECORD="$TMP/$o.trace" \
       ./build/tensixgemm | tee "$TMP/$o.out" | grep -E "TENSIXGEMM|Completed|Failure")
-    python3 -m framework.naiad.tensix_image filter "$TMP/$o.trace" --core 1,2 \
-      -o "$REPO/framework/naiad/tensix_images/bh_gemm_bf16_$o.trace" \
+    python3 -m framework.ip.tensix.image filter "$TMP/$o.trace" --core 1,2 \
+      -o "$REPO/framework/ip/tensix/images/bh_gemm_bf16_$o.trace" \
       --note "$(grep TENSIXGEMM_CAPTURE "$TMP/$o.out")"
-    python3 -m framework.naiad.tensix_image header \
-      "$REPO/framework/naiad/tensix_images/bh_gemm_bf16_$o.trace" --name "gemm_$o" \
+    python3 -m framework.ip.tensix.image header \
+      "$REPO/framework/ip/tensix/images/bh_gemm_bf16_$o.trace" --name "gemm_$o" \
       -o "$REPO/kernels/naiad/include/tensix_gemm_$o.h"
   done
 done

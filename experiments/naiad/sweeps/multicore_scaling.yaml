@@ -11,7 +11,7 @@
 # axis adds an `l1d` block in front of L1 (null: none; a 32 KiB, 4-way,
 # 64 B-line cache with 1-cycle hits and L1's latency as the fill cost, shared
 # by every hart or, `private: true`, one per hart kept coherent by MSI
-# snooping; framework/naiad/ip/cache.py). The plain `ame` / `rvv` variants run
+# snooping; framework/ip/cache.py). The plain `ame` / `rvv` variants run
 # once (1 hart, `only:`) as references: on one hart each `*_mc` is that
 # variant plus no-op barriers.
 #

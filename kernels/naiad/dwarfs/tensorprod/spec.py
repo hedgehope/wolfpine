@@ -1,4 +1,4 @@
-# ruff: noqa: INP001  (loaded by path by framework.naiad.dwarfs, not imported as a package)
+# ruff: noqa: INP001  (loaded by path by experiments.naiad.dwarfs, not imported as a package)
 """tensorprod: the spectral-element tensor-product kernel (Nekbone's local gradient).
 
 For E elements of p x p x p data u[e][k][j][i] (i fastest) and a p x p 1D

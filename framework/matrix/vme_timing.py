@@ -33,7 +33,7 @@ are ready ``1`` (moves) or ``mem_startup + latency + transfer`` (loads) cycles
 after issue. Configuration instructions (``msetmtype[i]``, ``msett*``) and
 ``vtdiscard`` cost one cycle and write rd like an ALU op.
 A ``vtse`` registers its bytes with the stores-in-flight table
-(:mod:`framework.naiad.store_hazards`) until the LSU frees, and a ``vtle``
+(:mod:`framework.pe.rv.timing.store_hazards`) until the LSU frees, and a ``vtle``
 (or any other load) overlapping it waits (``mem_raw``).
 """
 
@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 
 from framework.matrix import vme
 from framework.matrix.ime_timing import MATRIX_BUSY, MATRIX_RAW, IMETiming
-from framework.naiad.vector_timing import (
+from framework.pe.rv.timing.vector import (
     MEM,
     MEM_RAW,
     VECTOR_BUSY,
@@ -404,7 +404,7 @@ class VMETiming(IMETiming):
         region = self.memory.lookup(addr)
         if region.port_free > cycle:
             return self._stall(region.port_free, MEM)
-        # Memory RAW (framework.naiad.store_hazards): one contiguous run from vstart.
+        # Memory RAW (framework.pe.rv.timing.store_hazards): one contiguous run from vstart.
         span = addr + vs.vstart * (tew // 8)
         inflight = self.memory.inflight
         if is_load and inflight.until > cycle:

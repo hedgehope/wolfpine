@@ -1,7 +1,7 @@
 # Sensitivity of the talk's AME-vs-RVV crossovers to RVV chaining: the tier-2
 # crossover (talk_tier2's `crossover`) and the fused fft / nbody crossover
 # (epilogue's `crossover`), re-run with `timing.vector.chaining: true`
-# (framework/naiad/vector_timing.py: element-group chaining between dependent
+# (framework/pe/rv/timing/vector.py: element-group chaining between dependent
 # vector instructions, loads into arithmetic and arithmetic into stores).
 #
 #   python -m experiments.naiad.run rvv_chaining -j 8 && python -m experiments.naiad.plot rvv_chaining

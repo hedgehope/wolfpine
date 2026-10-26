@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from experiments.naiad import metrics, run
+from experiments.naiad.dwarfs import NAIAD_CC
 from experiments.naiad.sweep import (
     AddressMoved,
     DesignFactory,
@@ -23,7 +24,6 @@ from experiments.naiad.sweep import (
     load_sweep,
 )
 from framework.naiad.design import load_design
-from framework.naiad.dwarfs import NAIAD_CC
 
 HERE = Path(__file__).resolve().parent
 TOY_ROOT = "experiments/naiad/tests/toy_dwarf"

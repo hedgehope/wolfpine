@@ -8,7 +8,7 @@ of the grid, ``0.25 * ((up + down) + (left + right))``, lowered by
 with the ``riscv_ame`` dialect. It is prebuilt, one ``jacobi_<N>_<in>_<acc>.S`` per
 point, so running needs no xDSL; ``--regen`` recompiles them. The variant is not in the
 jacobi spec's VARIANTS, so this script adds it before calling
-:func:`framework.naiad.dwarfs.run_point`, and passes the kernel's name as
+:func:`experiments.naiad.dwarfs.run_point`, and passes the kernel's name as
 ``-DXDSL_ASM``. The lowering produces the ame variant's window form, so the table also
 shows ``ame`` with ``form="window"`` beside the default banded form.
 
@@ -30,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 REPO = Path(os.environ.get("WOLFPINE_ROOT", HERE.parents[4]))
 sys.path.insert(0, str(REPO))
 
-from framework.naiad.dwarfs import load_spec, run_point  # noqa: E402
+from experiments.naiad.dwarfs import load_spec, run_point  # noqa: E402
 
 #: (n, in, acc) points with a prebuilt kernel (same-format pairs only).
 POINTS = (

@@ -5,7 +5,7 @@ unit (:mod:`framework.matrix.unit`, :mod:`framework.matrix.ame_isa`) executes
 every matrix instruction in the tick it issues, exactly as it does untimed, and
 this module decides only *when* the core may issue it and when its results may
 be read. It is driven by the Naiad core's cost state
-(:class:`framework.naiad.timing.NaiadCostState`), which hands it each matrix
+(:class:`framework.pe.rv.timing.core.NaiadCostState`), which hands it each matrix
 word before the word executes.
 
 **The model.** An attached unit fed by an in-order, single-issue core with no
@@ -35,7 +35,7 @@ instruction queue between them, so every hazard is resolved at issue:
   provider (a cache) charges the provider's answer in place of its latency.
 * **Memory RAW.** A tile/acc store registers its footprint (``rows`` rows of
   the view at ``x[stride]``) with the SoC's stores-in-flight table
-  (:mod:`framework.naiad.store_hazards`), complete at
+  (:mod:`framework.pe.rv.timing.store_hazards`), complete at
   ``issue + tile_store_latency + T - 1``; a tile/acc load overlapping one
   still in flight waits for it (``mem_raw``), as do the core's scalar and
   vector loads.
@@ -86,7 +86,7 @@ p150 hardware step is user-run and goes:
 import math
 from dataclasses import dataclass, field
 
-from framework.naiad.store_hazards import footprint
+from framework.pe.rv.timing.store_hazards import footprint
 
 #: Stall reasons this model reports (a subset of the core's).
 MATRIX_BUSY = "matrix_busy"
@@ -233,7 +233,7 @@ class AMETiming:
 
     ``unit`` is the functional :class:`~framework.matrix.unit.MatrixUnit` (read
     for its shape, formats and decoder, never written); ``memory`` is the
-    core's :class:`~framework.naiad.timing.MemoryTiming`, for the region a
+    core's :class:`~framework.pe.rv.timing.core.MemoryTiming`, for the region a
     transfer touches.
     """
 

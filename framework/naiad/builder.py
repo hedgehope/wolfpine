@@ -11,11 +11,11 @@ from dataclasses import dataclass, field
 from framework.device.clock import Clock
 from framework.device.device import Device, DeviceMemory
 from framework.device.reset import Reset
+from framework.ip.counters import CounterError, CounterHub, requested_families
 from framework.matrix.ame_isa import attach as attach_matrix_unit
 from framework.matrix.unit import MatrixUnit
 from framework.memory.memory import MemorySpace
 from framework.memory.memory_map import AddressRange, MemoryMap
-from framework.naiad.counters import CounterError, CounterHub, requested_families
 from framework.naiad.registry import IP_REGISTRY, NAIAD_ISA_REGISTRY
 from framework.naiad.timing import install as install_timing
 from framework.pe.rv.isa.v import RV64_V_ISA
@@ -52,7 +52,7 @@ class NaiadClock(Clock):
         """Tick each of ``cores`` ``width`` times per cycle (issue slots), the other items once.
 
         For the dual-issue timing model (``timing.scalar.issue_width: 2``,
-        :mod:`framework.naiad.timing`): the interpreter executes at most one
+        :mod:`framework.pe.rv.timing.core`): the interpreter executes at most one
         instruction per tick, so a cycle gives every core ``width`` ticks, all
         with the cycle's number (slot-major: every core's slot 0, then every
         core's slot 1), and then ticks the rest (DMA, CLINT wake-up, Tensix)
@@ -285,7 +285,7 @@ class NaiadSoC:
         clocked = [b for b in self.blocks.values() if hasattr(b, "clock_tick")]
         clints = [b for b in self.blocks.values() if b.spec.type == "clint"]
         if multicore:  # wfi's timer wake-up (mtime >= mtimecmp) is checked each cycle
-            from framework.naiad.ip.clint import TimerWake
+            from framework.ip.clint import TimerWake
 
             clocked.append(TimerWake(clints[0]))
         self.clock = NaiadClock([*self.cores, *clocked])
@@ -402,7 +402,7 @@ class NaiadSoC:
     # -- counters ----------------------------------------------------------
 
     def counter(self, name):
-        """The live value of counter-hub event ``name`` (see ``framework.naiad.counters``)."""
+        """The live value of counter-hub event ``name`` (see ``framework.ip.counters``)."""
         return self.counter_hub.read(name)
 
     def counters(self):

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from framework.ip.htif import HTIFError
 from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import NaiadBuildError, NaiadRunError, build
 from framework.naiad.design import (
@@ -26,7 +27,6 @@ from framework.naiad.design import (
     load_design,
     parse_design,
 )
-from framework.naiad.ip.htif import HTIFError
 from framework.util.elf_loader import ELFLoadError
 
 EXIT_TIMEOUT = 124

@@ -2,7 +2,7 @@
 
 Expands the sweep (:mod:`experiments.naiad.sweep`), writes each derived design
 to ``out/<sweep>/designs/<hash>.yaml``, then builds and runs every point through
-:func:`framework.naiad.dwarfs.run_point` in a pool of processes. Each finished
+:func:`experiments.naiad.dwarfs.run_point` in a pool of processes. Each finished
 point is stored as ``out/<sweep>/points/<point_id>.json`` the moment it ends, so
 an interrupted sweep resumes where it stopped: points with a stored result are
 skipped (``--force`` reruns everything, ``--retry-failed`` reruns the failed
@@ -93,7 +93,7 @@ _SPECS = {}
 
 
 def _spec(name, root):
-    from framework.naiad.dwarfs import load_spec
+    from experiments.naiad.dwarfs import load_spec
 
     key = (name, root)
     if key not in _SPECS:
@@ -103,7 +103,7 @@ def _spec(name, root):
 
 def run_one(point_dict, result_path, build_root, commit):
     """Run one point and store its result JSON; returns the result. Never raises."""
-    from framework.naiad.dwarfs import run_point
+    from experiments.naiad.dwarfs import run_point
 
     start = time.time()
     result = {

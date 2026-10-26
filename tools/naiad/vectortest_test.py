@@ -78,7 +78,7 @@ def _suite():
     bin_dir = vt.DEFAULT_TESTS / "bin"
     if not (bin_dir / "vadd_vv-0").exists():
         pytest.skip("riscv-vector-tests not built (tools/naiad/build_vector_tests.sh)")
-    from framework.naiad.difftest import find_spike
+    from framework.pe.rv.difftest import find_spike
 
     spike = find_spike()
     if spike is None:

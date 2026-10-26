@@ -314,7 +314,7 @@ def main(argv=None):
         return 2
     spike = None
     if args.sim == "spike":
-        from framework.naiad.difftest import find_spike
+        from framework.pe.rv.difftest import find_spike
 
         spike = args.spike or find_spike()
         if spike is None:

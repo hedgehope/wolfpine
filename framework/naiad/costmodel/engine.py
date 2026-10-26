@@ -5,8 +5,8 @@ kernel as a loop nest whose bodies are short sequences of abstract
 instructions -- "a load into ``a``", "an fma reading ``a`` and ``b``", "an mma
 into accumulator 0 from tiles 1 and 2", "a 128-byte vector load". The
 :class:`Engine` issues them under the same rules the Naiad cycle model applies
-to real instructions (``framework.naiad.timing``,
-``framework.naiad.vector_timing``, ``framework.matrix.timing``):
+to real instructions (``framework.pe.rv.timing.core``,
+``framework.pe.rv.timing.vector``, ``framework.matrix.timing``):
 
 * one instruction issues per cycle, in program order, once every operand is
   ready and the unit it needs is free (an instruction that waits holds up

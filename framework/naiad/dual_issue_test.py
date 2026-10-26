@@ -13,11 +13,11 @@ import pytest
 import yaml
 
 from framework.naiad import timing_test as tt
-from framework.naiad import vector_timing_test as vt
 from framework.naiad.builder import NaiadClock, build
 from framework.naiad.design import parse_design
-from framework.naiad.timing import DualIssueCostState, NaiadCostState
 from framework.pe.rv.isa.isa64_testing import b_type, s_type
+from framework.pe.rv.timing import vector_test as vt
+from framework.pe.rv.timing.core import DualIssueCostState, NaiadCostState
 
 N = 16
 A0, A1 = 10, 11
@@ -286,25 +286,3 @@ def test_dual_issue_runs_a_compiled_kernel_identically_in_fewer_cycles(tmp_path)
     c = soc.counters()
     assert c["hart0.timing.paired"] > 0
     assert c["hart0.instret"] == one.counters["hart0.instret"]
-
-
-@tt.needs_clang
-def test_dual_issue_on_two_harts(tmp_path):
-    """rvv_mc reduce on two harts: both pass with the same error; dual issue is faster and pairs on each hart."""
-    from framework.naiad.dwarfs import load_spec, multicore_design, run_point
-
-    two_harts = multicore_design(2, tmp_path / "designs")
-    raw = yaml.safe_load(two_harts.read_text())
-    raw["timing"]["scalar"]["issue_width"] = 2
-    dual_design = tmp_path / "designs" / "dual.yaml"
-    dual_design.write_text(yaml.safe_dump(raw, sort_keys=False))
-    spec = load_spec("reduce")
-    args = (spec, "rvv_mc", 4096, "fp32", "fp32")
-    one = run_point(*args, design=two_harts, build_root=tmp_path, count_all=True)
-    two = run_point(*args, design=dual_design, build_root=tmp_path, count_all=True)
-    assert one.passed
-    assert two.passed
-    assert one.error == two.error
-    assert two.region_cycles < one.region_cycles
-    assert two.counters["hart0.timing.paired"] > 0
-    assert two.counters["hart1.timing.paired"] > 0

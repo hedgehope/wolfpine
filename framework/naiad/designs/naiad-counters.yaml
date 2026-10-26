@@ -1,7 +1,7 @@
 # naiad-counters: naiad-ame plus F/D, a scratchpad, and Zihpm counter bindings.
 #
 # Each counters.hpm entry binds mhpmcounter<n> (and its hpmcounter<n> shadow)
-# to a counter-hub event (framework/naiad/counters.py); naiad.h names the
+# to a counter-hub event (framework/ip/counters.py); naiad.h names the
 # binding NAIAD_HPM_<EVENT>, and naiad_counter(EVENT) reads it. Events the
 # perfcounters block lists but no counter binds are read through MMIO instead.
 # Binding an instret.<class> or bus.<block>.* event turns that family on.

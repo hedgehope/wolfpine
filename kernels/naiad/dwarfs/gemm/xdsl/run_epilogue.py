@@ -33,7 +33,7 @@ REPO = Path(os.environ.get("WOLFPINE_ROOT", HERE.parents[4]))
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
-from framework.naiad.dwarfs import (  # noqa: E402
+from experiments.naiad.dwarfs import (  # noqa: E402
     DEFAULT_DESIGN,
     KERNELS,
     load_spec,
