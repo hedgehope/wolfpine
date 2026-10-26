@@ -17,6 +17,10 @@
  */
 #include "naiad_platform.h"
 
+#if defined(JACOBI_RADIUS) && JACOBI_RADIUS != 1
+#error "jacobi_ame_mc is radius 1 only (use the single-hart variant for JACOBI_RADIUS > 1)"
+#endif
+
 #if NAIAD_HARTS > 1
 static int jacobi_row0(void);
 static int jacobi_row1(void);

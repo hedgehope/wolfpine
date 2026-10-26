@@ -1,0 +1,115 @@
+# Higher-order Jacobi: does a radius-r star stencil (4 r + 1 points) cross RVV earlier?
+#
+#   python -m experiments.naiad.run jacobi_radius -j 8 && python -m experiments.naiad.plot jacobi_radius
+#   python -m experiments.naiad.run jacobi_radius --quick     # smallest sizes, three ratios
+#
+# The jacobi dwarf's size (n, r) is the radius-r stencil on an n x n grid with a
+# boundary ring of width r (n = 16 t + 2 r), so every size family below has the
+# same interior (t x t output tiles): 64^2 (66, 68x2, 72x4) and 128^2 (130,
+# 132x2, 136x4). The AME kernel does the same 5 mma per output tile at every r
+# (banded form; 4 in the window form) while the useful FLOPs per point grow as
+# 4 r, so redundancy should fall roughly as 1 / r. Radius 1 is the same binary
+# as talk_tier1 / talk_tier2's (the plain size 66 builds without a radius flag).
+#
+# Every point derives its design from naiad-dwarfs.yaml by overrides only.
+name: jacobi_radius
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: [jacobi]
+variants: [ame, rvv, scalar]
+sizes: [66, [68, 2], [72, 4]]
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: [fp32, fp32]}
+references: [scalar]
+ratio: {vector: rvv}
+
+studies:
+  # Tier-2 axis (talk_tier2's crossover study): speedup over RVV against the
+  # matrix:RVV peak ratio, fp32, with RVV's LSU at the tile path's 64 B/cycle so
+  # the ratio is the only resource that differs. 4..8192 MACs/cycle in
+  # half-octave steps is a fp32 ratio of 1/8..256. crossover.csv also gives each
+  # group's crossover against scalar on the same axis (crossover_vs_scalar).
+  - name: crossover
+    description: jacobi r = 1, 2, 4 speedup over RVV vs matrix:RVV ratio, fp32, interior 64^2 and 128^2, equal LSU
+    sizes: [66, [68, 2], [72, 4], 130, [132, 2], [136, 4]]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      sizes: [66, [68, 2], [72, 4]]
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # The same axis with the AME kernel's window form (4 mma and 4 loads per tile
+  # instead of 5 and 3 / 2): fewer mma, so it is the better form at low ratio,
+  # where the crossover sits. The RVV / scalar rows are the crossover study's.
+  - name: crossover_window
+    description: as crossover, AME window form (4 mma per tile), interior 64^2
+    formats: [[fp32, fp32]]
+    variants: [ame, rvv, scalar]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      kernel.cflags: [[-DJACOBI_FORM=0]]
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      kernel.cflags: ["ame*"]
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        kernel.cflags: [[-DJACOBI_FORM=0]]
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # bf16 inputs, fp32 accumulation, against RVV in the same formats (Zvfbfwma
+  # widening adds: 8 FMAs/cycle, as fp32). bf16 takes 2 passes, so the same
+  # macs_per_cycle list is a ratio of 1/4..512. No scalar reference (F/D only).
+  - name: crossover_bf16
+    description: as crossover, bf16/fp32 against RVV bf16/fp32, interior 64^2
+    formats: [[bf16, fp32]]
+    variants: [ame, rvv]
+    baseline: {variant: rvv, formats: same}
+    references: []
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # Tier-1 axis (talk_tier1's crossover study): speedup over the scalar F/D
+  # baseline against the matrix:scalar ratio (1 FMA/cycle), fp32, default LSU.
+  - name: vs_scalar
+    description: jacobi r = 1, 2, 4 speedup over scalar vs matrix:scalar ratio, fp32, interior 64^2
+    variants: [ame, scalar]
+    formats: [[fp32, fp32]]
+    baseline: {variant: scalar, formats: [fp32, fp32]}
+    references: []
+    ratio: {vector: scalar}
+    overrides:
+      timing.matrix.macs_per_cycle: [4, 6, 8, 12, 16, 24, 32, 48, 64, 128, 256, 512, 1024, 2048]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # Bytes per path and redundant arithmetic at the default design (RVV at
+  # naiad-dwarfs' 32 B/cycle LSU, as talk_tier2's bytes study).
+  - name: bytes
+    description: bytes per path and redundancy per radius, default design, fp32
+    formats: [[fp32, fp32]]
+    figures: [bytes, redundancy]

@@ -14,6 +14,10 @@
  */
 #include "naiad_platform.h"
 
+#if defined(JACOBI_RADIUS) && JACOBI_RADIUS != 1
+#error "jacobi_rvv_mc is radius 1 only (use the single-hart variant for JACOBI_RADIUS > 1)"
+#endif
+
 #include "../../jacobi/dw_fmt.h"
 
 #define RV_AL 4

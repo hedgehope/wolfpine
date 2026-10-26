@@ -158,6 +158,11 @@ def _ok(rows, study):
     return [r for r in rows if r["study"] == study and r["status"] == "ok"]
 
 
+def _key_order(key):
+    """A sort key for a tuple of labels whose size cell may be a number (66) or a string (68x2)."""
+    return tuple((_size_parts(x), str(x)) for x in key)
+
+
 def _series_label(dwarf, size, fmts, multi_size, multi_fmt):
     parts = [dwarf]
     if multi_size:
@@ -210,13 +215,24 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
         for c in cross
         if c["study"] == study
     }
+
+    # One dwarf at several sizes: the size, not the dwarf, picks the colour (each
+    # size's unswept baselines take its colour too), or every line would share one.
+    sizes = sorted({k[2] for k in groups}, key=lambda s: _key_order((s,)))
+    by_size = len(dwarfs) == 1 and multi_size
+
+    def colour_of(dwarf, size):
+        if by_size:
+            return PALETTE[sizes.index(size) % len(PALETTE)]
+        return dwarf_colour(dwarf, dwarfs)
+
     fig = plt.figure(figsize=(10.5, 5.0))
     ax = fig.add_axes([0.07, 0.12, 0.6, 0.8])
     table = []
-    for key in sorted(swept):
+    for key in sorted(swept, key=_key_order):
         dwarf, variant, size, fmts = key
         members = sorted(swept[key], key=lambda r: r["mv_ratio"])
-        colour = dwarf_colour(dwarf, dwarfs)
+        colour = colour_of(dwarf, size)
         name = _series_label(
             dwarf, size, fmts, multi_size, multi_fmt
         ) + _variant_suffix(variant)
@@ -245,12 +261,12 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
             )
         table.append((name, _crossover_text(c), colour))
     ref_variants = sorted({k[1] for k in flat})
-    for key in sorted(flat):
-        dwarf, variant, _, _ = key
+    for key in sorted(flat, key=_key_order):
+        dwarf, variant, size, _ = key
         speedup = statistics.median(r["speedup"] for r in flat[key])
         ax.axhline(
             speedup,
-            color=dwarf_colour(dwarf, dwarfs),
+            color=colour_of(dwarf, size),
             linestyle=":",
             linewidth=1.2,
             alpha=0.8,
@@ -263,7 +279,7 @@ def plot_crossover(rows, cross, study, out_dir, vector_baseline="scalar"):
             ":",
             color=INK_2,
             linewidth=1.2,
-            label=f"{', '.join(ref_variants)} (runs once; dwarf colour)",
+            label=f"{', '.join(ref_variants)} (runs once; {'size' if by_size else 'dwarf'} colour)",
         )
     ax.axhline(1, color=INK_2, linewidth=1, linestyle="--", zorder=1)
     ax.set_xscale("log", base=2)
@@ -405,7 +421,7 @@ def plot_bytes(rows, study, out_dir):
         for segs in bars.values():
             segs["other"] = sum(segs.pop(n, 0) for n in fold)
         names = [*keep, "other"]
-    keys = sorted(bars)
+    keys = sorted(bars, key=_key_order)
     multi_size = len({k[2] for k in keys}) > 1
     multi_fmt = len({k[3] for k in keys}) > 1
     # One fact per line (dwarf, size, formats, variant) so neighbouring labels never collide.
@@ -839,7 +855,7 @@ def plot_redundancy(rows, study, out_dir):
             (r["dwarf"], r["size"], f"{r['in_fmt']}/{r['acc_fmt']}", r["variant"]),
             r["redundancy"],
         )
-    keys = sorted(bars)
+    keys = sorted(bars, key=_key_order)
     dwarfs = sorted({k[0] for k in keys})
     multi_size = len({(k[0], k[1]) for k in keys}) > len(dwarfs)
     multi_fmt = len({k[2] for k in keys}) > 1
