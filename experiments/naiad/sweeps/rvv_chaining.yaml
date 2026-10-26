@@ -1,0 +1,77 @@
+# Sensitivity of the talk's AME-vs-RVV crossovers to RVV chaining: the tier-2
+# crossover (talk_tier2's `crossover`) and the fused fft / nbody crossover
+# (epilogue's `crossover`), re-run with `timing.vector.chaining: true`
+# (framework/naiad/vector_timing.py: element-group chaining between dependent
+# vector instructions, loads into arithmetic and arithmetic into stores).
+#
+#   python -m experiments.naiad.run rvv_chaining -j 8 && python -m experiments.naiad.plot rvv_chaining
+#   python -m experiments.naiad.run rvv_chaining --quick
+#
+# The unchained crossovers are talk_tier2's and epilogue's own crossover.csv; the
+# `rvv_control` study runs every RVV baseline (and the RVV-hybrid variants) both
+# ways side by side. Chaining is set for every point, but only kernels that
+# execute vector instructions can see it: the AME / scalar variants are built
+# without V and time identically.
+name: rvv_chaining
+base_design: framework/naiad/designs/naiad-dwarfs.yaml
+dwarfs: all
+sizes: mid
+seed: 0
+count_all: true
+baseline: {variant: rvv, formats: [fp32, fp32]}
+references: [scalar]
+ratio: {vector: rvv}
+
+studies:
+  # talk_tier2 `crossover` with a chaining RVV (equal 64 B/cycle memory bandwidth).
+  - name: crossover
+    description: speedup over a chaining RVV vs matrix:vector peak ratio, fp32/fp32, mid size, equal memory bandwidth
+    variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.vector.chaining: true
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.vector.chaining: true
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # epilogue `crossover` with a chaining RVV: fft / nbody unfused, RVV-epilogue
+  # hybrid (its RVV phase chains too) and fused.
+  - name: fused_crossover
+    description: fft / nbody speedup over a chaining RVV vs ratio, fp32, mid size; unfused, RVV-epilogue hybrid and fused
+    dwarfs: [fft, nbody]
+    variants: [ame, ame_rvv, ame_fused, rvv]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      timing.vector.chaining: true
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        timing.vector.chaining: true
+        matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
+  # Every RVV kernel unchained and chained at the crossover studies' design (the
+  # default matrix unit; the fft / nbody hybrids with the epilogue's features).
+  - name: rvv_control
+    description: the RVV baselines (and RVV hybrids) with and without chaining, fp32, mid size, 64 B/cycle LSU
+    variants: [rvv, ame_rvv]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
+      timing.vector.chaining: [false, true]

@@ -16,9 +16,32 @@ to stall.
   times longer per element group; reductions add ``log2(lanes)`` cycles of
   tree latency. A second arithmetic instruction waits for the datapath
   (``vector_busy``).
-* **No chaining**: a consumer waits until its producer's *whole* result is
-  ready (``vector_raw``), tracked per vector register (a group is ready when
-  its last register is). Only ``chaining: false`` is accepted.
+* **No chaining** (``chaining: false``, the default): a consumer waits until
+  its producer's *whole* result is ready (``vector_raw``), tracked per vector
+  register (a group is ready when its last register is).
+* **Chaining** (``chaining: true``): element-group chaining, Cray / RVV style,
+  tracked per vector register. An op processes its ``n`` elements in ``beats``
+  equal element groups over its occupancy (the datapath's, or the LSU transfer
+  for a load or store), element ``x`` in beat ``x * beats // n``. A producer's
+  element is readable ``startup`` (a load: ``mem_startup`` + region latency)
+  after its beat leaves the unit, so its *first* group is readable at ``issue
+  + beat + startup`` and its last at the unchained ready time; each register
+  records when its first and its last element are readable. A consumer may
+  start once every source register's first element is ready when the
+  consumer's beat reaches it, and the register's last element likewise (both
+  streams are linear, so the two ends suffice): ``start >= max(first[r] -
+  offset(first element in r), ready[r] - offset(last element in r))``. Chaining
+  only lifts the RAW wait: the datapath and the LSU are still one instruction
+  at a time, a load still honours memory RAW and the region port, and a
+  chained store is still complete (for :mod:`~framework.naiad.store_hazards`)
+  when its transfer ends, after its last element arrived. Loads chain into
+  arithmetic and arithmetic into stores the same way. Not chained: sources an
+  op reads out of order (``vrgather``'s and a slide-down's ``vs2``) and a
+  reduction's scalar ``vs1`` wait for the whole register group; reductions
+  and ``vcompress`` results are readable only when the op completes; a
+  register holding only tail elements (at or past ``vl``) is not waited for. With VLEN = ``datapath_bits`` and LMUL 1 an op is
+  one beat, so chaining saves nothing: the gain per dependence is the
+  producer's occupancy less one beat, and the ``startup`` stays exposed.
 * **One vector load/store unit**, independent of the datapath. A unit-stride
   access moves ``bytes`` in ``ceil(bytes / min(mem_bytes_per_cycle, region
   bandwidth))`` cycles; strided, indexed and segment accesses take at least
@@ -75,7 +98,7 @@ class VectorTimingSpec:
     mem_bytes_per_cycle: float = 32
     #: Element addresses generated per cycle for strided / indexed / segment accesses.
     indexed_elements_per_cycle: float = 1
-    #: Only False (no chaining) is modelled.
+    #: Element-group chaining between dependent vector instructions (off: wait for the whole result).
     chaining: bool = False
 
 
@@ -97,10 +120,6 @@ def parse_vector(raw, design, parse_fields, number, flag):
         "chaining": flag,
     }
     spec = parse_fields(raw, VectorTimingSpec, "timing.vector", rules)
-    if spec.chaining:
-        raise DesignError(
-            "timing.vector.chaining: only false (no chaining) is modelled"
-        )
     if spec.datapath_bits % 8 or spec.datapath_bits < 8:
         raise DesignError(
             f"timing.vector.datapath_bits must be a multiple of 8, got {spec.datapath_bits}"
@@ -137,6 +156,10 @@ class VOp:
     masked: bool = False
     #: Memory: (mode, eew, nf) / whole-register count.
     mem: tuple | None = None
+    #: Chaining only: vector source bases the op cannot chain on (it reads them out of order).
+    whole_src: tuple = ()
+    #: Chaining only: False when the result is only readable once the op completes.
+    streams: bool = True
 
 
 def _scalar_src(kind, src):
@@ -261,7 +284,13 @@ def classify(instr):
         name, vd, vs2, vs1, vm = args
         wide = name.startswith("w")
         return VOp(
-            RED, ((vs2, _S), (vs1, _M)) + mask_src(vm), (vd, _M), (), -1, wide=wide
+            RED,
+            ((vs2, _S), (vs1, _M)) + mask_src(vm),
+            (vd, _M),
+            (),
+            -1,
+            wide=wide,
+            whole_src=(vs1,),  # the scalar operand, not a stream
         )
     if h is fpu.merge:
         vd, vs2, rs1, vm = args
@@ -319,19 +348,23 @@ def classify(instr):
         return VOp(ARITH, (), (vd, _M), (_F + rs1,), -1)
     if h in (permute.slide, permute.gather):
         if h is permute.slide:
-            _, vd, vs2, kind, src, vm = args
+            name, vd, vs2, kind, src, vm = args
+            # Element i of a slide-down reads vs2[i + off]: it cannot chain on vs2.
+            whole = (vs2,) if name in ("down", "1down") else ()
         else:
             vd, vs2, kind, src, vm = args
+            whole = (vs2,)  # vrgather reads vs2 in data-dependent order
         return VOp(
             ARITH,
             ((vs2, _S),) + _vsrc(kind, src) + mask_src(vm),
             (vd, _S),
             _scalar_src(kind, src),
             -1,
+            whole_src=whole,
         )
     if h is permute.compress:
         vd, vs2, vs1 = args
-        return VOp(ARITH, ((vs2, _S), (vs1, _M)), (vd, _S), (), -1)
+        return VOp(ARITH, ((vs2, _S), (vs1, _M)), (vd, _S), (), -1, streams=False)
     if h is permute.move_whole:
         vd, vs2, nr = args
         return VOp(
@@ -358,6 +391,12 @@ class VectorTiming:
 
     def reset(self):
         self.ready = [0] * 32
+        # Chaining only: when each register's first element is readable, and the
+        # ``ready`` value that was current when it was set (another writer, such as
+        # an IME or VME mma, updates ``ready`` alone, making the register whole).
+        self.first = [0] * 32
+        self.first_of = [0] * 32
+        self.chained = 0
         self.unit_free = 0
         self.lsu_free = 0
         self.stall_until = 0
@@ -366,10 +405,14 @@ class VectorTiming:
         self.mem_busy_cycles = 0
 
     def counters(self):
-        return {
+        out = {
             "vector_busy_cycles": self.busy_cycles,
             "vector_mem_busy_cycles": self.mem_busy_cycles,
         }
+        if self.spec.chaining:
+            # Vector instructions that started before a source was whole.
+            out["vector_chained"] = self.chained
+        return out
 
     def decode(self, instr):
         op = self._ops.get(instr, 0)
@@ -423,6 +466,8 @@ class VectorTiming:
         spec = self.spec
         if op.kind == CFG:
             return cycle + 1
+        if spec.chaining:
+            return self._issue_chained(op, cycle, register_file)
         ready = self.ready
         for base, role in op.vsrc:
             for r in self._regs(base, role):
@@ -487,4 +532,165 @@ class VectorTiming:
         if op.vdst is not None:
             for r in self._regs(*op.vdst):
                 ready[r] = done
+        return done if op.sdst >= 0 else cycle + 1
+
+    # -- chaining (``timing.vector.chaining: true``) -------------------------------------
+
+    def _eew(self, role):
+        """Element width in bits of an operand role (a mask is one bit per element)."""
+        if role == _S:
+            return self.vs.sew
+        if role == _W:
+            return 2 * self.vs.sew
+        if role == _M:
+            return 1
+        tag = role[0]
+        if tag == "n":
+            return 8
+        if tag == "e":
+            return self.vs.sew // role[1]
+        return role[1]  # "i" / "d": the access's EEW
+
+    def _spans(self, base, role, n):
+        """``(reg, first, last)`` element indices (below ``n``) each register of an operand holds."""
+        regs = self._regs(base, role)
+        per = max(1, self.vs.vlen // self._eew(role))
+        fields = role[2] if isinstance(role, tuple) and role[0] == "d" else 1
+        emul = max(1, len(regs) // fields)
+        out = []
+        for i, r in enumerate(regs):
+            lo = (i % emul) * per
+            out.append((r, lo, min(lo + per, n) - 1))
+        return out
+
+    def _shape(self, op):
+        """``(n, occupancy, beats)`` of a datapath op: its elements, cycles and element groups."""
+        spec, vs = self.spec, self.vs
+        if op.mem is not None:  # vmv<nr>r.v: whole registers as bytes
+            occ = max(1, math.ceil(op.mem[2] * vs.vlen / spec.datapath_bits))
+            return op.mem[2] * vs.vlenb, occ, occ
+        width = 2 * vs.sew if op.wide else vs.sew
+        beats = max(1, math.ceil(vs.vl * width / spec.datapath_bits))
+        occ = beats * spec.div_ii if op.kind == DIV else beats
+        return vs.vl, occ, beats
+
+    def _chain_at(self, op, n, occ, beats):
+        """The first cycle ``op`` may start, by its vector sources, and that bound unchained.
+
+        Element ``x`` of ``n`` is processed in beat ``k = x * beats // n``, which
+        starts ``k * occ // beats`` cycles into the op. A source register may be
+        read once its first element is ready when the op reaches that element, and
+        its last element likewise; between the two both stream linearly.
+        """
+        ready, first, first_of = self.ready, self.first, self.first_of
+        at = whole = 0
+        for base, role in op.vsrc:
+            if n == 0 or base in op.whole_src:
+                for r in self._regs(base, role):
+                    at = max(at, ready[r])
+                    whole = max(whole, ready[r])
+                continue
+            for r, lo, hi in self._spans(base, role, n):
+                if hi < lo:
+                    continue  # holds only tail elements: not read
+                done = ready[r]
+                whole = max(whole, done)
+                f = first[r] if first_of[r] == done else done
+                start_lo = (lo * beats // n) * occ // beats
+                start_hi = (hi * beats // n) * occ // beats
+                at = max(at, f - start_lo, done - start_hi)
+        return at, whole
+
+    def _stream_out(self, op, cycle, n, occ, beats, latency, streams=True):
+        """Record when each destination register's first and last elements are readable."""
+        ready, first, first_of = self.ready, self.first, self.first_of
+        done = cycle + occ + latency
+        if not streams or n == 0:
+            for r in self._regs(*op.vdst):
+                ready[r] = first[r] = first_of[r] = done
+            return
+        for r, lo, hi in self._spans(*op.vdst, n):
+            if hi < lo:
+                ready[r] = first[r] = first_of[r] = done
+                continue
+            end_lo = -(-((lo * beats // n) + 1) * occ // beats)
+            end_hi = -(-((hi * beats // n) + 1) * occ // beats)
+            first[r] = cycle + end_lo + latency
+            ready[r] = first_of[r] = cycle + end_hi + latency
+
+    def _issue_chained(self, op, cycle, register_file):
+        """:meth:`issue` with element-group chaining (see the module docstring)."""
+        spec, vs = self.spec, self.vs
+        if op.kind in (LOAD, STORE):
+            mode, eew, nf = op.mem
+            if mode == "whole":
+                nbytes = nf * vs.vlenb
+                n = nbytes
+            elif mode == "mask":
+                nbytes = (vs.vl + 7) // 8
+                n = vs.vl
+            else:
+                data_eew = vs.sew if mode == "indexed" else eew
+                nbytes = vs.vl * nf * data_eew // 8
+                n = vs.vl
+            addr = register_file[(op.ssrc[0])].read_uint()
+            region = self.memory.lookup(addr)
+            bw = spec.mem_bytes_per_cycle
+            if region.bandwidth is not None:
+                bw = min(bw, region.bandwidth)
+            t = max(1, math.ceil(nbytes / bw))
+            if mode in ("strided", "indexed") or (mode == "unit" and nf > 1):
+                t = max(t, math.ceil(vs.vl * nf / spec.indexed_elements_per_cycle))
+            at, whole = self._chain_at(op, n, t, t)
+            if at > cycle:
+                return self._stall(at, VECTOR_RAW)
+            if self.lsu_free > cycle:
+                return self._stall(self.lsu_free, VECTOR_BUSY)
+            if region.port_free > cycle:
+                return self._stall(region.port_free, MEM)
+            inflight = self.memory.inflight
+            if op.kind == LOAD and inflight.until > cycle:
+                at_mem = inflight.wait(
+                    self._footprint(op, addr, nbytes, register_file), cycle
+                )
+                if at_mem:  # an earlier store is still writing these bytes
+                    return self._stall(at_mem, MEM_RAW)
+            if whole > cycle:
+                self.chained += 1
+            latency = region.access(addr, nbytes, op.kind == STORE, cycle, t)
+            self.lsu_free = cycle + t
+            self.mem_busy_cycles += t
+            if op.kind == STORE and nbytes:
+                # Complete when the LSU frees: by then the chained data has all arrived.
+                inflight.add(
+                    self._footprint(op, addr, nbytes, register_file), cycle + t, cycle
+                )
+            if op.kind == LOAD and op.vdst is not None:
+                self._stream_out(op, cycle, n, t, t, spec.mem_startup + latency)
+            return cycle + 1
+        n, occ, beats = self._shape(op)
+        at, whole = self._chain_at(op, n, occ, beats)
+        if at > cycle:
+            return self._stall(at, VECTOR_RAW)
+        if self.unit_free > cycle:
+            return self._stall(self.unit_free, VECTOR_BUSY)
+        if whole > cycle:
+            self.chained += 1
+        done = cycle + occ + spec.startup
+        if op.kind == RED:
+            lanes = max(1, spec.datapath_bits // vs.sew)
+            done += math.ceil(math.log2(lanes)) if lanes > 1 else 0
+        self.unit_free = cycle + occ
+        self.busy_cycles += occ
+        if op.vdst is not None:
+            # A reduction's result exists only after its tree: it does not stream.
+            self._stream_out(
+                op,
+                cycle,
+                n,
+                occ,
+                beats,
+                done - cycle - occ,
+                streams=op.streams and op.kind != RED,
+            )
         return done if op.sdst >= 0 else cycle + 1

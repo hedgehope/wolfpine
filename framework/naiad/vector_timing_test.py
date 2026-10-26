@@ -16,6 +16,7 @@ from framework.naiad.design import DesignError, parse_design
 from framework.naiad.vector_timing import classify
 from framework.pe.rv.isa.isa64_testing import csr, i_type, r_type
 from framework.pe.rv.isa.v.vtesting import (
+    OPIVI,
     OPIVV,
     OPIVX,
     OPMVV,
@@ -237,6 +238,126 @@ def test_every_decodable_vector_word_classifies():
                         assert classify(w) is not None
 
 
+# -- chaining (timing.vector.chaining: true) --------------------------------------------
+#
+# Two ops back to back: the first issues at c1 + 1, the second ``d`` later, so the
+# bracket is ``d + 2``. Unchained, ``d`` is the producer's ``occupancy + startup``;
+# chained, the consumer may start once the producer's first element group is
+# readable (``1 + startup``), held back by the datapath (``occupancy``) and by the
+# producer's last group (``occupancy + startup`` less the consumer's offset to it).
+
+CHAIN = {"chaining": True}
+
+
+def _pair(first, second, lmul, chaining):
+    return _run(_raw(vector=CHAIN if chaining else None), [first, second], lmul=lmul)
+
+
+@pytest.mark.parametrize(
+    "lmul,unchained,chained",
+    [
+        (1, 1 + STARTUP, 1 + STARTUP),  # one beat: nothing to chain
+        (2, 2 + STARTUP, 1 + STARTUP),
+        (4, 4 + STARTUP, 1 + STARTUP),
+        (8, 8 + STARTUP, 8),  # the datapath, not the result, holds it back
+    ],
+)
+def test_dependent_arithmetic_chains_on_the_first_element_group(
+    lmul, unchained, chained
+):
+    """``vadd v8, v16, v24; vadd v0, v8, v8`` at e32, VL = VLMAX (LMUL beats each)."""
+    a, b = _vadd(8, 16, 24), _vadd(0, 8, 8)
+    assert _pair(a, b, lmul, False)[0] == unchained + 2
+    cycles, soc = _pair(a, b, lmul, True)
+    assert cycles == chained + 2
+    assert soc.counters()["hart0.timing.vector_chained"] == (
+        1 if chained < unchained else 0
+    )
+
+
+def test_a_chained_sequence_streams_at_the_first_group_rate():
+    """``vadd v8, v8, v16`` x N at LMUL 4: chained, each issues ``1 + startup`` after the last."""
+    body = [_vadd(8, 8, 16)] * N
+    assert _run(_raw(), body, lmul=4)[0] == 2 + (N - 1) * (4 + STARTUP)
+    cycles, soc = _run(_raw(vector=CHAIN), body, lmul=4)
+    assert cycles == 2 + (N - 1) * (1 + STARTUP)
+    assert soc.counters()["hart0.timing.stall_vector_raw"] == (N - 1) * STARTUP
+
+
+def test_chaining_into_a_faster_consumer_waits_for_the_last_group():
+    """``vdivu`` at LMUL 2 (2 beats of div_ii) feeding a ``vadd`` (2 beats of 1).
+
+    The divide's groups are readable at ``div_ii + startup`` and ``2 div_ii +
+    startup``; the add reads its second group one cycle in, so it starts at
+    ``2 div_ii + startup - 1``, one cycle before the unchained ``2 div_ii + startup``.
+    """
+    div, add = opv(OPMVV, 0x20, 8, 16, 24), _vadd(0, 8, 8)
+    assert _pair(div, add, 2, False)[0] == 2 * DIV_II + STARTUP + 2
+    assert _pair(div, add, 2, True)[0] == 2 * DIV_II + STARTUP - 1 + 2
+
+
+@pytest.mark.parametrize("lmul", [1, 8])
+def test_a_load_chains_into_its_use(lmul):
+    """``vle32`` of LMUL registers from DRAM (LMUL LSU beats), then a use: chained, the
+    use starts when the first beat lands (``mem_startup + latency + 1``)."""
+    t = 8 * lmul * 4 // LSU
+    body = [vmem(True, 32, 8, S1), _vadd(16, 8, 8)]
+    unchained, _ = _run(_raw(), body, lmul=lmul)
+    assert unchained == 1 + MEM_STARTUP + DRAM_LAT + t + 1
+    chained, _ = _run(_raw(vector=CHAIN), body, lmul=lmul)
+    assert chained == 1 + MEM_STARTUP + DRAM_LAT + 1 + 1
+
+
+def test_a_store_chains_on_its_data_and_memory_raw_still_holds():
+    """``vadd v8 (LMUL 8); vse32 v8; ld`` of the stored bytes. The store chains on the
+    add (starts ``1 + startup`` after it), but the scalar load still waits for the
+    store's whole transfer (``mem_raw``), so chaining moves the load by exactly
+    what the store gained."""
+    from framework.naiad import timing_test as tt
+
+    t = 256 // LSU
+    body = [_vadd(8, 16, 24), vmem(False, 32, 8, S0), tt._ld(A0, S0)]
+    unchained, soc = _run(_raw(), body, lmul=8)
+    assert unchained == (8 + STARTUP) + t + 2
+    assert soc.counters()["hart0.timing.stall_mem_raw"] == t - 1
+    chained, soc = _run(_raw(vector=CHAIN), body, lmul=8)
+    assert chained == (1 + STARTUP) + t + 2
+    assert soc.counters()["hart0.timing.stall_mem_raw"] == t - 1
+
+
+def test_a_vector_load_after_a_chained_store_still_waits_for_the_lsu():
+    body = [_vadd(8, 16, 24), vmem(False, 32, 8, S0), vmem(True, 32, 16, S0)]
+    t = 256 // LSU
+    chained, soc = _run(_raw(vector=CHAIN), body, lmul=8)
+    assert chained == (1 + STARTUP) + t + 2
+    assert soc.counters()["hart0.timing.stall_mem_raw"] == 0
+
+
+def test_slide_up_chains_and_slide_down_does_not():
+    """``vslideup.vi`` reads ``vs2`` in order; ``vslidedown.vi`` reads ahead of its output."""
+    add = _vadd(8, 16, 16)
+    up, down = opv(OPIVI, 0x0E, 20, 8, 1), opv(OPIVI, 0x0F, 20, 8, 1)
+    assert _pair(add, up, 4, True)[0] == 1 + STARTUP + 2
+    assert _pair(add, down, 4, True)[0] == 4 + STARTUP + 2
+    assert _pair(add, down, 4, False)[0] == 4 + STARTUP + 2
+
+
+def test_a_reduction_result_does_not_stream():
+    """``vredsum v4, v8, v2; vredsum v5, v8, v4`` at LMUL 4: the second waits for the
+    first's tree (its scalar operand) whether or not chaining is on."""
+    r1, r2 = opv(OPMVV, 0x00, 4, 8, 2), opv(OPMVV, 0x00, 5, 8, 4)
+    want = 4 + STARTUP + 3 + 2
+    assert _pair(r1, r2, 4, False)[0] == want
+    assert _pair(r1, r2, 4, True)[0] == want
+
+
+def test_a_short_vl_is_one_beat_chained_or_not():
+    """VL = 8 at LMUL 4 is one register and one beat; the tail registers are not waited for."""
+    body = [_vadd(8, 16, 24), _vadd(0, 8, 8)]
+    assert _run(_raw(), body, lmul=4, vl=8)[0] == 1 + STARTUP + 2
+    assert _run(_raw(vector=CHAIN), body, lmul=4, vl=8)[0] == 1 + STARTUP + 2
+
+
 # -- schema ------------------------------------------------------------------------------
 
 
@@ -256,9 +377,11 @@ def test_timing_vector_without_a_vector_unit_is_refused():
         parse_design(raw)
 
 
-def test_chaining_is_not_modelled():
+def test_chaining_defaults_off_and_parses():
+    assert parse_design(_raw()).timing.vector.chaining is False
+    assert parse_design(_raw(vector={"chaining": True})).timing.vector.chaining is True
     with pytest.raises(DesignError, match="chaining"):
-        parse_design(_raw(vector={"chaining": True}))
+        parse_design(_raw(vector={"chaining": 1}))
 
 
 def test_unknown_vector_timing_key():
