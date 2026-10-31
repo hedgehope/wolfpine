@@ -82,7 +82,17 @@ Feature switches (all compile-time; ``cflags(..., switches={...})``, or
 ``switch_cflags(switches)`` as a sweep's ``extra_cflags``): ``form``
 (``"window"`` / ``"banded"``), ``tshift`` (bool, banded only) and ``epilogue``
 (bool). :data:`ITERS` is not a switch: :func:`golden` assumes it. At r > 1,
-``tshift2`` is refused and ``tshift`` has no effect.
+``tshift2`` is refused and ``tshift`` has no effect; ``halo`` (below) is the
+generalised fused halo.
+
+``halo`` (AME ``halo`` feature, ``tloadh``; NOT in Ztt, a proposal; banded form,
+radius 2 and 4): the fused-halo ``tshift`` generalised to r rows. ``tloadh`` is
+one load of the r grid rows above and the r rows below the tile, packed into
+rows 0..2r-1 of a tile, which a constant ``Ah_r`` adds to the tile's edge rows
+(no ``tshift``: ``Ah_r`` reads the rows where they land). The vertical sum is
+``T0_r C + Ah_r H`` and ``C`` is the tile already loaded for the horizontal sum,
+so ``banded`` is 5 mma and 2 loads per tile at every r, one load fewer than the
+window pair, and the halo load moves 2r rows, not 16.
 """
 
 import importlib.util
@@ -130,6 +140,7 @@ SWITCHES = {
     "epilogue": False,
     "mconv": False,
     "tshift2": False,
+    "halo": False,
 }
 FORMS = {"window": 0, "banded": 1}
 
@@ -175,7 +186,11 @@ def switch_cflags(switches=None):
         )
     if sw["tshift2"] and sw["form"] != "window":
         raise ValueError("the jacobi tshift2 switch applies to form='window' only")
-    flags = ("tshift", "epilogue", "mconv", "tshift2")
+    if sw["halo"] and (sw["form"] != "banded" or sw["mconv"]):
+        raise ValueError(
+            "the jacobi halo switch applies to form='banded' without mconv only"
+        )
+    flags = ("tshift", "epilogue", "mconv", "tshift2", "halo")
     value = {"form": FORMS[sw["form"]], **{k: int(bool(sw[k])) for k in flags}}
     default = {
         "form": FORMS[SWITCHES["form"]],
@@ -188,6 +203,8 @@ def cflags(size, in_fmt, acc_fmt, switches=None):
     n, r = shape(size)
     if r != 1 and switches and switches.get("tshift2"):
         raise ValueError("the jacobi tshift2 switch applies to radius 1 only")
+    if r == 1 and switches and switches.get("halo"):
+        raise ValueError("the jacobi halo switch applies to radius 2 and 4 only")
     return [
         *dwf.fmt_cflags(in_fmt, acc_fmt),
         f"-DJACOBI_N={n}",

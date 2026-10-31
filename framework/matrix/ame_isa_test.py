@@ -251,6 +251,75 @@ def test_transposed_loads(role):
     )
 
 
+@pytest.mark.parametrize("h", [1, 2])
+def test_halo_load_packs_the_rows_above_and_below_a_block(h):
+    """``tloadh``: K = 5 rows at ``base``; td rows 0..h-1 are the h rows above, h..2h-1 the h below."""
+    core, memory, unit = _core()
+    stride = 4 * N + 8  # padded rows
+    grid = np.random.default_rng(h).standard_normal((K + 2 * h, N)).astype(np.float32)
+    for r in range(K + 2 * h):
+        memory.write(DATA + r * stride, grid[r].tobytes())
+    unit.tiles[1].fill(0xAB)
+    _exec(
+        core,
+        "tloadh",
+        _mem_ops(DATA + h * stride, stride),
+        td=1,
+        base=X_BASE,
+        stride=X_STRIDE,
+        fmt=FP32,
+        h=h,
+    )
+    want = np.zeros((K, N), np.float32)
+    want[:h] = grid[:h]
+    want[h : 2 * h] = grid[K + h :]
+    np.testing.assert_array_equal(
+        unit.tile_view(1, "b", formats.get_format("fp32")), want
+    )
+    assert unit.stats["mem_to_tile_bytes"] == 2 * h * 4 * N  # only the halo rows move
+
+
+def test_halo_load_h_is_one_to_half_the_rows():
+    core, _, _ = _core()
+    ops = dict(td=0, base=X_BASE, stride=X_STRIDE, fmt=FP32)
+    for h in (0, K // 2 + 1, 7):
+        with pytest.raises(IllegalMatrixInstruction, match="tloadh: h"):
+            _exec(core, "tloadh", _mem_ops(DATA + 64, 16), h=h, **ops)
+    _exec(core, "tloadh", _mem_ops(DATA + 64, 16), h=K // 2, **ops)
+
+
+def test_halo_load_takes_h_up_to_seven_on_a_16_row_unit():
+    core, memory, unit = _core(m=16, n=16, k=16, in_formats=("fp32",))
+    grid = np.arange(30 * 16, dtype=np.float32).reshape(30, 16)
+    memory.write(DATA, grid.tobytes())
+    _exec(
+        core,
+        "tloadh",
+        _mem_ops(DATA + 7 * 64, 64),
+        td=0,
+        base=X_BASE,
+        stride=X_STRIDE,
+        fmt=FP32,
+        h=7,
+    )
+    got = unit.tile_view(0, "b", formats.get_format("fp32"))
+    np.testing.assert_array_equal(got[:7], grid[:7])
+    np.testing.assert_array_equal(got[7:14], grid[23:30])
+    assert not got[14:].any()
+
+
+def test_tloadh_has_its_own_custom_3_slot():
+    """No other word shares tloadh's opcode and funct3 (the table check also forbids it)."""
+    insn = TABLE.instructions["tloadh"]
+    assert (insn.opcode, insn.funct3) == (TABLE.opcodes["custom-3"], 6)
+    others = [
+        i
+        for n, i in TABLE.instructions.items()
+        if n != "tloadh" and (i.opcode, i.funct3) == (insn.opcode, insn.funct3)
+    ]
+    assert not others
+
+
 def test_accumulator_load_store_and_zero():
     core, memory, unit = _core()
     c = _ints((M, N), -(1 << 31), 1 << 31, np.int32, 3)
@@ -502,6 +571,11 @@ def test_indices_past_the_register_files_are_illegal():
             dict(td=0, base=X_BASE, stride=X_STRIDE, fmt=FP32, t=1),
         ),
         ("shift", "tshift", dict(td=0, ts=1, amount=0, fmt=FP32)),
+        (
+            "halo",
+            "tloadh",
+            dict(td=0, base=X_BASE, stride=X_STRIDE, fmt=FP32, h=1),
+        ),
         ("epilogue", "ascal", dict(ad=0, value=0, fmt=FP32)),
         ("epilogue", "aadds", dict(ad=0, value=0, fmt=FP32)),
         (

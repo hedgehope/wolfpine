@@ -404,7 +404,7 @@ ZTT_ACCS = (1, 2, 4, 8, 16)
 #: Our features with a Ztt v0.6 counterpart: transposed loads (mls/mss .tst/.cm),
 #: tshift (mrowshift/mcolshift.ew.x), mmov.m.a/.a.m, mconv.ew, mmul{a,b}tacc.2d,
 #: mreduce*/mprefix*. Not in Ztt: epilogue (ascal/aadds act on accumulators;
-#: Ztt's element-wise ops act on M registers), semiring, shift2 (a proposal),
+#: Ztt's element-wise ops act on M registers), semiring, shift2 and halo (proposals),
 #: and acc_mem (Ztt has no memory <-> Acc path).
 ZTT_FEATURES = ("transpose", "shift", "acc_move", "convert", "mma_transpose", "reduce")
 

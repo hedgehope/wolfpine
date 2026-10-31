@@ -622,6 +622,10 @@ def _matrix(e, ins):
     if kind == "tile_load":
         rows, cols = (x.m, x.k) if insn.params["role"] == "a" else (x.k, x.n)
         e.tload(int(f["td"]), rows * cols * fb[f["fmt"]], xs, after=ins.tokens_in)
+    elif kind == "tile_load_halo":
+        e.tload(
+            int(f["td"]), 2 * int(f["h"]) * x.n * fb[f["fmt"]], xs, after=ins.tokens_in
+        )
     elif kind == "tile_store":
         rows, cols = (x.m, x.k) if insn.params["role"] == "a" else (x.k, x.n)
         e.tstore(int(f["ts"]), rows * cols * fb[f["fmt"]], xs, token=token)

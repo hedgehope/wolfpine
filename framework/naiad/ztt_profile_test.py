@@ -73,6 +73,7 @@ def test_every_ztt_register_count_is_accepted(tiles, accs):
         ({"k_chunk": 16}, "k_chunk must be 1"),
         ({"features": ["epilogue"]}, "not in Ztt"),
         ({"features": ["shift2"]}, "not in Ztt"),
+        ({"features": ["halo"]}, "not in Ztt"),
         ({"features": ["semiring"]}, "not in Ztt"),
         (
             {"formats": {"in": ["fp32", "int8"], "acc": ["fp32", "int32"]}},

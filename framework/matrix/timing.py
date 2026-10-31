@@ -52,6 +52,9 @@ instruction queue between them, so every hazard is resolved at issue:
   are readable ``latency - 1`` after it; ``mma.at`` / ``mma.bt`` cost an mma;
   ``tshift2`` is a fixed latency on no pipe, like ``tshift``. The defaults are
   the Tensix analogues (see :class:`AMETimingSpec`).
+* ``tloadh`` (the halo tile load) is a tile load on the load pipe that moves only its
+  2h rows: ``2h * row_bytes`` of bandwidth, not a whole tile's; its hazard footprint is
+  the whole span the rows come from.
 
 Conventions shared with the scalar model: "ready at ``r``" means an
 instruction reading the value may issue at cycle ``r``; a latency of 1 is
@@ -97,6 +100,7 @@ MEM_RAW = "mem_raw"
 #: ``exec`` names (``encodings.yaml``) -> the pipe they occupy.
 _PIPE = {
     "tile_load": "load",
+    "tile_load_halo": "load",
     "acc_load": "load",
     "tile_store": "store",
     "acc_store": "store",
@@ -225,6 +229,7 @@ class _Op:
         "stride",
         "rows",
         "row_bytes",
+        "halo",
     )
 
 
@@ -287,7 +292,7 @@ class AMETiming:
         op.srcs, op.dst = [], -1
         op.tiles_read, op.tiles_written, op.accs_read, op.accs_written = (), (), (), ()
         op.base, op.nbytes, op.ii, op.macs, op.latency = None, 0, 0, 0, 1
-        op.stride, op.rows, op.row_bytes = ops.get("stride", 0), 0, 0
+        op.stride, op.rows, op.row_bytes, op.halo = ops.get("stride", 0), 0, 0, 0
         for o in insn.operands:
             if o.kind == "gpr":
                 if o.field == "rd":
@@ -316,6 +321,16 @@ class AMETiming:
                 rows, cols = cols, rows
             op.nbytes = rows * cols * f.dtype.itemsize
             op.rows, op.row_bytes = rows, cols * f.dtype.itemsize
+            op.tiles_written = (ops["td"],)
+        elif kind == "tile_load_halo":
+            f = fmt("fmt", unit.in_formats)
+            rows, cols = unit.shape("b")
+            if f is None or not 1 <= ops["h"] <= rows // 2:
+                return None
+            # Moves only the 2h halo rows; the hazard footprint is the whole span they come from.
+            op.nbytes = 2 * ops["h"] * cols * f.dtype.itemsize
+            op.rows, op.row_bytes = rows + 2 * ops["h"], cols * f.dtype.itemsize
+            op.halo = ops["h"]
             op.tiles_written = (ops["td"],)
         elif kind == "tile_store":
             f = fmt("fmt", unit.in_formats)
@@ -415,7 +430,7 @@ class AMETiming:
         stride = register_file[op.stride].read_uint() if op.stride else 0
         if stride >> (xlen - 1):
             stride -= 1 << xlen
-        return footprint(base, stride, op.rows, op.row_bytes)
+        return footprint(base - op.halo * stride, stride, op.rows, op.row_bytes)
 
     def issue(self, op, cycle, register_file):
         """Issue ``op`` at ``cycle`` if nothing blocks it.

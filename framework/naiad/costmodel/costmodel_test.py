@@ -429,3 +429,44 @@ def test_recorded_decisions():
         if min(pred, key=pred.get) != min(sims, key=sims.get):
             wrong.append((dwarf, size, i, a))
     assert not wrong
+
+
+# -- jacobi radius r > 1 and the halo switch (tloadh) -------------------------------------
+
+
+def _with_halo():
+    m = costmodel.machine(DWARFS_DESIGN)
+    return dataclasses.replace(
+        m, ame=dataclasses.replace(m.ame, features=(*m.ame.features, "halo"))
+    )
+
+
+@pytest.mark.parametrize(
+    "size, halo, sim",
+    [
+        ((68, 2), False, 9558),
+        ((68, 2), True, 9502),
+        ((72, 4), False, 9649),
+        ((72, 4), True, 9502),
+    ],
+)
+def test_jacobi_radius_ame_tracks_the_simulator(size, halo, sim):
+    """Cycles recorded on naiad-dwarfs at 2048 MACs/cycle (the halo runs add the halo feature)."""
+    got = costmodel.predict(
+        "jacobi",
+        size,
+        design=_with_halo(),
+        variants=["ame"],
+        switches={"halo": True} if halo else None,
+    )["ame"]
+    assert got == pytest.approx(sim, rel=0.03)
+
+
+def test_jacobi_halo_needs_the_feature_and_a_radius():
+    ame = costmodel.dwarf_module("jacobi").ame
+    with pytest.raises(Unsupported):
+        ame(costmodel.machine(DWARFS_DESIGN), (68, 2), "fp32", "fp32", halo=True)
+    with pytest.raises(Unsupported):
+        ame(_with_halo(), 66, "fp32", "fp32", halo=True)
+    # the baselines are radius 1 only: they are left out, not mispredicted
+    assert set(costmodel.predict("jacobi", (68, 2), design=DWARFS_DESIGN)) == {"ame"}

@@ -47,6 +47,14 @@
  *     and the software pipeline runs the next tile's first two mma under the
  *     loads (JACOBI_TSHIFT has no effect).
  *   JACOBI_FORM 0 (window): Pu.Wup + Pd.Wdn + Wlt.Pl + Wrt.Pr. 4 mma, 4 loads.
+ *   JACOBI_HALO 1 (radius > 1, JACOBI_FORM 1; halo, NOT in Ztt): the fused-halo
+ *     tshift generalised to r rows. The vertical sum is T0.C + Ah.H, as at radius 1,
+ *     but H is one tloadh: the r rows above and the r rows below the tile in its
+ *     rows 0..2r-1 (the strided load + tshift pair reaches one row each side, so it
+ *     does not scale). C is the tile already loaded for the horizontal sum, so a
+ *     tile costs 2 loads (its right neighbour and H) and 5 mma, against the window
+ *     form's 3 loads and 5 mma.
+ *
  * JACOBI_MCONV and JACOBI_TSHIFT2 are radius 1 only (every tile is in use).
  *
  * Host interface: grid (in, N x N input format), out (N x N accumulator
@@ -80,6 +88,9 @@
 #ifndef JACOBI_TSHIFT2
 #define JACOBI_TSHIFT2 0
 #endif
+#ifndef JACOBI_HALO
+#define JACOBI_HALO 0
+#endif
 #ifndef JACOBI_RADIUS
 #define JACOBI_RADIUS 1
 #endif
@@ -106,6 +117,9 @@
 #endif
 #if R != 1 && R != 2 && R != 4
 #error "JACOBI_RADIUS must be 1, 2 or 4"
+#endif
+#if JACOBI_HALO && (R == 1 || JACOBI_FORM != 1 || JACOBI_MCONV || !defined(NAIAD_MATRIX_FEATURE_HALO))
+#error "JACOBI_HALO needs radius 2 or 4, JACOBI_FORM 1, no JACOBI_MCONV and the matrix unit's halo feature"
 #endif
 #if R > 1 && (JACOBI_MCONV || JACOBI_TSHIFT2)
 #error "JACOBI_MCONV and JACOBI_TSHIFT2 are radius 1 only"
@@ -170,7 +184,7 @@ static void make_constants(void) {
 
 #else /* R > 1 */
 /* Constant tiles for T_r and the r-row windows (cid: the accumulator-format identity). */
-enum { C_T0, C_ELT, C_ERT, C_PU, C_PD, C_PL, C_PR, NCONST };
+enum { C_T0, C_ELT, C_ERT, C_PU, C_PD, C_PL, C_PR, C_AH, NCONST };
 static dw_in_t cst[NCONST][256] __attribute__((aligned(64)));
 static dw_acc_t cid[256] __attribute__((aligned(64)));
 
@@ -193,6 +207,9 @@ static void make_constants(void) {
             /* b views of the same for the column windows Wlt / Wrt: Pl = Pu^T, Pr = Pd^T */
             cst[C_PL][16 * j + i] = cst[C_PU][16 * i + j];
             cst[C_PR][16 * j + i] = cst[C_PD][16 * i + j];
+            /* Ah (a view, JACOBI_HALO): halo row j is grid row j - r above the tile (j < r), else
+             * 16 + j - 2 r below it; it feeds the output rows within r of it */
+            cst[C_AH][16 * i + j] = (j < R ? (i >= j - R + 1 && i <= j) : (i >= 16 + j - 2 * R && i <= 15)) ? s : z;
             cid[16 * i + j] = i == j ? (dw_acc_t)1 : (dw_acc_t)0;
         }
     }
@@ -467,6 +484,58 @@ static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
             WRSTEP(1, 0);
             if (++J == TT) {
                 STORE(1);
+                break;
+            }
+        }
+    }
+}
+#elif JACOBI_HALO
+/* -- radius r, form 1 with tloadh: banded horizontal, T0.C + Ah.H vertical ------------------ */
+/* Tile registers: 0 T0, 1 Ah, 2 Elt, 3 Ert, 4..6 rotating Lt / C / Rt, 7 H. As radius 1's
+ * banded step, with the halo one tloadh and no tshift. Accumulators 0..2 rotate with the tiles. */
+#define HSTEP(TL, TC, TR, A, PA)                                                                   \
+    do {                                                                                           \
+        mx_tload_a(TR, IN, c + 16, RS);                                                            \
+        mx_tloadh(7, IN, c, RS, R);                                                                \
+        if (J) {                                                                                   \
+            ASTORE(PA);                                                                            \
+        }                                                                                          \
+        mx_azero(A);                                                                               \
+        mx_mma(A, TC, 0, IN, ACC);                                                                 \
+        mx_mma(A, TL, 2, IN, ACC);                                                                 \
+        mx_mma(A, 0, TC, IN, ACC);                                                                 \
+        mx_mma(A, 1, 7, IN, ACC);                                                                  \
+        mx_mma(A, TR, 3, IN, ACC);                                                                 \
+        EPI(A);                                                                                    \
+        c += 16;                                                                                   \
+        d += 16 * des;                                                                             \
+    } while (0)
+
+static void sweep(const dw_in_t *src, char *dst, long ds, long des SWEEP_CONV) {
+    mx_tload_b(0, IN, cst[C_T0], 16 * DW_IN_BYTES);
+    mx_tload_a(1, IN, cst[C_AH], 16 * DW_IN_BYTES);
+    mx_tload_b(2, IN, cst[C_ELT], 16 * DW_IN_BYTES);
+    mx_tload_b(3, IN, cst[C_ERT], 16 * DW_IN_BYTES);
+    for (int I = JACOBI_ROW0; I < JACOBI_ROW1; I++) {
+        const dw_in_t *c = src + (long)(R + 16 * I) * N + R;
+        char *d = dst + (R + 16 * I) * ds + R * des;
+        mx_tload_a(4, IN, c - 16, RS); /* its last r columns are the tile row's left boundary */
+        mx_tload_a(5, IN, c, RS);
+        int J = 0;
+        for (;;) {
+            HSTEP(4, 5, 6, 0, 2);
+            if (++J == TT) {
+                STORE(0);
+                break;
+            }
+            HSTEP(5, 6, 4, 1, 0);
+            if (++J == TT) {
+                STORE(1);
+                break;
+            }
+            HSTEP(6, 4, 5, 2, 1);
+            if (++J == TT) {
+                STORE(2);
                 break;
             }
         }

@@ -335,6 +335,16 @@ class MatrixUnit:
         self.tiles[t, :rows, : cols * eb] = data
         self.stats["mem_to_tile_bytes"] += data.size
 
+    def load_halo_tile(self, t, fmt, h, top, bottom, instr=0):
+        """``tloadh``: tile ``t``'s "b" view = ``top`` (``h`` rows) ++ ``bottom`` (``h`` rows), the rest zero."""
+        rows, _ = self.shape("b")
+        if not 1 <= h <= rows // 2:
+            raise self.illegal(instr, f"tloadh: h = {h} is not in 1..{rows // 2}")
+        self.tiles[t].fill(0)
+        self.tiles[t, :h, : top.shape[1]] = top
+        self.tiles[t, h : 2 * h, : bottom.shape[1]] = bottom
+        self.stats["mem_to_tile_bytes"] += top.size + bottom.size
+
     def load_acc(self, d, fmt, data):
         self.acc_bytes(d, fmt)[...] = data
         self.stats["mem_to_acc_bytes"] += data.size

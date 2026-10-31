@@ -207,3 +207,46 @@ def test_the_defaults_are_the_tensix_analogues():
     assert spec.tconv is None
     assert spec.tshift2 is None
     assert DEPTH == 6
+
+
+# -- tloadh (the halo tile load: NOT in Ztt) ----------------------------------------------
+
+
+def _tloadh(td, h, base=S0, stride=16):
+    return _w("tloadh", td=td, base=base, stride=stride, fmt=FP32, h=h)
+
+
+def _halo_design(**matrix_timing):
+    raw = _design(**matrix_timing)
+    raw["matrix"]["features"] = [*FEATURES, "halo"]
+    return raw
+
+
+@pytest.mark.parametrize("h", [1, 2, 4, 7])
+def test_tloadh_moves_only_its_2h_rows(h):
+    """``N`` halo loads hold the load path ``2h * 64 B / 64`` cycles each: ``2 + (N - 1) * 2h``."""
+    n = 5
+    raw = _halo_design(tile_load_bandwidth=64)
+    cycles, soc = _run(
+        raw,
+        [_tloadh(i % 8, h) for i in range(n)],
+        {S0: SP_BASE + 8 * 64, 16: 64},
+    )
+    assert cycles == 2 + (n - 1) * 2 * h
+    assert soc.counters()["hart0.timing.matrix_load_busy_cycles"] == n * 2 * h
+
+
+def test_an_mma_waits_for_its_halo_tile():
+    """``tloadh t0; mma``: ``1 + tile_load_latency + 2h`` (h = 2, 64 B rows at 64 B/cycle)."""
+    raw = _halo_design(tile_load_bandwidth=64, tile_load_latency=3)
+    cycles, _ = _run(
+        raw, [_tloadh(0, 2), _mma(0, 0, 1)], {S0: SP_BASE + 8 * 64, 16: 64}
+    )
+    assert cycles == 1 + 3 + 4
+
+
+def test_tloadh_needs_the_halo_feature():
+    cycles, _ = _run(_halo_design(), [_tloadh(0, 1)], {S0: SP_BASE + 8 * 64, 16: 64})
+    assert cycles > 0
+    with pytest.raises(Exception, match="halo"):
+        _run(_design(), [_tloadh(0, 1)], {S0: SP_BASE + 8 * 64, 16: 64})

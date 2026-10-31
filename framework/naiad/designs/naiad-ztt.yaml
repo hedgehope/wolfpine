@@ -76,7 +76,7 @@ matrix:
   # with one K for every format does not model.
   formats: {in: [fp64, fp32, fp16, bf16], acc: [fp64, fp32, bf16]}
   # Ztt's data movement and structural ops; no epilogue (ascal/aadds act on
-  # accumulators, Ztt's element-wise ops on M registers), semiring or shift2.
+  # accumulators, Ztt's element-wise ops on M registers), semiring, shift2 or halo.
   features: [transpose, shift, acc_move, convert, mma_transpose, reduce]
   acc_mem: false     # "AME defines no direct data-movement path between memory and Acc"
   k_chunk: 1         # the accumulator-seeded fold, one product at a time (unfused)

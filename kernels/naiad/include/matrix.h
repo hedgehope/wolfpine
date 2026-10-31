@@ -33,6 +33,8 @@
  *   mx_tprefix(td, ts, b, cols, fmt, op) row / column inclusive prefix (reduce; Ztt mprefix*)
  *   mx_tshift2(td, ta, tb, cols, esz, n) funnel shift: window n rows / columns into ta ++ tb
  *                                       (shift2; NOT in Ztt, a proposal)
+ *   mx_tloadh(td, fmt, base, stride, h) halo load: the h rows above and h rows below the K-row block at
+ *                                       base, as tile td's rows 0..2h-1 (halo; NOT in Ztt, a proposal)
  *
  * Without acc_mem (matrix.acc_mem: false, as Ztt: no memory <-> accumulator
  * path) mx_aload / mx_astore are lowered to amov + a tile load / store through
@@ -201,6 +203,12 @@ MX_INLINE void mx_tshift2(const int td, const int ta, const int tb, const int co
              (esz << NAIAD_MI_TSHIFT2_ESZ_SHIFT) | (cols << NAIAD_MI_TSHIFT2_COLS_SHIFT) |
                  (n << NAIAD_MI_TSHIFT2_AMOUNT_SHIFT),
              td, ta, tb);
+}
+
+/* NOT in Ztt (feature halo, custom-3). Tile td's "b" view = the `h` rows above and the `h` rows
+ * below the K-row block at `base` (row stride `stride`), in rows 0..2h-1; the rest is zero. */
+MX_INLINE void mx_tloadh(const int td, const int fmt, const void *base, long stride, const int h) {
+    MX_R_IRR(TLOADH, (fmt << NAIAD_MI_TLOADH_FMT_SHIFT) | (h << NAIAD_MI_TLOADH_H_SHIFT), td, base, stride);
 }
 
 /* -- element-wise accumulator ops (custom-3; features ewise, ewise_tx) ------------

@@ -39,6 +39,25 @@ def _tile_load(unit, insn, ops, register_file, memory, instr):
     unit.load_tile(ops["td"], role, fmt, data, transpose=bool(t))
 
 
+def _tile_load_halo(unit, insn, ops, register_file, memory, instr):
+    rows, cols = unit.shape("b")
+    h, fmt = ops["h"], ops["fmt"]
+    if not 1 <= h <= rows // 2:  # checked before any memory is read
+        raise unit.illegal(instr, f"tloadh: h = {h} is not in 1..{rows // 2}")
+    base, stride = (
+        _gpr(register_file, ops["base"]),
+        _signed(_gpr(register_file, ops["stride"]), unit),
+    )
+    row_bytes = cols * fmt.dtype.itemsize
+    top = read_rows(
+        memory, (base - h * stride) & unit.xmask, stride, h, row_bytes, unit.xmask
+    )
+    bottom = read_rows(
+        memory, (base + rows * stride) & unit.xmask, stride, h, row_bytes, unit.xmask
+    )
+    unit.load_halo_tile(ops["td"], fmt, h, top, bottom, instr)
+
+
 def _tile_store(unit, insn, ops, register_file, memory, instr):
     data = unit.tile_bytes(ops["ts"], insn.params["role"], ops["fmt"])
     base, stride = (
@@ -172,6 +191,7 @@ def _acc_unary(unit, insn, ops, register_file, memory, instr):
 #: ``exec`` names in the table -> executor.
 EXECUTORS = {
     "tile_load": _tile_load,
+    "tile_load_halo": _tile_load_halo,
     "tile_store": _tile_store,
     "acc_load": _acc_load,
     "acc_store": _acc_store,

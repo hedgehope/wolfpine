@@ -88,6 +88,7 @@ features:
   # .ew.x, mrsqrt.ew): these act on the accumulators in place.
   ewise: 10         # aew.aa / aew.at / aew.ax / amacc.aa / amacc.at
   ewise_tx: 11      # aewu: recip / rsqrt / sqrt (Ztt: mrsqrt.ew only)
+  halo: 12          # tloadh: NOT in Ztt, a candidate feature this study proposes (custom-3 funct3 6)
 
 # mcfg selectors.
 config:
@@ -600,6 +601,33 @@ instructions:
       IEEE specials: recip(+-0) = +-inf, rsqrt(+0) = +inf, rsqrt(-0) = -inf,
       rsqrt / sqrt of x < 0 = NaN, rsqrt(+inf) = +0. Ztt mrsqrt.ew leaves its
       accuracy to the implementation.
+
+  # The halo tile load: the radius-h generalisation of "one strided load plus a
+  # tshift" that fuses a tile's vertical halo (tshift itself already takes any
+  # signed amount from a register). Its encoding is custom-3 funct3 6, a slot
+  # none of the other custom-3 words uses (the ewise ops take 0-5); funct3 7
+  # stays free. NOT in Ztt.
+  tloadh:
+    opcode: custom-3
+    form: r
+    funct3: 6
+    exec: tile_load_halo
+    feature: halo
+    operands:
+      td: {field: rd, kind: tile}
+      base: {field: rs1, kind: gpr}
+      stride: {field: rs2, kind: gpr}
+      fmt: {bits: [25, 28], kind: in_fmt}
+      h: {bits: [29, 31], kind: uimm}
+    doc: >
+      NOT IN ZTT: a halo load this study proposes. Load tile td as a "b" operand
+      (K rows of N fmt elements) holding only the h grid rows above and the h
+      rows below a K-row block that starts at x[base], row r of the block at
+      x[base] + r * x[stride]: td row i (0 <= i < h) = block row i - h (above),
+      td row h + i (0 <= i < h) = block row K + i (below), the other rows
+      zero. h is 1 to 7 and 2h must not exceed K (h = 0 is illegal). Where the
+      strided tload.b + tshift pair reaches one row each side, this reaches h
+      each side in one load, and it reads only those 2h rows.
 
 # -- VME (Zvt) ------------------------------------------------------------------
 #

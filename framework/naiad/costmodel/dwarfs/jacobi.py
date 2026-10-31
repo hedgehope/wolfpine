@@ -11,6 +11,9 @@
   per tile. A 16-bit grid is re-rounded between sweeps: bf16 by one identity
   mma per tile into a bf16 accumulator, fp16 by a scalar software rounding
   pass over every point (20 instructions a point: why fp16 is 100x slower).
+* **ame, radius r = 2, 4** (size ``(n, r)``; the AME model only): banded form, 5 mmas a
+  tile and 3 loads (the window pair) or, with the ``halo`` switch, 2 loads: the right
+  neighbour and one ``tloadh`` of the 2r halo rows.
 """
 
 import math
@@ -33,6 +36,7 @@ SWITCH_CFLAGS = {
     "-DJACOBI_FORM=0": ("form", "window"),
     "-DJACOBI_MCONV=1": ("mconv", True),
     "-DJACOBI_TSHIFT2=1": ("tshift2", True),
+    "-DJACOBI_HALO=1": ("halo", True),
 }
 
 _CACHE = {}
@@ -57,12 +61,20 @@ def _listing(name):
     return _CACHE[name]
 
 
-def _check(n):
-    if (n - 2) % 16 or n < 18:
-        raise Unsupported("jacobi needs n = 16 t + 2")
+def _split(size):
+    """``(n, radius)`` for a size ``n`` (radius 1) or ``(n, radius)``."""
+    return tuple(size) if isinstance(size, (tuple, list)) else (size, 1)
+
+
+def _check(n, r=1):
+    if (n - 2 * r) % 16 or n < 16 + 2 * r:
+        raise Unsupported(f"jacobi needs n = 16 t + {2 * r}")
 
 
 def scalar(m, n, in_fmt, acc_fmt):
+    n, r = _split(n)
+    if r != 1:
+        raise Unsupported("the scalar jacobi cost model is radius 1 only")
     if (in_fmt, acc_fmt) not in (("fp32", "fp32"), ("fp64", "fp64")):
         raise Unsupported("the scalar jacobi runs fp32/fp32 and fp64/fp64")
     # fp64 compiles to the same instruction classes (fld/fadd.d/...): one listing times both.
@@ -115,6 +127,9 @@ def scalar(m, n, in_fmt, acc_fmt):
 
 
 def rvv(m, n, in_fmt, acc_fmt):
+    n, r = _split(n)
+    if r != 1:
+        raise Unsupported("the rvv jacobi cost model is radius 1 only")
     v = need_vector(m)
     _check(n)
     P = _listing(f"jacobi_rvv_{in_fmt}_{acc_fmt}")
@@ -178,10 +193,24 @@ def ame(
     epilogue=False,
     mconv=False,
     tshift2=False,
+    halo=False,
 ):
-    """The default banded form (+ its switches) from the kernel's C; scalar counts from its listing."""
+    """The default banded form (+ its switches) from the kernel's C; scalar counts from its listing.
+
+    ``size`` may be ``(n, radius)``: radius 2 and 4 model the banded form's window pair
+    (3 loads and 5 mma a tile) or, with ``halo``, ``tloadh`` (2 loads and 5 mma).
+    """
     x = need_ame(m)
-    _check(n)
+    n, r = _split(n)
+    _check(n, r)
+    if r > 1 and (form != "banded" or mconv or tshift2):
+        raise Unsupported(
+            "jacobi radius > 1 models the banded form without mconv / tshift2"
+        )
+    if halo and (r == 1 or form != "banded" or mconv or "halo" not in x.features):
+        raise Unsupported(
+            "JACOBI_HALO needs radius 2 / 4, the banded form and the halo feature"
+        )
     if (x.m, x.n, x.k) != (16, 16, 16) or x.tiles < 8:
         raise Unsupported(
             "jacobi_ame is written for a 16 x 16 x 16 unit with at least 8 tiles"
@@ -200,7 +229,7 @@ def ame(
     ib, ab = nbytes(in_fmt), nbytes(acc_fmt)
     tb, atb = 256 * ib, 256 * ab
     ii, ii_acc = x.ii(in_fmt), x.ii(acc_fmt)
-    tt = (n - 2) // 16
+    tt = (n - 2 * r) // 16
     e = new_engine(m)
     e.alu(4)
 
@@ -348,7 +377,96 @@ def ame(
 
         e.loop(tt, row)
 
-    sweep = sweep_banded if form == "banded" else sweep_window
+    def sweep_banded_r(out_acc, conv):
+        """Radius r > 1, no halo: the window pair Pu.Wup + Pd.Wdn (BRSTEP, software-pipelined)."""
+        sbytes = atb if out_acc else (tb if same else atb)
+        e.alu(6)
+        for t in (0, 1, 2, 3, 7):
+            e.tload(t, tb)
+        e.alu(2)
+        rot = ((4, 5, 6, 0, 1, 2), (5, 6, 4, 1, 2, 0), (6, 4, 5, 2, 0, 1))
+
+        def row(_):
+            for t in (4, 5, 6):
+                e.tload(t, tb)
+            e.alu(4)
+            e.azero(0)
+            e.mma(0, 4, 2, ii)
+            e.mma(0, 5, 0, ii)
+            e.tload(4, tb)  # Wup
+
+            def brstep(j):
+                L, C, R, A, NA, PA = rot[j % 3]
+                more = j + 1 < tt
+                e.mma(A, 1, L, ii)  # Pu.Wup
+                e.tload(L, tb)  # Wdn
+                if more:
+                    e.azero(NA)
+                    e.mma(NA, C, 2, ii)  # next Lt.Elt
+                    e.tload(C, tb)  # next Wup
+                e.mma(A, R, 3, ii)  # Rt.Ert
+                if j:
+                    e.tstore(PA, sbytes, acc=True)
+                e.mma(A, 7, L, ii)  # Pd.Wdn
+                if more:
+                    e.mma(NA, R, 0, ii)  # next C.T0
+                    e.tload(L, tb)  # next Rt
+                if epilogue:
+                    e.mop(x.epilogue, 1, accs_read=(A,), accs_written=(A,))
+                e.alu(3)
+                e.branch()
+
+            e.loop(tt - 1, brstep, period=3)
+            brstep(tt - 1)
+            e.tstore(rot[(tt - 1) % 3][3], sbytes, acc=True)
+            e.alu(9)
+
+        e.loop(tt, row)
+
+    def sweep_halo(out_acc, conv):
+        """Radius r > 1 with tloadh: T0.C + Ah.H (HSTEP); H moves 2r rows of 16 elements."""
+        sbytes = atb if out_acc else (tb if same else atb)
+        hb = 2 * r * 16 * ib
+        e.alu(6)
+        for t in (0, 1, 2, 3):
+            e.tload(t, tb)
+        e.alu(2)
+        rot = ((4, 5, 6, 0, 2), (5, 6, 4, 1, 0), (6, 4, 5, 2, 1))
+
+        def row(_):
+            e.tload(4, tb)
+            e.tload(5, tb)
+            e.alu(4)
+
+            def hstep(j):
+                L, C, R, A, PA = rot[j % 3]
+                e.tload(R, tb)
+                e.alu(1)
+                e.tload(7, hb)
+                if j:
+                    e.tstore(PA, sbytes, acc=True)
+                e.alu(3)
+                e.azero(A)
+                e.mma(A, C, 0, ii)
+                e.mma(A, L, 2, ii)
+                e.mma(A, 0, C, ii)
+                e.mma(A, 1, 7, ii)
+                e.mma(A, R, 3, ii)
+                if epilogue:
+                    e.mop(x.epilogue, 1, accs_read=(A,), accs_written=(A,))
+                e.alu(2)
+                e.branch()
+
+            e.loop(tt, hstep, period=3)
+            e.tstore(rot[(tt - 1) % 3][3], sbytes, acc=True)
+            e.alu(9)
+
+        e.loop(tt, row)
+
+    if r > 1:
+        sweep = sweep_halo if halo else sweep_banded_r
+    else:
+        sweep = sweep_banded if form == "banded" else sweep_window
 
     def to_bf16():
         e.alu(4)
@@ -378,11 +496,11 @@ def ame(
 
             def point(c):
                 P.run(e, P.after(beq), br, vs, last_taken=True)
-                P.run(e, head, beq, vs, last_taken=c == n - 3)
+                P.run(e, head, beq, vs, last_taken=c == n - 2 * r - 1)
 
-            e.loop(n - 2, point)
+            e.loop(n - 2 * r, point)
 
-        e.loop(n - 2, row)
+        e.loop(n - 2 * r, row)
 
     for it in range(ITERS):
         last = it == ITERS - 1

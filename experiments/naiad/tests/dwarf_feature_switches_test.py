@@ -106,3 +106,49 @@ def test_dwarfs_run_on_the_ztt_preset(dwarf, tmp_path):
     assert r.counters.get("matrix.acc_to_mem_bytes", 0) == 0
     assert r.counters["matrix.acc_to_tile_bytes"] > 0
     assert np.isfinite(r.region_cycles)
+
+
+# -- jacobi halo: the fused halo generalised to r rows (tloadh) ---------------------------
+
+
+def test_jacobi_halo_is_banded_and_radius_two_or_four_only():
+    spec = load_spec("jacobi")
+    assert spec.switch_cflags({"halo": True}) == ["-DJACOBI_HALO=1"]
+    with pytest.raises(ValueError, match="halo switch applies to form='banded'"):
+        spec.switch_cflags({"form": "window", "halo": True})
+    with pytest.raises(ValueError, match="radius 2 and 4 only"):
+        spec.cflags(66, "fp32", "fp32", {"halo": True})
+
+
+@pytest.mark.parametrize(
+    "formats", [("fp32", "fp32"), ("bf16", "fp32"), ("fp64", "fp64")]
+)
+@pytest.mark.parametrize("r", [2, 4])
+def test_jacobi_halo_matches_the_window_pair(r, formats, design, tmp_path):
+    """2 x 2 tiles (the rotation and every halo side); same mma count, fewer loaded bytes."""
+    spec = load_spec("jacobi")
+    size = (32 + 2 * r, r)
+    got = {}
+    for name, sw in (("window", {}), ("halo", {"halo": True})):
+        res = run_point(
+            spec,
+            "ame",
+            size,
+            *formats,
+            design,
+            build_root=tmp_path,
+            extra_cflags=spec.switch_cflags(sw),
+        )
+        assert res.exit_code == 0, res.console
+        assert res.passed, (name, res.error)
+        got[name] = res
+    rounding = (spec.ITERS - 1) * 4 if formats[0] == "bf16" else 0
+    for res in got.values():
+        assert res.counters["matrix.macs"] == (spec.ITERS * 4 * 5 + rounding) * 4096
+    # The halo read is 2r rows, not two 16-row windows: fewer bytes in.
+    assert (
+        got["halo"].counters["matrix.mem_to_tile_bytes"]
+        < got["window"].counters["matrix.mem_to_tile_bytes"]
+    )
+    if formats[0] == "fp32":  # mma-bound for fp64 at this size: no cycle claim
+        assert got["halo"].region_cycles < got["window"].region_cycles

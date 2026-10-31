@@ -68,6 +68,35 @@ studies:
         kernel.cflags: [[-DJACOBI_FORM=0]]
         timing.matrix.macs_per_cycle: [16, 256, 2048]
 
+  # The fused halo generalised to r rows (the AME `halo` feature, `tloadh`; NOT in
+  # Ztt): the crossover study at r = 2, 4 with JACOBI_HALO=1, i.e. T0.C + Ah.H with
+  # H one halo load, 2 loads per tile instead of the window pair's 3. Compare with
+  # `crossover` (the same sizes without it; the r = 1 kernel is unchanged, its
+  # fused halo being the existing tshift). The design differs from the base by the
+  # feature only; RVV / scalar rows keep the base design.
+  - name: crossover_halo
+    description: as crossover at r = 2, 4 with the generalised fused halo (tloadh), interior 64^2 and 128^2
+    sizes: [[68, 2], [72, 4], [132, 2], [136, 4]]
+    formats: [[fp32, fp32]]
+    overrides:
+      timing.vector.mem_bytes_per_cycle: 64
+      matrix.features: [[transpose, shift, epilogue, semiring, halo]]
+      kernel.cflags: [[-DJACOBI_HALO=1]]
+      timing.matrix.macs_per_cycle: [4, 6, 8, 11, 16, 23, 32, 45, 64, 91, 128, 181, 256, 362, 512,
+                                     724, 1024, 1448, 2048, 2896, 4096, 5793, 8192]
+    only:
+      matrix.features: ["ame*"]
+      kernel.cflags: ["ame*"]
+      timing.matrix.macs_per_cycle: ["ame*"]
+    figures: [crossover]
+    quick:
+      sizes: [[68, 2], [72, 4]]
+      overrides:
+        timing.vector.mem_bytes_per_cycle: 64
+        matrix.features: [[transpose, shift, epilogue, semiring, halo]]
+        kernel.cflags: [[-DJACOBI_HALO=1]]
+        timing.matrix.macs_per_cycle: [16, 256, 2048]
+
   # bf16 inputs, fp32 accumulation, against RVV in the same formats (Zvfbfwma
   # widening adds: 8 FMAs/cycle, as fp32). bf16 takes 2 passes, so the same
   # macs_per_cycle list is a ratio of 1/4..512. No scalar reference (F/D only).
