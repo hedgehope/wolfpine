@@ -60,6 +60,8 @@ class Vector:
     mem_startup: int = 2
     mem_bytes_per_cycle: float = 32
     indexed_elements_per_cycle: float = 1
+    #: Element-group chaining (``timing.vector.chaining``): the engine mirrors ``VectorTiming``'s rule.
+    chaining: bool = False
 
     @property
     def vlenb(self):
@@ -198,6 +200,7 @@ class Machine:
                 mem_startup=v.mem_startup,
                 mem_bytes_per_cycle=v.mem_bytes_per_cycle,
                 indexed_elements_per_cycle=v.indexed_elements_per_cycle,
+                chaining=v.chaining,
             )
         mode = design.matrix.mode if design.matrix is not None else None
         ame = ime = vme = None

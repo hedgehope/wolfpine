@@ -9,7 +9,8 @@
   strided stores (one element a cycle on the LSU), then the column passes.
   Each pass is ``rows x strips`` of loads / complex multiplies / DFT-4 adds
   and stores in the kernel's order; datapath, LSU (strided stores) and
-  result latency (no chaining) bound it in turn.
+  result latency (whole results, or the first element group with
+  ``timing.vector.chaining``) bound it in turn.
 * **ame**: per stage the DFT-16/32 blocks as mmas (4 real mmas per complex
   tile pair, or 3 for ``ame_gauss``) over 16-column slabs, then -- for every
   stage but the last -- a scalar twiddle pass over all ``n * batch`` points in

@@ -470,3 +470,181 @@ def test_jacobi_halo_needs_the_feature_and_a_radius():
         ame(_with_halo(), 66, "fp32", "fp32", halo=True)
     # the baselines are radius 1 only: they are left out, not mispredicted
     assert set(costmodel.predict("jacobi", (68, 2), design=DWARFS_DESIGN)) == {"ame"}
+
+
+# -- RVV chaining (timing.vector.chaining) ---------------------------------------------------
+#
+# The cases are ``framework/pe/rv/timing/vector_test.py``'s chaining microbenchmarks restated on
+# the engine: the same dependent pairs, the same analytic gaps between their issue cycles.
+
+
+def chained(m=None):
+    m = m or mach()
+    return m.with_(vector=dataclasses.replace(m.vector, chaining=True))
+
+
+def issue_cycles(m, text):
+    e = engine.Engine(m)
+    e.log = []
+    listing.Program(text).run(e)
+    return [c for c, _ in e.log]
+
+
+def _pair_gap(lmul, m, first="vadd.vv v8, v16, v24", second="vadd.vv v0, v8, v8"):
+    text = f"""
+    0: vsetvli t0, zero, e32, m{lmul}, ta, ma
+    4: {first}
+    8: {second}
+    """
+    c = issue_cycles(m, text)
+    return c[2] - c[1]
+
+
+@pytest.mark.parametrize(
+    "lmul,unchained,chained_gap",
+    [(1, 5, 5), (2, 6, 5), (4, 8, 5), (8, 12, 8)],
+)
+def test_chaining_dependent_arithmetic_on_the_first_element_group(
+    lmul, unchained, chained_gap
+):
+    assert _pair_gap(lmul, mach()) == unchained  # occupancy + startup
+    # chained: 1 + startup, held by the datapath (occupancy) when that is longer
+    assert _pair_gap(lmul, chained()) == chained_gap
+
+
+def test_chaining_streams_a_dependent_sequence_at_the_first_group_rate():
+    text = "0: vsetvli t0, zero, e32, m4, ta, ma\n" + "\n".join(
+        f"{4 * (i + 1)}: vadd.vv v8, v8, v16" for i in range(6)
+    )
+    c = issue_cycles(chained(), text)
+    assert [b - a for a, b in zip(c[1:], c[2:])] == [5] * 5
+    c = issue_cycles(mach(), text)
+    assert [b - a for a, b in zip(c[1:], c[2:])] == [8] * 5
+
+
+def test_chaining_into_a_faster_consumer_waits_for_the_last_group():
+    """vfdiv at LMUL 2 (2 beats of div_ii) into a vfadd: one cycle better than unchained."""
+    div, add = "vfdiv.vv v8, v16, v24", "vfadd.vv v0, v8, v8"
+    assert _pair_gap(2, mach(), div, add) == 2 * 8 + 4
+    assert _pair_gap(2, chained(), div, add) == 2 * 8 + 4 - 1
+
+
+@pytest.mark.parametrize("lmul", [1, 8])
+def test_chaining_a_load_into_its_use(lmul):
+    m = mach()
+    t = 8 * lmul * 4 // 32  # LMUL registers over a 32 B LSU
+    fixed = m.vector.mem_startup + m.memory.latency
+    text = f"""
+    0: vsetvli t0, zero, e32, m{lmul}, ta, ma
+    4: vle32.v v8, (a0)
+    8: vfadd.vv v16, v8, v8
+    """
+    c = issue_cycles(m, text)
+    assert c[2] - c[1] == fixed + t
+    c = issue_cycles(chained(m), text)
+    assert c[2] - c[1] == fixed + 1
+
+
+def test_chaining_leaves_what_the_hardware_reads_whole():
+    """A reduction's scalar operand, vrgather's table and a slide-down's source are not chained."""
+    for first, second in (
+        (
+            "vfadd.vv v8, v16, v24",
+            "vfredusum.vs v0, v16, v11",
+        ),  # vs1 (the last register) is the scalar operand
+        ("vfadd.vv v8, v16, v24", "vrgather.vv v0, v8, v24"),
+        ("vfadd.vv v8, v16, v24", "vslidedown.vi v0, v8, 1"),
+    ):
+        assert _pair_gap(4, chained(), first, second) == _pair_gap(
+            4, mach(), first, second
+        ), second
+    # ... but a reduction's vector source and a slide-up source chain
+    assert _pair_gap(
+        4, chained(), "vfadd.vv v8, v16, v24", "vfredusum.vs v0, v8, v1"
+    ) < _pair_gap(4, mach(), "vfadd.vv v8, v16, v24", "vfredusum.vs v0, v8, v1")
+    # a reduction's result does not stream: its consumer waits for the whole tree
+    red = "vfredusum.vs v0, v16, v8"
+    assert _pair_gap(4, chained(), red, "vfadd.vv v1, v0, v0") == _pair_gap(
+        4, mach(), red, "vfadd.vv v1, v0, v0"
+    )
+
+
+def test_chaining_keeps_one_datapath_and_one_lsu():
+    """Independent ops still serialise on the datapath; chaining only lifts the RAW wait."""
+    text = """
+    0: vsetvli t0, zero, e32, m4, ta, ma
+    4: vfadd.vv v8, v16, v24
+    8: vfadd.vv v0, v12, v20
+    """
+    for m in (mach(), chained()):
+        c = issue_cycles(m, text)
+        assert c[2] - c[1] == 4
+
+
+def test_chained_store_waits_for_its_data_stream():
+    text = """
+    0: vsetvli t0, zero, e32, m8, ta, ma
+    4: vfadd.vv v8, v16, v24
+    8: vse32.v v8, (a0)
+    """
+    assert (lambda c: c[2] - c[1])(issue_cycles(mach(), text)) == 8 + 4
+    assert (lambda c: c[2] - c[1])(issue_cycles(chained(), text)) == 1 + 4
+
+
+def test_chaining_never_slows_a_schedule_and_off_is_unchanged():
+    base = costmodel.machine(DWARFS_DESIGN)
+    assert base.vector.chaining is False
+    on = base.with_(vector=dataclasses.replace(base.vector, chaining=True))
+    for dwarf, size in (("gemm", 64), ("jacobi", 66), ("scan", 4096), ("reduce", 4096)):
+        off = costmodel.predict(dwarf, size, "fp32", "fp32", base, variants=["rvv"])
+        net = costmodel.predict(dwarf, size, "fp32", "fp32", on, variants=["rvv"])
+        assert net["rvv"] <= off["rvv"], dwarf
+    # the scalar and matrix variants do not see it
+    a = costmodel.predict("gemm", 64, "fp32", "fp32", base, variants=["scalar", "ame"])
+    b = costmodel.predict("gemm", 64, "fp32", "fp32", on, variants=["scalar", "ame"])
+    assert a == b
+
+
+def test_machine_reads_chaining_from_the_design(tmp_path):
+    import yaml
+
+    raw = yaml.safe_load(DWARFS_DESIGN.read_text())
+    raw.setdefault("timing", {}).setdefault("vector", {})["chaining"] = True
+    path = tmp_path / "chain.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert costmodel.machine(path).vector.chaining is True
+
+
+#: Region cycles of the RVV variants on naiad-dwarfs.yaml with ``timing.vector.mem_bytes_per_cycle: 64`` and
+#: ``chaining: true``, mid size, fp32 (the rvv_chaining sweep's ``rvv_control`` study):
+#: (dwarf, size, chained cycles, unchained cycles).
+RECORDED_CHAINED = [
+    ("apsp", 64, 123523, 127619),
+    ("fft", 1024, 60696, 61832),
+    ("gemm", 64, 40231, 40307),
+    ("jacobi", 66, 31509, 33045),
+    ("nbody", (256, "clustered"), 248001, 270529),
+    ("reduce", 16384, 2248, 2251),
+    ("scan", 16384, 32853, 33625),
+    ("spmv", (256, 0.25), 50370, 50370),
+    ("tensorprod", 12, 141337, 141721),
+]
+
+
+def test_chained_rvv_predictions_track_the_simulator():
+    """Chaining on, the schedule model predicts the simulated RVV region within the unchained model's own
+    error, and it sees the chained-vs-unchained gain the simulator measures (jacobi -4.6%, nbody -8.3%)."""
+    base = costmodel.machine(DWARFS_DESIGN)
+    off = base.with_(vector=dataclasses.replace(base.vector, mem_bytes_per_cycle=64))
+    on = off.with_(vector=dataclasses.replace(off.vector, chaining=True))
+    for dwarf, size, chained_sim, unchained_sim in RECORDED_CHAINED:
+        p_on = costmodel.predict(dwarf, size, "fp32", "fp32", on, variants=["rvv"])[
+            "rvv"
+        ]
+        p_off = costmodel.predict(dwarf, size, "fp32", "fp32", off, variants=["rvv"])[
+            "rvv"
+        ]
+        assert abs(p_on / chained_sim - 1) < 0.035, (dwarf, p_on, chained_sim)
+        assert p_on <= p_off, dwarf
+        # the predicted gain tracks the measured one to within a percentage point
+        assert abs((p_on / p_off) - (chained_sim / unchained_sim)) < 0.012, dwarf

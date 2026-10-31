@@ -12,8 +12,12 @@
 # ratio (one FP pipe; RVV's peak is the datapath's), so it is a grouping key and
 # each width gets its own crossover.
 #
-# The kernels are unchanged: the VME and IME emitters schedule for one scalar
-# instruction a cycle and do not read issue_width.
+# The AME / RVV / scalar kernels are the same at both widths (they are unit-
+# or latency-bound, not slot-bound: the crossover shift between the widths
+# is the RVV baseline's own dual-issue speedup). The VME emitter does read issue_width: at
+# width 2 its two tile-move loops (the A transpose and the C store) are ordered
+# for the front end (framework/naiad/emit/dual_sched.py); the IME emitter still
+# schedules for one scalar instruction a cycle.
 name: dual_issue
 seed: 0
 count_all: true

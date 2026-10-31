@@ -46,6 +46,17 @@ cycle when the design is untimed) over a ``ref``-cubed problem, and taking the
 fewest modelled cycles (then the fewest instructions). ``block="BMxBN"``
 forces a shape.
 
+**Dual issue.** For a design with ``timing.scalar.issue_width: 2`` the two tile-move loops that
+are bound by issue rather than by a unit, the A transpose (``vtle`` rows in, ``vtse`` columns out) and
+the full-tile C store, are scheduled for the front end instead of one instruction a cycle
+(:mod:`framework.naiad.emit.dual_sched`): each tile op needs a pointer advance and an index advance,
+and written in program order the advance a tile op waits on sits right behind its producer, so the
+second slot stays empty (4 cycles for a row load plus a column store). The loops keep one pointer and
+one index register per stream (per C column in the store) and the scheduler interleaves the
+independent advances with the tile ops, which pair with them: 3 cycles for the same pair. A zero A
+stride (the ones-tile reductions) is tested at run time and drops the row pointer advance, as the
+compiler folds it in the single-issue text. Single issue emits the same text as before.
+
 **Edges.** An M edge leaves stale rows in the panel's padding columns, which
 only reach C rows that are never stored; a K edge is zeroed in the panel (and
 in the padded B copy), so padded K steps add exact zeros; C is stored with
@@ -57,6 +68,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from framework.matrix import vme
+from framework.naiad.emit import dual_sched
 
 #: Format -> (C storage type from dwarf_util.h, bytes); only these pairs are emitted.
 C_TYPES = {
@@ -82,6 +94,8 @@ KC_TARGET = 256
 BPAD_BYTES = 128 * 1024
 #: The most K elements one loop body may take (a power of two): K a multiple of it runs in place.
 MAX_KQ = 32
+#: The dual-issue C store keeps a pointer and an index register per block column: at most this many.
+MAX_DUAL_BN = 4
 #: Default reference problem edge for choosing the block shape (the gemm dwarf's largest size).
 REF_SIZE = 128
 
@@ -841,8 +855,10 @@ def _lcm(a, b):
 
 
 class _PairEmitter:
-    def __init__(self, sched, narrow=()):
+    def __init__(self, sched, narrow=(), costs=None, dual=False):
         self.main, self.narrow = sched, tuple(narrow)
+        #: dual-issue loops (``timing.scalar.issue_width: 2``) and the costs their schedules assume
+        self.dual, self.costs = dual, costs or Costs()
         self.sc, self.pl, self.sfx = sched, sched.plan, ""
         self.g = sched.plan.geo
         g = self.g
@@ -986,6 +1002,8 @@ class _PairEmitter:
         g, pl = self.g, self.pl
         e = g.e
         deltas = [pl.a_offset(c + 1, 0) - pl.a_offset(c, 0) for c in range(e)]
+        if self.dual and all(-2048 <= d < 2048 for d in deltas):
+            return self._rows_cols_dual(src, dst, tl, ts, rows, cols, offset, deltas)
         out = []
         r_seq = (
             [
@@ -1021,6 +1039,92 @@ class _PairEmitter:
             head.append(f"    unsigned long ts_ = {ts};")
             head.append("    NAIAD_GEMM_OPAQUE(ts_);")
         return head + [f"    {s}" for s in out] + ["}"]
+
+    def _tile_gap(self, nbytes):
+        """Cycles the load / store unit holds between two tile ops of ``nbytes`` (1 untimed)."""
+        return self.costs.load_time(nbytes)
+
+    def _rows_cols_dual(self, src, dst, tl, ts, rows, cols, offset, deltas):
+        """:meth:`_rows_cols` for the dual-issue front end: the same ops in the same interleave, as
+        explicit ops (tile op, pointer advance, index advance) ordered by :func:`dual_sched.schedule`.
+
+        A row stride of zero (the ones-tile reductions read one A row for every tile row) is a run-time
+        test here, and the rows then need no pointer advance at all: the compiler folded it away in the
+        single-issue text when the stride was a constant, and the explicit advance would not fold.
+        """
+        g = self.g
+        e = g.e
+        gap = self._tile_gap(e * g.ies)
+
+        def body(zero_la):
+            r_seq, c_seq = [], []
+            for r in range(e):
+                seq = [
+                    dual_sched.Op(
+                        f"vme_vtle({g.sew}, s_, ti_);", ("s_", "ti_"), (), True
+                    )
+                ]
+                if r < e - 1:
+                    if not zero_la:
+                        seq.append(
+                            dual_sched.Op(
+                                "NAIAD_GEMM_ADD(s_, la);", ("s_", "la"), ("s_",)
+                            )
+                        )
+                    seq.append(
+                        dual_sched.Op("NAIAD_GEMM_ADDI(ti_, 1);", ("ti_",), ("ti_",))
+                    )
+                r_seq.append(seq)
+            for c in range(e):
+                seq = [
+                    dual_sched.Op(
+                        f"vme_vtse({g.sew}, d_, ts_);", ("d_", "ts_"), (), True
+                    )
+                ]
+                if c < e - 1:
+                    seq += [
+                        dual_sched.Op(
+                            f"NAIAD_GEMM_ADDI(d_, {deltas[c]});", ("d_",), ("d_",)
+                        ),
+                        dual_sched.Op("NAIAD_GEMM_ADDI(ts_, 1);", ("ts_",), ("ts_",)),
+                    ]
+                c_seq.append(seq)
+            ops = []
+            if rows and cols:
+                for r in range(min(offset, e)):
+                    ops += r_seq[r]
+                for x in range(e):
+                    if x + offset < e:
+                        ops += r_seq[x + offset]
+                    ops += c_seq[x]
+            else:
+                for seq in (r_seq if rows else []) + (c_seq if cols else []):
+                    ops += seq
+            return [o.text for o in dual_sched.schedule(ops, vec_gap=gap)[0]]
+
+        head = ["{"]
+        if rows:
+            head += [
+                f"    const char *s_ = {src};",
+                f"    unsigned long ti_ = {tl};",
+                "    NAIAD_GEMM_OPAQUE(ti_);",
+            ]
+        if cols:
+            head += [
+                f"    char *d_ = {dst};",
+                f"    unsigned long ts_ = {ts};",
+                "    NAIAD_GEMM_OPAQUE(ts_);",
+            ]
+        if not rows:
+            return head + [f"    {t}" for t in body(False)] + ["}"]
+        return (
+            head
+            + ["    if (la == 0) {"]
+            + [f"        {t}" for t in body(True)]
+            + ["    } else {"]
+            + [f"        {t}" for t in body(False)]
+            + ["    }", "}"]
+        )
 
     def _emit_pack_a(self, w):
         g, pl, p = self.g, self.pl, self.p
@@ -1207,22 +1311,25 @@ class _PairEmitter:
             f"NAIAD_GEMM_INLINE void {p}_store{self.sfx}({at} *C, long ldc, long mv, long nv) {{"
         )
         w(f"    if (mv == {pl.mb} && nv == {pl.nb}) {{")
-        w(f"        const long rstep = ldc * {g.aes} - {(pl.bn - 1) * e * g.aes};")
-        w(f"        vme_msettn({e});")
-        w(f"        for (long i = 0; i < {pl.bm}; i++) {{")
-        w(f"            char *c_ = (char *)(C + i * {e} * ldc);")
-        for j in range(pl.bn):
-            w(
-                f"            unsigned long t{j}_ = (unsigned long)((i * {pl.bn} + {j}) * {g.acc_step}) << 27;"
-            )
-            w(f"            NAIAD_GEMM_OPAQUE(t{j}_);")
-        for r in range(e):
+        if self.dual and pl.bn <= MAX_DUAL_BN:
+            self._emit_store_dual(w)
+        else:
+            w(f"        const long rstep = ldc * {g.aes} - {(pl.bn - 1) * e * g.aes};")
+            w(f"        vme_msettn({e});")
+            w(f"        for (long i = 0; i < {pl.bm}; i++) {{")
+            w(f"            char *c_ = (char *)(C + i * {e} * ldc);")
             for j in range(pl.bn):
-                adv = "rstep" if j == pl.bn - 1 else str(e * g.aes)
                 w(
-                    f"            vme_vtse({g.tew}, c_, t{j}_ + {r}); c_ += {adv}; NAIAD_GEMM_OPAQUE(c_);"
+                    f"            unsigned long t{j}_ = (unsigned long)((i * {pl.bn} + {j}) * {g.acc_step}) << 27;"
                 )
-        w("        }")
+                w(f"            NAIAD_GEMM_OPAQUE(t{j}_);")
+            for r in range(e):
+                for j in range(pl.bn):
+                    adv = "rstep" if j == pl.bn - 1 else str(e * g.aes)
+                    w(
+                        f"            vme_vtse({g.tew}, c_, t{j}_ + {r}); c_ += {adv}; NAIAD_GEMM_OPAQUE(c_);"
+                    )
+            w("        }")
         w("        return;")
         w("    }")
         w(f"    for (long i = 0; i < {pl.bm}; i++) {{")
@@ -1244,6 +1351,47 @@ class _PairEmitter:
         w("    }")
         w("}")
         w("")
+
+    def _emit_store_dual(self, w):
+        """The full-block C store for the dual-issue front end: one pointer and one index register per C
+        column, so no advance waits on the one before it, ordered by :func:`dual_sched.schedule`."""
+        g, pl = self.g, self.pl
+        e, bn = g.e, pl.bn
+        w(f"        const long cs_ = ldc * {g.aes};")
+        w(f"        vme_msettn({e});")
+        w(f"        for (long i = 0; i < {pl.bm}; i++) {{")
+        for j in range(bn):
+            w(f"            char *c{j}_ = (char *)(C + i * {e} * ldc + {j * e});")
+            w(
+                f"            unsigned long t{j}_ = (unsigned long)((i * {bn} + {j}) * {g.acc_step}) << 27;"
+            )
+            w(f"            NAIAD_GEMM_OPAQUE(t{j}_);")
+        ops = []
+        for r in range(e):
+            for j in range(bn):
+                ops.append(
+                    dual_sched.Op(
+                        f"vme_vtse({g.tew}, c{j}_, t{j}_);",
+                        (f"c{j}_", f"t{j}_"),
+                        (),
+                        True,
+                    )
+                )
+                if r < e - 1:
+                    ops += [
+                        dual_sched.Op(
+                            f"NAIAD_GEMM_ADD(c{j}_, cs_);",
+                            (f"c{j}_", "cs_"),
+                            (f"c{j}_",),
+                        ),
+                        dual_sched.Op(
+                            f"NAIAD_GEMM_ADDI(t{j}_, 1);", (f"t{j}_",), (f"t{j}_",)
+                        ),
+                    ]
+        ordered, _ = dual_sched.schedule(ops, vec_gap=self._tile_gap(e * g.aes))
+        for o in ordered:
+            w(f"            {o.text}")
+        w("        }")
 
     # the block: K loop -------------------------------------------------------------------------
 
@@ -1483,8 +1631,11 @@ def emit_vme_gemm_header(design, *, block=None, pairs=None, ref=REF_SIZE):
         "#define NAIAD_GEMM_FN(in, acc) NAIAD_GEMM_FN_(in, acc)",
         "",
     ]
+    timing = getattr(design, "timing", None)
+    dual = timing is not None and timing.scalar.issue_width >= 2
     for main, narrow in scheds:
-        L += _PairEmitter(main, narrow).emit()
+        costs = costs_for(design, main.plan.geo)
+        L += _PairEmitter(main, narrow, costs, dual).emit()
     L += [
         "/* The unsuffixed names, for the pair named by NAIAD_GEMM_IN / NAIAD_GEMM_ACC. */",
         "#if defined(NAIAD_GEMM_IN) && defined(NAIAD_GEMM_ACC)",

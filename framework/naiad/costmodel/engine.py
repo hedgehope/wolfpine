@@ -15,13 +15,32 @@ to real instructions (``framework.pe.rv.timing.core``,
   branch holds the next instruction for ``branch_taken`` cycles; loads pay the
   data region's latency;
 * the vector unit: one datapath (occupancy ``ceil(VL * EEW / datapath_bits)``,
-  results ``startup`` later, no chaining) and one load/store unit
+  results ``startup`` later; no chaining unless the machine's
+  ``vector.chaining`` is set, see below) and one load/store unit
   (``ceil(bytes / mem_bytes_per_cycle)``, at least one element a cycle when
   strided);
 * the AME unit: mma / tile-load / tile-store pipes, a tile and accumulator
   scoreboard (RAW, WAW, WAR), accumulator forwarding between mmas;
 * memory RAW: a load named as reading what an asynchronous (tile / vector)
   store wrote waits for that store to complete.
+
+**Chaining.** With ``Machine.vector.chaining`` (the design's
+``timing.vector.chaining: true``) a vector instruction does not wait for its
+producer's whole result. The rule is ``framework.pe.rv.timing.vector``'s,
+restated per register name instead of per architectural register: an op
+processes its ``n`` elements in ``beats`` equal groups over its occupancy
+(element ``x`` in beat ``x * beats // n``); a producer records, per
+destination register, when its first and its last element become readable
+(``issue + beat end + startup``, a load's ``mem_startup`` plus the region
+latency); a consumer starts once, for every source register, the first
+element is ready when the consumer's beat reaches it and the last likewise.
+Not chained: sources read out of order (``vrgather``'s and a slide-down's
+``vs2``, a reduction's scalar ``vs1``), reduction and ``vcompress`` results.
+The datapath and the LSU stay one instruction at a time. A name passed
+alone covers all ``n`` of the consumer's elements (a register group seen at
+its two ends, which is all the linear streams need); the assembly-listing
+interpreter passes :class:`VGroup` to give each register its own element
+range, as the hardware's decode does.
 
 So the engine is the closed form ``cycles = f(loop bounds, body, timing)``
 evaluated by replay rather than by algebra: no constant in it is fitted.
@@ -39,6 +58,7 @@ import math
 from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 
 #: Scalar instruction classes and the ``Scalar`` field holding their latency.
 _LATENCY_FIELD = {
@@ -53,6 +73,21 @@ _LATENCY_FIELD = {
     "fsqrt": "fp_sqrt",
     "fmisc": "fp_misc",
 }
+
+
+@dataclass(frozen=True)
+class VGroup:
+    """A vector register group as a chained operand: its registers in order, and how they are read.
+
+    ``eew`` is the operand's element width in bits (1 for a mask), ``whole`` a source
+    read out of order (waited for in full), ``fields`` the segment count of a
+    segment access's data group.
+    """
+
+    names: tuple
+    eew: int
+    whole: bool = False
+    fields: int = 1
 
 
 def ceil_div(a, b):
@@ -84,6 +119,10 @@ class Engine:
         self.unit = {}
         self.lsu = 0
         self.vready = {}
+        #: Chaining only: per vector register name, when its first element is readable, and the
+        #: ``vready`` value that was current when it was set.
+        self.vfirst, self.vfirst_of = {}, {}
+        self.chaining = bool(machine.vector is not None and machine.vector.chaining)
         self.vunit = 0
         self.vlsu = 0
         self.tile_ready, self.tile_rfree = {}, {}
@@ -180,6 +219,66 @@ class Engine:
             self.ready[dst] = c + 1
         self.instret["vector"] += 1
 
+    # -- chaining (``Machine.vector.chaining``) ----------------------------------------
+
+    def _operands(self, srcs, sgroups, n):
+        """``(name, first element, last element, whole)`` for each vector source register."""
+        if sgroups is None:
+            return [(s, 0, n - 1, False) for s in srcs]
+        vlen = self.m.vector.vlen
+        out = []
+        for g in sgroups:
+            per = max(1, vlen // g.eew)
+            emul = max(1, len(g.names) // g.fields)
+            for i, nm in enumerate(g.names):
+                lo = (i % emul) * per
+                out.append((nm, lo, min(lo + per, n) - 1, g.whole))
+        return out
+
+    def _chain_at(self, srcs, sgroups, n, occ, beats):
+        """The first cycle an op of ``n`` elements may start by its vector sources (see the module docstring)."""
+        ready, first, first_of = self.vready, self.vfirst, self.vfirst_of
+        at = 0
+        for nm, lo, hi, whole in self._operands(srcs, sgroups, n):
+            done = ready.get(nm, 0)
+            if n == 0 or whole:
+                at = max(at, done)
+                continue
+            if hi < lo:
+                continue  # holds only tail elements: not read
+            f = first.get(nm, 0) if first_of.get(nm, 0) == done else done
+            start_lo = (lo * beats // n) * occ // beats
+            start_hi = (hi * beats // n) * occ // beats
+            at = max(at, f - start_lo, done - start_hi)
+        return at
+
+    def _stream_out(self, dst, dgroup, c, n, occ, beats, latency, streams=True):
+        """Record when each destination register's first and last elements are readable.
+
+        ``dgroup`` is ``(eew, fields)`` when ``dst`` lists a group's registers in order;
+        otherwise every name covers all ``n`` elements.
+        """
+        names = _names(dst)
+        done = c + occ + latency
+        if dgroup is None:
+            spans = [(nm, 0, n - 1) for nm in names]
+        else:
+            eew, fields = dgroup
+            per = max(1, self.m.vector.vlen // eew)
+            emul = max(1, len(names) // fields)
+            spans = []
+            for i, nm in enumerate(names):
+                lo = (i % emul) * per
+                spans.append((nm, lo, min(lo + per, n) - 1))
+        for nm, lo, hi in spans:
+            if not streams or n == 0 or hi < lo:
+                self.vready[nm] = self.vfirst[nm] = self.vfirst_of[nm] = done
+                continue
+            end_lo = -(-((lo * beats // n) + 1) * occ // beats)
+            end_hi = -(-((hi * beats // n) + 1) * occ // beats)
+            self.vfirst[nm] = c + end_lo + latency
+            self.vready[nm] = self.vfirst_of[nm] = c + end_hi + latency
+
     def vop(
         self,
         dst,
@@ -191,62 +290,119 @@ class Engine:
         sdst=None,
         xsrcs=(),
         regs=None,
+        sgroups=None,
+        dgroup=None,
+        streams=True,
     ):
         """A vector arithmetic instruction over ``vl`` elements of width ``sew`` (2*SEW when ``wide``).
 
         ``kind``: ``arith``, ``div`` (``div_ii`` times longer) or ``red`` (plus the
         lane-tree latency). ``regs`` overrides the occupancy with a whole-register
         count (``vmv<nr>r``). ``sdst`` names a scalar result (``vfmv.f.s``, ``vcpop``).
+        ``sgroups`` / ``dgroup`` / ``streams`` refine the chaining rule only (see :class:`VGroup`;
+        ``streams=False``: the result is readable only when the op completes).
         """
         v = self.m.vector
-        c = self._issue_at(
-            self._at(self.vready, srcs), self._at(self.ready, xsrcs), self.vunit
-        )
         if regs is not None:
-            occ = max(1, ceil_div(regs * v.vlen, v.datapath_bits))
+            beats = max(1, ceil_div(regs * v.vlen, v.datapath_bits))
+            occ = beats
+            n = regs * v.vlenb
         else:
             width = 2 * sew if wide else sew
-            occ = max(1, ceil_div(vl * width, v.datapath_bits))
-            if kind == "div":
-                occ *= v.div_ii
+            beats = max(1, ceil_div(vl * width, v.datapath_bits))
+            occ = beats * v.div_ii if kind == "div" else beats
+            n = vl
+        if self.chaining:
+            vat = self._chain_at(srcs, sgroups, n, occ, beats)
+        else:
+            vat = self._at(self.vready, srcs)
+        c = self._issue_at(vat, self._at(self.ready, xsrcs), self.vunit)
         done = c + occ + v.startup
         if kind == "red":
             lanes = max(1, v.datapath_bits // sew)
             done += math.ceil(math.log2(lanes)) if lanes > 1 else 0
         self.vunit = c + occ
         self.busy["vector"] += occ
-        for d in _names(dst):
-            self.vready[d] = done
+        if self.chaining:
+            self._stream_out(
+                dst,
+                dgroup,
+                c,
+                n,
+                occ,
+                beats,
+                done - c - occ,
+                streams=streams and kind != "red",
+            )
+        else:
+            for d in _names(dst):
+                self.vready[d] = done
         if sdst is not None:
             self.ready[sdst] = done
         self.instret["vector"] += 1
         return c
 
-    def vload(self, dst, nbytes, xsrcs=(), elems=0, after=()):
-        """A vector load of ``nbytes``; ``elems`` > 0 for a strided / indexed / segment access."""
+    def vload(
+        self,
+        dst,
+        nbytes,
+        xsrcs=(),
+        elems=0,
+        after=(),
+        n=0,
+        srcs=(),
+        sgroups=None,
+        dgroup=None,
+    ):
+        """A vector load of ``nbytes``; ``elems`` > 0 for a strided / indexed / segment access.
+
+        ``n`` is the element count and ``srcs`` / ``sgroups`` the index vector of an indexed
+        load; both matter to chaining only.
+        """
         v = self.m.vector
-        c = self._issue_at(
-            self._at(self.ready, xsrcs), self.vlsu, self._at(self.mem, after)
-        )
         t = transfer(nbytes, v.mem_bytes_per_cycle, self.m.memory.bandwidth)
         if elems:
             t = max(t, math.ceil(elems / v.indexed_elements_per_cycle))
+        vat = 0
+        if srcs or sgroups:
+            if self.chaining:
+                vat = self._chain_at(srcs, sgroups, n or t, t, t)
+            else:
+                vat = self._at(self.vready, srcs)
+        c = self._issue_at(
+            vat, self._at(self.ready, xsrcs), self.vlsu, self._at(self.mem, after)
+        )
         self.vlsu = c + t
         self.busy["vector_mem"] += t
-        done = c + v.mem_startup + self.m.memory.latency + t
-        for d in _names(dst):
-            self.vready[d] = done
+        lat = v.mem_startup + self.m.memory.latency
+        if self.chaining:
+            self._stream_out(dst, dgroup, c, n or t, t, t, lat)
+        else:
+            for d in _names(dst):
+                self.vready[d] = c + lat + t
         self.instret["vector"] += 1
         return c
 
-    def vstore(self, srcs, nbytes, xsrcs=(), elems=0, token=None):
+    def vstore(
+        self,
+        srcs,
+        nbytes,
+        xsrcs=(),
+        elems=0,
+        token=None,
+        n=0,
+        sgroups=None,
+    ):
         v = self.m.vector
-        c = self._issue_at(
-            self._at(self.vready, _names(srcs)), self._at(self.ready, xsrcs), self.vlsu
-        )
         t = transfer(nbytes, v.mem_bytes_per_cycle, self.m.memory.bandwidth)
         if elems:
             t = max(t, math.ceil(elems / v.indexed_elements_per_cycle))
+        names = _names(srcs)
+        if self.chaining:
+            vat = self._chain_at(names, sgroups, n or t, t, t)
+        else:
+            vat = self._at(self.vready, names)
+        c = self._issue_at(vat, self._at(self.ready, xsrcs), self.vlsu)
         self.vlsu = c + t
         self.busy["vector_mem"] += t
         if token is not None:
@@ -430,6 +586,8 @@ class Engine:
             self.ready,
             self.unit,
             self.vready,
+            self.vfirst,
+            self.vfirst_of,
             self.tile_ready,
             self.tile_rfree,
             self.acc_ready,
@@ -603,6 +761,9 @@ class BoundEngine(Engine):
         sdst=None,
         xsrcs=(),
         regs=None,
+        sgroups=None,
+        dgroup=None,
+        streams=True,
     ):
         v = self.m.vector
         if regs is not None:
@@ -624,10 +785,10 @@ class BoundEngine(Engine):
         self.instret["vector"] += 1
         return self._issue_at()
 
-    def vload(self, dst, nbytes, xsrcs=(), elems=0, after=()):
+    def vload(self, dst, nbytes, xsrcs=(), elems=0, after=(), **_):
         return self._vmem(nbytes, elems)
 
-    def vstore(self, srcs, nbytes, xsrcs=(), elems=0, token=None):
+    def vstore(self, srcs, nbytes, xsrcs=(), elems=0, token=None, **_):
         return self._vmem(nbytes, elems)
 
     def mma(self, acc, a, b, ii, accumulate=True, macs=0):

@@ -286,3 +286,53 @@ def test_cli_writes_a_real_header_for_a_vme_design(tmp_path):
     text = out.read_text()
     assert '#error "naiad_gemm.h:' not in text
     assert "naiad_gemm_fp32_fp32_block(" in text
+
+
+# -- dual issue ------------------------------------------------------------------------------------
+
+
+def _dual(width, te=16):
+    raw = yaml.safe_load(VME_TIMED.read_text())
+    raw["matrix"]["te"] = te
+    raw["timing"]["scalar"]["issue_width"] = width
+    return parse_design(raw, VME_TIMED)
+
+
+def test_single_issue_header_is_unchanged_by_the_dual_issue_emission():
+    """Width 1 keeps the compiler-ordered tile-move loops: no explicit advance ops, no per-column store pointers."""
+    one = emit_gemm_header(_dual(1))
+    assert "cs_" not in one
+    assert "NAIAD_GEMM_ADD(s_, la)" not in one
+    assert "NAIAD_GEMM_ADD(" in one  # the K loop's own register advances
+    assert one == emit_gemm_header(
+        _design(te=16)
+    )  # no timing.scalar.issue_width key = width 1
+
+
+def test_dual_issue_header_schedules_the_tile_move_loops_and_nothing_else():
+    one, two = emit_gemm_header(_dual(1)), emit_gemm_header(_dual(2))
+    assert one != two
+    assert "NAIAD_GEMM_ADD(s_, la)" in two
+    assert "cs_" in two
+    # the multiplies and zeroing are untouched; the tile moves are the same ops reordered around their
+    # address advances (the A transpose's row part twice: a zero row stride, the ones-tile reductions',
+    # drops the pointer advance)
+    for op in ("vme_vtfmm", "vme_vtzero("):
+        assert one.count(op) == two.count(op), op
+    assert "if (la == 0) {" in two
+    assert two.count("vme_vtse(") >= one.count("vme_vtse(")
+    assert two.count("vme_vtle(") >= one.count("vme_vtle(")
+
+    # the K loop is the same text: it is scheduled by the K-loop model, not by the front end
+    def kloop(text):
+        return text.split("for (long it_ = nbody - 1")[1].split("/* the last body")[0]
+
+    assert kloop(one) == kloop(two)
+
+
+def test_dual_issue_store_falls_back_when_the_block_has_too_many_columns():
+    big = _dual(2)
+    plan = G.plan_for(big, "fp32", "fp32").plan
+    assert (
+        plan.bn <= G.MAX_DUAL_BN
+    )  # the default shapes stay within the per-column registers

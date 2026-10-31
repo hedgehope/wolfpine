@@ -23,7 +23,7 @@ branch and ``j``, not taken otherwise).
 import re
 from dataclasses import dataclass, field
 
-from framework.naiad.costmodel.engine import ceil_div
+from framework.naiad.costmodel.engine import VGroup, ceil_div
 
 _XREGS = (
     {"zero", "ra", "sp", "gp", "tp"}
@@ -266,6 +266,11 @@ def _group(base, n):
     return tuple(("v", base + i) for i in range(int(n)))
 
 
+def _vg(base, n, eew, whole=False, fields=1):
+    """The chained-operand view (:class:`VGroup`) of ``n`` registers from ``v<base>``."""
+    return VGroup(_group(base, n), eew, whole, fields)
+
+
 def issue(e, ins, vs, taken=None):
     """Issue one instruction on ``e`` (``vs`` is the current vtype, updated by vset).
 
@@ -426,6 +431,7 @@ def _vector(e, ins, vs):
     masked = any(o == "v0.t" for o in ops)
     ops = [o for o in ops if o != "v0.t"]
     mask_src = (("v", 0),) if masked else ()
+    mask_sg = (_vg(0, 1, 1),) if masked else ()
     xs = [o.strip("()") for o in ops if _is_x(o.strip("()")) and o != "zero"]
     fs = [o for o in ops if _is_f(o)]
     # memory
@@ -433,13 +439,22 @@ def _vector(e, ins, vs):
     if mn in ("vlm.v", "vsm.v"):
         nbytes = ceil_div(vl, 8)
         if mn == "vlm.v":
-            e.vload(_group(_vreg(ops[0]), 1), nbytes, xs, after=ins.tokens_in)
+            e.vload(
+                _group(_vreg(ops[0]), 1),
+                nbytes,
+                xs,
+                after=ins.tokens_in,
+                n=vl,
+                dgroup=(1, 1),
+            )
         else:
             e.vstore(
                 _group(_vreg(ops[0]), 1),
                 nbytes,
                 xs,
                 token=ins.tokens_out[0] if ins.tokens_out else None,
+                n=vl,
+                sgroups=(_vg(_vreg(ops[0]), 1, 1),),
             )
         return
     wm = re.match(r"^v(l|s)(\d)r(?:e(\d+))?\.v$", mn)
@@ -447,13 +462,22 @@ def _vector(e, ins, vs):
         nreg = int(wm.group(2))
         nbytes = nreg * v.vlenb
         if wm.group(1) == "l":
-            e.vload(_group(_vreg(ops[0]), nreg), nbytes, xs, after=ins.tokens_in)
+            e.vload(
+                _group(_vreg(ops[0]), nreg),
+                nbytes,
+                xs,
+                after=ins.tokens_in,
+                n=nbytes,
+                dgroup=(8, 1),
+            )
         else:
             e.vstore(
                 _group(_vreg(ops[0]), nreg),
                 nbytes,
                 xs,
                 token=ins.tokens_out[0] if ins.tokens_out else None,
+                n=nbytes,
+                sgroups=(_vg(_vreg(ops[0]), nreg, 8),),
             )
         return
     if m2:
@@ -466,19 +490,25 @@ def _vector(e, ins, vs):
         dregs = max(1, int(lmul * data_eew / sew)) * nf
         elems = vl * nf if (mode or nf > 1) else 0
         vsrcs = ()
+        sg = ()
         if indexed:
-            vsrcs = _group(_vreg(ops[-1]), max(1, int(lmul * eew / sew)))
+            nidx = max(1, int(lmul * eew / sew))
+            vsrcs = _group(_vreg(ops[-1]), nidx)
+            sg = (_vg(_vreg(ops[-1]), nidx, eew),)
+        if masked:
+            sg += (_vg(0, 1, 1),)
         if ls == "l":
-            if vsrcs:
-                # an indexed load waits for its index vector like an arithmetic source
-                c = max(e._at(e.vready, vsrcs), 0)
-                e.t = max(e.t, c)
+            # an indexed load waits for its index vector like an arithmetic source
             e.vload(
                 _group(_vreg(ops[0]), dregs),
                 nbytes,
                 xs,
                 elems=elems,
                 after=ins.tokens_in,
+                n=vl,
+                srcs=vsrcs,
+                sgroups=sg or None,
+                dgroup=(data_eew, nf),
             )
         else:
             e.vstore(
@@ -487,13 +517,21 @@ def _vector(e, ins, vs):
                 xs,
                 elems=elems,
                 token=ins.tokens_out[0] if ins.tokens_out else None,
+                n=vl,
+                sgroups=(_vg(_vreg(ops[0]), dregs, data_eew, fields=nf),) + sg,
             )
         return
     # whole-register moves
     mr = re.match(r"^vmv(\d)r\.v$", mn)
     if mr:
         n = int(mr.group(1))
-        e.vop(_group(_vreg(ops[0]), n), _group(_vreg(ops[1]), n), regs=n)
+        e.vop(
+            _group(_vreg(ops[0]), n),
+            _group(_vreg(ops[1]), n),
+            regs=n,
+            sgroups=(_vg(_vreg(ops[1]), n, 8),),
+            dgroup=(8, 1),
+        )
         return
     vregs = [_vreg(o) for o in ops if _vreg(o) is not None]
     sdst = None
@@ -502,13 +540,28 @@ def _vector(e, ins, vs):
     d_n, s_ns = ng, None  # dst group size; per-source group sizes
     if mn in ("vfmv.f.s", "vmv.x.s"):
         sdst = ops[0]
-        e.vop(None, _group(vregs[0], 1), vl, sew, sdst=sdst)
+        e.vop(
+            None,
+            _group(vregs[0], 1),
+            vl,
+            sew,
+            sdst=sdst,
+            sgroups=(_vg(vregs[0], 1, 1),),
+        )
         return
     if mn in ("vfmv.s.f", "vmv.s.x"):
-        e.vop(_group(vregs[0], 1), (), vl, sew, xsrcs=xs + fs)
+        e.vop(_group(vregs[0], 1), (), vl, sew, xsrcs=xs + fs, dgroup=(1, 1))
         return
     if mn in ("vcpop.m", "vfirst.m"):
-        e.vop(None, _group(vregs[0], 1) + mask_src, vl, sew, kind="red", sdst=ops[0])
+        e.vop(
+            None,
+            _group(vregs[0], 1) + mask_src,
+            vl,
+            sew,
+            kind="red",
+            sdst=ops[0],
+            sgroups=(_vg(vregs[0], 1, 1),) + mask_sg,
+        )
         return
     if mn.startswith(("vfred", "vred", "vfwred", "vwred")):
         wide = mn.startswith(("vfwred", "vwred"))
@@ -519,6 +572,12 @@ def _vector(e, ins, vs):
             sew,
             wide=wide,
             kind="red",
+            sgroups=(
+                _vg(vregs[1], ng, sew),
+                _vg(vregs[2], 1, 1, whole=True),
+            )
+            + mask_sg,
+            dgroup=(1, 1),
         )
         return
     if mn.startswith("vm") and mn.split(".")[0] in (
@@ -540,10 +599,19 @@ def _vector(e, ins, vs):
             tuple(r for x in vregs[1:] for r in _group(x, 1)),
             vl,
             sew,
+            sgroups=tuple(_vg(x, 1, 1) for x in vregs[1:]),
+            dgroup=(1, 1),
         )
         return
     if mn.split(".")[0] in ("vmsbf", "vmsif", "vmsof"):
-        e.vop(_group(vregs[0], 1), _group(vregs[1], 1) + mask_src, vl, sew)
+        e.vop(
+            _group(vregs[0], 1),
+            _group(vregs[1], 1) + mask_src,
+            vl,
+            sew,
+            sgroups=(_vg(vregs[1], 1, 1),) + mask_sg,
+            dgroup=(1, 1),
+        )
         return
     base = mn.split(".")[0]
     is_cmp = base.startswith(("vmf", "vms", "vmadc", "vmsbc")) and base not in (
@@ -577,21 +645,58 @@ def _vector(e, ins, vs):
     if is_cmp:
         d_n = 1
     if base in ("vid",):
-        e.vop(_group(vregs[0], ng), mask_src, vl, sew)
+        e.vop(_group(vregs[0], ng), mask_src, vl, sew, sgroups=mask_sg, dgroup=(sew, 1))
         return
     dst = _group(vregs[0], d_n)
+    # Chaining detail: each operand's element width (a mask is one bit per element),
+    # and the sources the hardware reads out of order.
+    dst_eew = 1 if is_cmp else (2 * sew if base.startswith(("vfw", "vw")) else sew)
+    src_eew = [sew] * (len(vregs) - 1)
+    if base.startswith(("vfw", "vw")) and ".w" in mn and src_eew:
+        src_eew[0] = 2 * sew
+    elif (
+        base.startswith(("vfn", "vn"))
+        and base not in ("vfnmacc", "vfnmsac", "vfnmadd", "vfnmsub", "vnot", "vneg")
+        and src_eew
+    ):
+        src_eew[0] = 2 * sew
+    if base.startswith(("vmerge", "vfmerge", "vadc", "vsbc")) and len(vregs) > 1:
+        src_eew[-1] = 1
+    if base == "vcompress":
+        src_eew[-1] = 1
+    whole = (
+        {0}
+        if base in ("vslidedown", "vslide1down", "vrgather", "vrgatherei16")
+        else set()
+    )
     srcs = []
+    sgroups = []
     for i, r in enumerate(vregs[1:]):
-        srcs += _group(r, s_ns[i] if s_ns and i < len(s_ns) else ng)
+        size = s_ns[i] if s_ns and i < len(s_ns) else ng
+        srcs += _group(r, size)
+        sgroups.append(_vg(r, size, src_eew[i], whole=i in whole))
     if (
         any(t in base for t in ("macc", "msac", "madd", "msub"))
         or base.endswith("bf16")
         and "macc" in base
     ):
         srcs += list(dst)
+        sgroups.append(VGroup(dst, dst_eew))
     if mn.startswith("vmerge") or mn.startswith("vfmerge"):
         srcs += [("v", 0)]
-    e.vop(dst, tuple(srcs) + mask_src, vl, sew, wide=wide, kind=kind, xsrcs=xs + fs)
+        sgroups.append(_vg(0, 1, 1))
+    e.vop(
+        dst,
+        tuple(srcs) + mask_src,
+        vl,
+        sew,
+        wide=wide,
+        kind=kind,
+        xsrcs=xs + fs,
+        sgroups=tuple(sgroups) + mask_sg,
+        dgroup=(dst_eew, 1),
+        streams=base != "vcompress",
+    )
 
 
 # -- the AME unit ----------------------------------------------------------------
