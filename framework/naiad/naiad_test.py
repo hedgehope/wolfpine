@@ -256,3 +256,15 @@ def test_console_stream_receives_output(tmp_path):
     soc.memory.write(TOHOST + 4, (0x01010000).to_bytes(4, "little"))
     soc.memory.write(TOHOST, ord("\n").to_bytes(4, "little"))
     assert stream.getvalue() == "\n"
+
+
+def test_set_of_one_timing_field_on_an_untimed_design_says_it_enables_the_model(capsys):
+    from framework.naiad.run import load_design_spec
+
+    design, _ = load_design_spec("naiad-base", ["timing.scalar.load=4"])
+    assert design.timing is not None
+    assert "enables the whole cycle model" in capsys.readouterr().err
+
+    design, _ = load_design_spec("naiad-base", ["cores.reset_pc=0x1000"])
+    assert design.timing is None
+    assert capsys.readouterr().err == ""

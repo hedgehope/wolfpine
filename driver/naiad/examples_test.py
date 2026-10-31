@@ -19,7 +19,7 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 NAIAD_CC = os.environ.get("NAIAD_CC", "/opt/llvm/20.1.7/bin/clang")
-EXAMPLES = ["ex1", "ex2", "ex3", "ex4", "ex5", "ex6"]
+EXAMPLES = ["ex1", "ex2", "ex3", "ex4", "ex5", "ex6", "ex7"]
 
 needs_clang = pytest.mark.skipif(
     shutil.which(NAIAD_CC) is None or shutil.which("make") is None,

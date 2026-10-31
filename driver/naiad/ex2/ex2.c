@@ -11,12 +11,10 @@
  * which is the portable idiom: wfi may return early, so the condition is
  * re-checked. mstatus.MIE stays clear throughout.
  *
- * What Naiad models (see framework/ip/clint.py): wake-up, not traps. There is
- * no trap delivery, so mtvec / an interrupt handler would never run; a
- * pending, enabled interrupt only ends a wfi. On a single-hart design wfi is
- * a nop (the builder routes wfi to the CLINT's sleep only on multi-hart
- * designs), so here the loop polls; ex6 shows a hart really sleeping. With
- * mstatus.MIE clear the same program behaves the same on Spike.
+ * With mstatus.MIE clear a pending, enabled interrupt only ends a wfi; no trap is
+ * taken (ex7 sets up mtvec and takes them). With the timer enabled the hart really
+ * sleeps in wfi until mtime >= mtimecmp, so the loop below runs about once. The
+ * same program behaves the same on Spike.
  */
 #include "naiad_platform.h"
 

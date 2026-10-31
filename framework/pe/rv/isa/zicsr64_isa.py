@@ -37,11 +37,16 @@ What is modelled
   unknown otherwise.
 * ``fflags`` / ``frm`` / ``fcsr`` as views of the FP register file's ``fcsr``
   entry, for a core built with ``fp_registers=True``.
-* ``mstatus``, ``mtvec``, ``mie``, ``mip``, ``mscratch``, ``mepc``, ``mcause``,
-  ``mtval``, ``mcounteren``, ``mcountinhibit`` as plain storage. Wolfpine models
-  no traps or interrupts, so nothing reads them back but software;
-  ``mcountinhibit`` in particular does not stop the counters. The one WARL rule
-  kept is ``mepc[1:0]`` reading as zero (IALIGN = 32: Naiad cores have no C).
+* ``mstatus``, ``mtvec``, ``mie``, ``mscratch``, ``mepc``, ``mcause``,
+  ``mtval``, ``mcounteren``, ``mcountinhibit`` as plain storage. A Naiad core
+  (``framework.pe.rv.trap``) reads and updates the trap ones itself to deliver
+  exceptions and interrupts; ``mcountinhibit`` does not stop the counters. WARL
+  rules kept: ``mepc`` reads as zero below :attr:`CSRFile64.mepc_mask` (IALIGN),
+  and ``mtvec[1]`` (reserved mode) reads as zero. Writing ``mtvec`` calls
+  :attr:`CSRFile64.on_mtvec`, which is how a Naiad core arms trap delivery.
+* ``mip`` is read-only here: :attr:`CSRFile64.mip_source` (the CLINT's
+  ``msip`` / timer bits, ``MSIP`` = bit 3, ``MTIP`` = bit 7) or 0, and writes
+  are ignored.
 
 Refused
 -------
@@ -118,9 +123,9 @@ for _n in HPM_COUNTERS:
 del _n
 
 #: Plain read-what-you-wrote machine CSRs (reset to zero).
-_STORAGE = frozenset(
-    {0x300, 0x304, 0x305, 0x306, 0x320, 0x340, 0x341, 0x342, 0x343, 0x344}
-)
+_STORAGE = frozenset({0x300, 0x304, 0x305, 0x306, 0x320, 0x340, 0x341, 0x342, 0x343})
+CSR_MIP = 0x344
+CSR_MTVEC = 0x305
 
 #: ID registers that read as zero: no vendor, architecture, implementation or
 #: configuration-structure ID is assigned to this core.
@@ -168,6 +173,12 @@ class CSRFile64:
         self.vector = None
         #: Read-only CSRs an attached extension adds (VME's ``mtype``): address -> reader.
         self.ext_csrs = {}
+        #: ``None`` or a zero-argument callable giving the pending-interrupt bits (``mip``).
+        self.mip_source = None
+        #: ``None`` or a callable told every new ``mtvec`` value (arms trap delivery).
+        self.on_mtvec = None
+        #: Bits of ``mepc`` that are implemented (IALIGN = 32 without C, 16 with).
+        self.mepc_mask = ~0x3
         self._hpm_base = {}
 
     def bind_hpm(self, n, reader):
@@ -192,6 +203,8 @@ class CSRFile64:
             return (source() if source is not None else self.cycles) & _M64
         if addr in _STORAGE:
             return self.store.get(addr, 0)
+        if addr == CSR_MIP:
+            return 0 if self.mip_source is None else self.mip_source() & _M64
         if addr == CSR_MHARTID:
             return self.hart_id
         if addr == CSR_MISA:
@@ -232,8 +245,14 @@ class CSRFile64:
             )
         if addr in _STORAGE:
             if addr == CSR_MEPC:
-                value &= ~0x3  # WARL: no C extension, so IALIGN = 32
+                value &= self.mepc_mask  # WARL: IALIGN
+            elif addr == CSR_MTVEC:
+                value &= ~0x2  # WARL: modes 0 and 1 only
             self.store[addr] = value
+            if addr == CSR_MTVEC and self.on_mtvec is not None:
+                self.on_mtvec(value)
+        elif addr == CSR_MIP:
+            pass  # read-only view of the CLINT
         elif addr == CSR_MCYCLE:
             self._cycle_base = (value - self.cycles) & _M64
         elif addr == CSR_MINSTRET:

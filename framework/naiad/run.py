@@ -96,8 +96,19 @@ def load_design_spec(spec, sets=()):
             raw = yaml.load(f, Loader=_UniqueKeyLoader)
     except OSError as e:
         raise DesignError(f"cannot read {path}: {e.strerror}") from None
+    had_timing = raw.get("timing") is not None
     for text in sets:
         apply_set(raw, text)
+    if not had_timing and raw.get("timing") is not None:
+        # A design without a timing: section runs untimed; one --set timing.* field
+        # creates the section, which turns the whole cycle model on (defaults for
+        # every field not set), not just that field. Say so rather than do it silently.
+        print(
+            f"naiad: note: design {path.stem!r} has no timing: section; --set timing.* "
+            f"enables the whole cycle model with defaults for every other timing field "
+            f"(cycle counts are no longer the untimed one-per-instruction count)",
+            file=sys.stderr,
+        )
     return parse_design(raw, path), path
 
 
@@ -209,7 +220,11 @@ def target_main(argv=None, prog="wolfpine run naiad"):
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="override a design field, e.g. timing.scalar.issue_width=2 (value parsed as YAML; repeatable)",
+        help=(
+            "override a design field, e.g. timing.scalar.issue_width=2 (value parsed as YAML; "
+            "repeatable). On a design with no timing: section, any timing.* field turns the whole "
+            "cycle model on"
+        ),
     )
     parser.add_argument(
         "--list-designs", action="store_true", help="list the packaged designs and exit"

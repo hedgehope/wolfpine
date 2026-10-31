@@ -20,7 +20,7 @@ REPO_ROOT := $(abspath $(HERE)/../..)
 DESIGNS := $(REPO_ROOT)/framework/naiad/designs
 BUILD ?= $(HERE)/build
 
-EXAMPLES := ex1 ex2 ex3 ex4 ex5 ex6
+EXAMPLES := ex1 ex2 ex3 ex4 ex5 ex6 ex7
 
 # The design each example is built for and run on.
 ex1_DESIGN := $(DESIGNS)/naiad-base.yaml
@@ -29,6 +29,7 @@ ex3_DESIGN := $(DESIGNS)/naiad-dma.yaml
 ex4_DESIGN := $(DESIGNS)/naiad-counters.yaml
 ex5_DESIGN := $(DESIGNS)/naiad-ame-timed.yaml
 ex6_DESIGN := $(HERE)/ex6/naiad-quad.yaml
+ex7_DESIGN := $(DESIGNS)/naiad-base-rv64.yaml
 
 NAIAD_PY := PYTHONPATH=$(REPO_ROOT)$${PYTHONPATH:+:$$PYTHONPATH} $(PYTHON)
 

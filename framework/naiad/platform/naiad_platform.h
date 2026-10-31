@@ -273,7 +273,7 @@ int memcmp(const void *a, const void *b, size_t n);
 size_t strlen(const char *s);
 
 /* printf-lite: %d %i %u %x %X %p %s %c %%, with l / ll length and a field width
- * with optional 0 flag. No floating point. Returns the number of characters. */
+ * with optional '0' (zero-pad) and '-' (left-justify) flags. No floating point. Returns the number of characters. */
 int naiad_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 #endif /* NAIAD_PLATFORM_LINUX */

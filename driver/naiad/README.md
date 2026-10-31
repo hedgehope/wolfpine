@@ -58,6 +58,10 @@ python -m framework.cli run naiad --design naiad-counters --set timing.scalar.lo
 python -m framework.cli run naiad --design naiad-ame-timed --set timing.memory.l1.latency=30 driver/naiad/build/ex5/ex5.elf
 ```
 
+A design with no `timing:` section runs untimed; a single `--set timing.<anything>` creates the section and so
+turns the **whole** cycle model on, with the defaults for every field you did not set (the run says so on stderr).
+Compare against a design that already has a `timing:` section if you want to vary one field in isolation.
+
 Keep `--set` to timing and other fields the program does not bake in: moving a block
 changes the memory map the ELF was linked against, and the hart count is compiled into
 `crt0.S` (ex6 therefore ships its own design file rather than using
@@ -71,13 +75,34 @@ Each example is a short C program that prints what it checks and ends with `PASS
 | | Design | Shows |
 |---|---|---|
 | [ex1](ex1/ex1.c) | `naiad-base` (RV32IM) | Console and exit codes over HTIF (`tohost`/`fromhost`); what crt0 and the loader set up (.bss, .data, .rodata, stack); `naiad_exit` from a helper function. |
-| [ex2](ex2/ex2.c) | `naiad-base-rv64` | The CLINT: `mtime` tracking the clock, arming `mtimecmp`, `mie.MTIE`, and the `while (mtime < target) wfi;` idiom. Naiad models wake-up, not traps: no interrupt handler runs, and on one hart `wfi` is a nop, so the loop polls. |
+| [ex2](ex2/ex2.c) | `naiad-base-rv64` | The CLINT: `mtime` tracking the clock, arming `mtimecmp`, `mie.MTIE`, and the `while (mtime < target) wfi;` idiom. With `mstatus.MIE` clear (and no `mtvec`) `wfi` only wakes, no handler runs; ex7 takes the interrupts. |
 | [ex3](ex3/ex3.c) | `naiad-dma` | The DMA engine: a 1D DRAM-to-scratchpad copy and a 2D tile gather, each polled to `DONE` and verified word by word, with the transfer's cycle cost. |
 | [ex4](ex4/ex4.c) | `naiad-counters` | Reading the cost model's numbers from a program: `mcycle`/`minstret`, `naiad_counter(EVENT)` through Zihpm, and the perfcounters block, around a dot product. The loop's instruction and DRAM byte counts are checked exactly. |
 | [ex5](ex5/ex5.c) | `naiad-ame-timed` | An int8 to int32 GEMM on the AME unit through the emitted `naiad_gemm.h` (ragged sizes, padded edge tiles), checked against a scalar loop in the program, with both timed. [`ex5.py`](ex5/ex5.py) is a host driver that feeds the same ELF numpy inputs through `framework.naiad.kernel_io` and checks C on the host. |
 | [ex6](ex6/ex6.c) | [`ex6/naiad-quad.yaml`](ex6/naiad-quad.yaml) (4 x RV64IMA) | Several harts: crt0's msip release, each hart sleeping on its own timer (here `wfi` really sleeps), per-hart partial sums, an AMO, and `naiad_barrier()`. |
 
+| [ex7](ex7/ex7.c) | `naiad-base-rv64` | Traps and interrupts: an `mtvec` handler for an illegal instruction, `ecall`, `ebreak` and a misaligned load (`mcause`, `mtval`, `mepc`, `mret`), then a machine software interrupt and three machine timer interrupts woken out of `wfi`. Agrees with Spike. |
+
 To run ex5's host side by hand: `python3 driver/naiad/ex5/ex5.py driver/naiad/build/ex5/ex5.elf --shape 48x33x60 --seed 1`.
+
+## Traps and interrupts
+
+Naiad cores deliver machine-mode traps ([`framework/pe/rv/trap.py`](../../framework/pe/rv/trap.py)),
+for RV32 and RV64 harts alike. Delivery is **armed by writing a non-zero `mtvec`**; until then nothing
+changes: `ecall` and `mret` are nops, `ebreak`, an illegal instruction, an unknown CSR or an access to
+an unmapped address end the run with an error, and no interrupt is taken. Once armed:
+
+- Exceptions (`mepc`, `mcause`, `mtval`, `mstatus.MIE/MPIE/MPP`, `mret`): illegal instruction (an
+  unclaimed encoding or unimplemented CSR, `mtval` = the instruction), `ecall` (11), `ebreak` (3),
+  misaligned load/store/AMO and branch target, and load/store/fetch access faults on unmapped
+  addresses. The Naiad bus allows unaligned accesses otherwise; they trap only while armed.
+- Interrupts: machine software (`msip`) and machine timer (`mtime >= mtimecmp`) from the CLINT,
+  level-triggered, taken when `mstatus.MIE` and the `mie` bit are set; vectored `mtvec` mode works.
+  A handler silences the timer by writing `mtimecmp` and the software interrupt by clearing `msip`.
+- `wfi` on a single hart sleeps when `mie.MSIE`/`MTIE` is set and wakes on a pending enabled
+  interrupt (with `mstatus.MIE` set the trap is then taken, `mepc` = the instruction after the `wfi`);
+  with neither enabled it stays a nop. RV32 harts do not sleep in `wfi`.
+- Cost: a delivery takes one cycle and the timing model charges nothing for the redirect.
 
 ## Where the research harness lives
 

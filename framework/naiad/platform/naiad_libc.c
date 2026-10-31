@@ -97,7 +97,7 @@ int64_t __moddi3(int64_t n, int64_t d) {
 }
 #endif
 
-static int put_unsigned(unsigned long long v, unsigned base, int upper, int width, char pad) {
+static int put_unsigned(unsigned long long v, unsigned base, int upper, int width, char pad, int left) {
     char buf[24];
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
     int n = 0, out = 0;
@@ -105,12 +105,18 @@ static int put_unsigned(unsigned long long v, unsigned base, int upper, int widt
         buf[n++] = digits[v % base];
         v /= base;
     } while (v);
-    for (; width > n; width--, out++) {
-        naiad_putchar(pad);
+    int total = n;
+    if (!left) {
+        for (; width > n; width--, out++) {
+            naiad_putchar(pad);
+        }
     }
     while (n) {
         naiad_putchar(buf[--n]);
         out++;
+    }
+    for (; left && width > total; width--, out++) { /* '-': pad on the right, with spaces */
+        naiad_putchar(' ');
     }
     return out;
 }
@@ -154,10 +160,18 @@ int naiad_printf(const char *fmt, ...) {
         }
         fmt++;
         char pad = ' ';
-        int width = 0, longs = 0;
-        if (*fmt == '0') {
-            pad = '0';
-            fmt++;
+        int width = 0, longs = 0, left = 0;
+        for (;; fmt++) { /* flags: '-' (left-justify) and '0' (zero-pad; ignored with '-') */
+            if (*fmt == '-') {
+                left = 1;
+            } else if (*fmt == '0') {
+                pad = '0';
+            } else {
+                break;
+            }
+        }
+        if (left) {
+            pad = ' ';
         }
         while (*fmt >= '0' && *fmt <= '9') {
             width = width * 10 + (*fmt++ - '0');
@@ -177,7 +191,7 @@ int naiad_printf(const char *fmt, ...) {
                     width--;
                 }
             }
-            out += put_unsigned(v < 0 ? -(unsigned long long)v : (unsigned long long)v, 10, 0, width, pad);
+            out += put_unsigned(v < 0 ? -(unsigned long long)v : (unsigned long long)v, 10, 0, width, pad, left);
             break;
         }
         case 'u':
@@ -186,22 +200,35 @@ int naiad_printf(const char *fmt, ...) {
             unsigned long long v = longs >= 2 ? va_arg(ap, unsigned long long)
                                    : longs    ? va_arg(ap, unsigned long)
                                               : va_arg(ap, unsigned int);
-            out += put_unsigned(v, *fmt == 'u' ? 10 : 16, *fmt == 'X', width, pad);
+            out += put_unsigned(v, *fmt == 'u' ? 10 : 16, *fmt == 'X', width, pad, left);
             break;
         }
         case 'p':
             naiad_puts_unlocked("0x");
-            out += 2 + put_unsigned((uintptr_t)va_arg(ap, void *), 16, 0, width, pad);
+            out += 2 + put_unsigned((uintptr_t)va_arg(ap, void *), 16, 0, width, pad, left);
             break;
         case 's': {
             const char *s = va_arg(ap, const char *);
+            int len = (int)strlen(s);
+            for (; !left && width > len; width--, out++) {
+                naiad_putchar(' ');
+            }
             naiad_puts_unlocked(s);
-            out += strlen(s);
+            out += len;
+            for (; left && width > len; width--, out++) {
+                naiad_putchar(' ');
+            }
             break;
         }
         case 'c':
+            for (; !left && width > 1; width--, out++) {
+                naiad_putchar(' ');
+            }
             naiad_putchar(va_arg(ap, int));
             out++;
+            for (; left && width > 1; width--, out++) {
+                naiad_putchar(' ');
+            }
             break;
         case '%':
             naiad_putchar('%');

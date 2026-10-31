@@ -21,9 +21,8 @@ from framework.naiad.timing import install as install_timing
 from framework.pe.rv.isa.v import RV64_V_ISA
 from framework.pe.rv.isa.v import attach as attach_vector
 from framework.pe.rv.isa.zicsr64_isa import CSRFile64
-from framework.pe.rv.isa.zicsr_isa import CSRFile
-from framework.pe.rv.rv32 import RV32I, RV32IM
-from framework.pe.rv.rv64 import RV64I, rv64_extensions
+from framework.pe.rv.rv64 import rv64_extensions
+from framework.pe.rv.trap import NaiadCSRFile32, NaiadRV32, NaiadRV32IM, NaiadRV64
 from framework.util.elf_loader import load_elf
 
 
@@ -156,7 +155,7 @@ def make_core(xlen, isa, reset_pc, memory, core_id, vlen=None, elen=None):
             extensions = rv64_extensions(isa)
         except KeyError as e:
             raise NaiadBuildError(str(e)) from None
-        core = RV64I(
+        core = NaiadRV64(
             reset_pc,
             [memory],
             extensions=extensions,
@@ -173,13 +172,14 @@ def make_core(xlen, isa, reset_pc, memory, core_id, vlen=None, elen=None):
             core.register_file.csrs = core.csrs
         if RV64_V_ISA in core.isas:
             attach_vector(core, vlen=vlen or 128, elen=elen or 64, extensions=isa)
+        core.enable_traps()
         return core
     if xlen != 32:
         raise NaiadBuildError(f"unsupported xlen {xlen}")
     extensions = [
         NAIAD_ISA_REGISTRY[name] for name in isa if NAIAD_ISA_REGISTRY[name] is not None
     ]
-    core_class = RV32IM if "m" in isa else RV32I
+    core_class = NaiadRV32IM if "m" in isa else NaiadRV32
     core = core_class(
         reset_pc,
         [memory],
@@ -187,8 +187,9 @@ def make_core(xlen, isa, reset_pc, memory, core_id, vlen=None, elen=None):
         unknown_instr_is_error=True,
         core_id=core_id,
     )
-    core.csrs = CSRFile(core.register_file, core_label=f"hart{core_id}")
+    core.csrs = NaiadCSRFile32(core.register_file, core_label=f"hart{core_id}")
     core.register_file.csrs = core.csrs
+    core.enable_traps()
     return core
 
 
@@ -284,7 +285,7 @@ class NaiadSoC:
         # Blocks with a clock_tick (the DMA engine) tick after the cores.
         clocked = [b for b in self.blocks.values() if hasattr(b, "clock_tick")]
         clints = [b for b in self.blocks.values() if b.spec.type == "clint"]
-        if multicore:  # wfi's timer wake-up (mtime >= mtimecmp) is checked each cycle
+        if clints:  # wfi's timer wake-up (mtime >= mtimecmp) is checked each cycle
             from framework.ip.clint import TimerWake
 
             clocked.append(TimerWake(clints[0]))
@@ -293,6 +294,8 @@ class NaiadSoC:
             core.csrs.clock_owner = self.clock
             if isinstance(core.csrs, CSRFile64) and clints:
                 core.csrs.time_source = clints[0].mtime
+            if clints:
+                core.csrs.mip_source = lambda h=core.core_id: clints[0].pending(h)
         self.reset_line = Reset(
             [self.clock, *self.cores, *self.blocks.values(), *self.matrix_units]
         )
@@ -301,9 +304,11 @@ class NaiadSoC:
         self.image = None
         for block in self.blocks.values():
             block.attach(self)
-        if multicore:
+        if clints:
             for core in self.cores:
-                clints[0].bind_wfi(core)
+                # RV32 cores' ISA never calls the wfi hook; only RV64 harts sleep.
+                if cores_spec.xlen == 64:
+                    clints[0].bind_wfi(core, always_sleeps=multicore)
         # The cycle model, before the counter hub so the hub finds each
         # ``rv_cost``. No ``timing:`` section leaves every core untimed.
         if design.timing is not None:
