@@ -35,6 +35,32 @@ reads the destination only after DONE. There are no interrupts (Naiad cores
 take none). Overlapping source and destination copy forward chunk by chunk,
 which is no promise: like hardware, an overlapping transfer is undefined.
 
+Memory ordering (opt-in, ``timing.memory.{dma_coherence, war, waw}``, off by
+default so the above holds exactly). The functional copy is applied chunk by
+chunk as the channel ticks, so these only add *waiting*, never change bytes:
+
+* ``dma_coherence``: the engine is a coherent agent. A chunk **read** waits
+  while any in-flight store overlaps its source bytes, whatever unit issued it
+  (scalar, vector, IME / VME tile, AME tile: the table of
+  :mod:`framework.pe.rv.timing.store_hazards`), so a DMA read observes every
+  store committed before it. A chunk read of a dirty cache line first has the
+  line written back, and a chunk write evicts the lines it touches
+  (:meth:`~framework.ip.cache.Cache.dma_read` / ``dma_write``); the channel
+  idles for those cycles. Without the option the cache is simply bypassed and
+  the DMA ignores in-flight stores (the cache holds no data, so results are
+  unchanged either way).
+* ``waw`` / ``war``: a chunk **write** waits for overlapping in-flight stores
+  (WAW) or loads still reading (WAR). Conversely the transfer registers its
+  source range as a read (``war``) and its destination range as a write
+  (``waw``) from START until its estimated end, ``start + setup +
+  ceil(bytes / bytes_per_cycle)``, so a core store into either waits. The
+  estimate ignores the channel's own stalls (optimistic: a floor). A core
+  *load* of a destination is never made to wait; reading it before DONE is
+  the race described above.
+
+The waits show as ``stall_cycles`` (hazard) and ``coherence_cycles`` (cache
+write-back) in the engine's counters.
+
 Errors are reported, not raised: a transfer whose source or destination span
 is not inside one mapped block (``ERR_SRC`` / ``ERR_DST``), or a 2D transfer
 whose SRC, DST or strides are not multiples of ``stride_align``
@@ -44,6 +70,7 @@ the transfer with ``ERR_BUS``.
 """
 
 from framework.ip.base import RegisterBlock
+from framework.pe.rv.timing.store_hazards import footprint
 
 SRC = 0x00
 DST = 0x08
@@ -94,6 +121,8 @@ class _Channel:
         self.rows_left = 0
         self.src_stride = self.dst_stride = 0
         self.path = None
+        #: Cycles left idling for a cache write-back / invalidate (``dma_coherence``).
+        self.hold = 0
 
 
 class DMAEngine(RegisterBlock):
@@ -131,6 +160,26 @@ class DMAEngine(RegisterBlock):
         self.setup_latency = self._param(params, "setup_latency")
         self.stride_align = self._param(params, "stride_align")
         self.path_keys = ()
+        #: The SoC's stores-in-flight table and :class:`MemoryOrderingSpec` (``attach_ordering``), else None.
+        self.order = None
+        self.ordering = None
+        self.caches = ()
+        self.reset()
+
+    def attach_ordering(self, inflight, ordering):
+        """Join the memory-ordering model (called by ``framework.naiad.timing.install``); adds the stall counters."""
+        self.order, self.ordering = inflight, ordering
+        self.caches = (
+            tuple(
+                b
+                for b in self.soc.blocks.values()
+                if callable(getattr(b, "dma_read", None))
+            )
+            if ordering.dma_coherence
+            else ()
+        )
+        for cache in self.caches:
+            cache.enable_dma_coherence()
         self.reset()
 
     def attach(self, soc):
@@ -151,6 +200,8 @@ class DMAEngine(RegisterBlock):
         self.active = []
         self.stats = {"bytes": 0, "transfers": 0, "busy_cycles": 0, "errors": 0}
         self.stats.update(dict.fromkeys(self.path_keys, 0))
+        if self.order is not None:
+            self.stats.update(stall_cycles=0, coherence_cycles=0)
 
     # -- registers ---------------------------------------------------------
 
@@ -224,7 +275,10 @@ class DMAEngine(RegisterBlock):
         ch.row_len, ch.rows_left = length, rows if total else 0
         ch.src_stride, ch.dst_stride = src_stride, dst_stride
         ch.setup_left = self.setup_latency
+        ch.hold = 0
         ch.start_cycle = self.soc.clock.current_cycle
+        if total and self.order is not None:
+            self._register(ch, src, dst, rows, length, src_stride, dst_stride, total)
         self.stats["transfers"] += 1
         if not total and not ch.setup_left:
             ch.status = STATUS_DONE
@@ -232,11 +286,56 @@ class DMAEngine(RegisterBlock):
         ch.status = STATUS_BUSY
         self.active.append(ch)
 
+    def _register(self, ch, src, dst, rows, length, src_stride, dst_stride, total):
+        """``war`` / ``waw``: publish the transfer's source (a read) and destination (a write) until its estimated end."""
+        order, cycle = self.order, self.soc.clock.current_cycle
+        done = cycle + self.setup_latency + -(-total // self.bytes_per_cycle)
+        if self.ordering.war:
+            order.reads.add(footprint(src, src_stride, rows, length), done, cycle)
+        if self.ordering.waw:
+            order.dma_writes.add(footprint(dst, dst_stride, rows, length), done, cycle)
+
+    def _blocked(self, ch, take, cycle):
+        """True if the next ``take``-byte chunk must wait this cycle: in-flight stores / loads, or a cache write-back."""
+        order, ordering = self.order, self.ordering
+        src_fp = (
+            ch.src_row + ch.col,
+            ch.src_row + ch.col + take,
+            ch.src_row + ch.col,
+            0,
+            1,
+            take,
+        )
+        dst_fp = (
+            ch.dst_row + ch.col,
+            ch.dst_row + ch.col + take,
+            ch.dst_row + ch.col,
+            0,
+            1,
+            take,
+        )
+        if ordering.dma_coherence and order.wait(src_fp, cycle):
+            return True
+        if ordering.waw and order.wait(dst_fp, cycle):
+            return True
+        if ordering.war and order.reads.wait(dst_fp, cycle):
+            return True
+        if self.caches:
+            hold = sum(
+                c.dma_read(src_fp[0], take) + c.dma_write(dst_fp[0], take)
+                for c in self.caches
+            )
+            if hold:
+                ch.hold = hold - 1  # this cycle is the first
+                self.stats["coherence_cycles"] += hold
+                return True
+        return False
+
     def _finish(self, ch, status):
         ch.status = (ch.status & ~STATUS_BUSY) | status
         self.active.remove(ch)
 
-    def _move(self, ch):
+    def _move(self, ch, cycle):
         """One cycle's worth of bytes: a few whole-chunk bus copies, split at row ends."""
         memory = self.soc.memory
         budget = self.bytes_per_cycle
@@ -244,6 +343,10 @@ class DMAEngine(RegisterBlock):
         try:
             while budget and ch.rows_left:
                 take = min(budget, ch.row_len - ch.col)
+                if self.order is not None and self._blocked(ch, take, cycle):
+                    if not moved:
+                        self.stats["stall_cycles"] += 1
+                    break
                 memory.write(
                     ch.dst_row + ch.col, memory.read(ch.src_row + ch.col, take)
                 )
@@ -276,7 +379,10 @@ class DMAEngine(RegisterBlock):
                 if ch.setup_left or ch.rows_left:
                     continue
             else:
-                self._move(ch)
+                if ch.hold:
+                    ch.hold -= 1
+                    continue
+                self._move(ch, cycle)
                 if not ch.status & STATUS_BUSY:
                     continue
             if not ch.rows_left:

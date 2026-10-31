@@ -411,6 +411,12 @@ class VMETiming(IMETiming):
             at = inflight.wait_span(span, nbytes, cycle)
             if at:
                 return self._stall(at, MEM_RAW)
+        if not is_load and inflight.ordered:
+            at, why = inflight.store_wait(
+                (span, span + nbytes, span, 0, 1, nbytes), cycle
+            )
+            if at:
+                return self._stall(at, why)
         # -- commit
         bw = self.spec.mem_bytes_per_cycle
         if region.bandwidth is not None:
@@ -430,6 +436,8 @@ class VMETiming(IMETiming):
             for p in pts:
                 self.tile_ready[p] = max(self.tile_ready[p], done)
                 self.tile_mma_writes[p] = False
+            if inflight.war and nbytes:
+                inflight.reads.add_span(span, nbytes, cycle + t, cycle)
         else:
             for p in pts:
                 self.tile_read_until[p] = max(self.tile_read_until[p], cycle + t)

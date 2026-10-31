@@ -28,8 +28,18 @@ Write policies:
   store (``write_throughs`` counts them) and costs ``hit_latency``, a write miss
   leaves the cache unchanged, and lines are never dirty.
 
-Replacement is LRU within a set. DMA traffic never goes through the cache, so
-a DMA write into a fronted region does not invalidate a line here.
+Replacement is LRU within a set. DMA traffic never goes through the cache, and
+by default the cache is not coherent with it: a DMA read does not see (or
+write back) a dirty line, and a DMA write does not invalidate a stale one.
+Since the cache holds no data, this costs only fidelity, never correctness.
+With ``timing.memory.dma_coherence`` the DMA engine is modelled as a coherent
+agent (:meth:`Cache.dma_read` / :meth:`Cache.dma_write`): a DMA read of a
+dirty line first writes it back (``writeback_cost`` cycles, the line stays
+resident and clean); a DMA write evicts every resident line it touches (a
+dirty one is written back first, since the engine's chunk need not cover the
+line), so the next core access to those bytes misses. The engine pays these
+cycles as channel stall time. Counters ``dma_writebacks`` and
+``dma_invalidations`` exist only in such designs.
 
 **Multi-hart.** By default the block is one cache shared by every hart (all
 harts' accesses move the same tags). ``private: true`` instead gives each hart
@@ -205,6 +215,15 @@ class Cache(IPBlock):
         self.backing_latency = None
         #: ``(low, high)`` inclusive address ranges of the fronted blocks, once attached.
         self.regions = ()
+        #: ``timing.memory.dma_coherence``: the DMA engine snoops this cache (see :meth:`dma_read`).
+        self.dma_coherent = False
+        self.reset()
+
+    def enable_dma_coherence(self):
+        """Make the DMA engine coherent with this cache; adds the ``dma_*`` counters."""
+        self.dma_coherent = True
+        for l1 in self.l1s:
+            l1.dma_coherent = True
         self.reset()
 
     def attach(self, soc):
@@ -234,6 +253,8 @@ class Cache(IPBlock):
             ("accesses", "hits", "misses", "evictions", "writebacks", "write_throughs"),
             0,
         )
+        if getattr(self, "dma_coherent", False):
+            self.stats.update(dict.fromkeys(_DMA_KEYS, 0))
         for l1 in getattr(self, "l1s", ()):
             l1.reset()
             l1.stats.update(dict.fromkeys(_COHERENCE_KEYS, 0))
@@ -304,6 +325,49 @@ class Cache(IPBlock):
                 self._dirty.add(line_no)
         return cycles
 
+    def dma_read(self, addr, size):
+        """Cycles a coherent DMA read of ``[addr, addr + size)`` waits: dirty lines in it are written back (they stay clean)."""
+        if not self.covers(addr):
+            return 0
+        return self._dma_read(addr, size)
+
+    def _dma_read(self, addr, size):
+        if self.private:
+            return sum(l1._dma_read(addr, size) for l1 in self.l1s)
+        if not self._dirty:
+            return 0
+        cycles = 0
+        for line_no in range(
+            addr >> self._line_shift,
+            ((addr + max(size, 1) - 1) >> self._line_shift) + 1,
+        ):
+            if line_no in self._dirty:
+                self._dirty.discard(line_no)
+                self.stats["dma_writebacks"] += 1
+                cycles += self._writeback_cost(line_no << self._line_shift)
+        return cycles
+
+    def dma_write(self, addr, size):
+        """Cycles a coherent DMA write of ``[addr, addr + size)`` waits: touched lines are evicted (dirty: written back)."""
+        if not self.covers(addr):
+            return 0
+        return self._dma_write(addr, size)
+
+    def _dma_write(self, addr, size):
+        if self.private:
+            return sum(l1._dma_write(addr, size) for l1 in self.l1s)
+        cycles = 0
+        for line_no in range(
+            addr >> self._line_shift,
+            ((addr + max(size, 1) - 1) >> self._line_shift) + 1,
+        ):
+            if line_no in self._tags[line_no % self.sets]:
+                if self._drop(line_no):
+                    self.stats["dma_writebacks"] += 1
+                    cycles += self._writeback_cost(line_no << self._line_shift)
+                self.stats["dma_invalidations"] += 1
+        return cycles
+
     def _drop(self, line_no):
         """Invalidate resident line ``line_no``; True if it was dirty."""
         self._tags[line_no % self.sets].remove(line_no)
@@ -343,6 +407,7 @@ class Cache(IPBlock):
         raise IndexError(f"{self.name}: the cache model has no window of its own")
 
 
+_DMA_KEYS = ("dma_writebacks", "dma_invalidations")
 _COHERENCE_KEYS = ("invalidations", "snoop_writebacks", "upgrades", "coherence_cycles")
 
 

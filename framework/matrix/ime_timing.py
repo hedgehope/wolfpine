@@ -409,6 +409,10 @@ class IMETiming(VectorTiming):
             at = inflight.wait(fp, cycle)
             if at:
                 return self._stall(at, MEM_RAW)
+        if not is_load and inflight.ordered:
+            at, why = inflight.store_wait(fp, cycle)
+            if at:
+                return self._stall(at, why)
         # -- commit
         dense = ld == (nl if d.transposing else ls)
         segments = 1 if dense else (ls if d.transposing else nl)
@@ -429,6 +433,8 @@ class IMETiming(VectorTiming):
                 ready[r] = done
             self._touch(regs)
             self._book_rvv(cycle, 0, nbytes)
+            if inflight.war and nbytes:
+                inflight.reads.add(fp, cycle + t, cycle)
         else:
             self._book_rvv(cycle, nbytes, 0)
             if nbytes:

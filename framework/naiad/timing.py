@@ -14,6 +14,7 @@ from framework.pe.rv.timing.core import (  # noqa: F401  (re-exported)
     REGION_DEFAULTS,
     STALL_REASONS,
     DualIssueCostState,
+    MemoryOrderingSpec,
     MemoryTiming,
     NaiadCostState,
     Region,
@@ -33,6 +34,22 @@ from framework.pe.rv.timing.store_hazards import StoresInFlight
 from framework.pe.rv.timing.vector import parse_vector
 from framework.util.schema import DesignError
 from framework.util.schema import check_keys as _check_keys
+
+#: Reserved ``timing.memory`` keys (not block names): the opt-in ordering hazards.
+ORDERING_KEYS = ("hazards", "scalar_stores", "dma_coherence", "war", "waw")
+
+
+def _parse_ordering(raw):
+    """``(MemoryOrderingSpec, the region entries left in raw)``; ``hazards: true`` turns all four on."""
+    raw = {} if raw is None else raw
+    if not isinstance(raw, dict):
+        return MemoryOrderingSpec(), raw
+    rest = {k: v for k, v in raw.items() if str(k) not in ORDERING_KEYS}
+    flags = {k: _flag(raw[k], f"timing.memory.{k}") for k in ORDERING_KEYS if k in raw}
+    base = flags.pop("hazards", False)
+    return MemoryOrderingSpec(
+        **{k: flags.get(k, base) for k in ORDERING_KEYS if k != "hazards"}
+    ), rest
 
 
 def _parse_memory(raw, design):
@@ -66,9 +83,11 @@ def parse_timing(raw, design):
     if raw is None:
         return None
     _check_keys(raw, {"scalar", "memory", "matrix", "vector", "shared_ports"}, "timing")
+    ordering, memory = _parse_ordering(raw.get("memory"))
     return TimingSpec(
         scalar=_parse_scalar(raw.get("scalar")),
-        memory=_parse_memory(raw.get("memory"), design),
+        memory=_parse_memory(memory, design),
+        ordering=ordering,
         matrix=_parse_matrix(raw.get("matrix"), design),
         vector=parse_vector(raw.get("vector"), design, _parse_fields, _number, _flag),
         shared_ports=_flag(raw.get("shared_ports", True), "timing.shared_ports"),
@@ -106,8 +125,16 @@ def install(soc):
     ports = {} if len(soc.cores) > 1 and timing.shared_ports else None
     # One memory, so one table of stores in flight that every hart's loads check.
     inflight = StoresInFlight()
+    ordering = timing.ordering
+    inflight.configure(war=ordering.war, waw=ordering.waw)
     width = timing.scalar.issue_width
     cost_state = DualIssueCostState if width == 2 else NaiadCostState
+    if ordering.any:
+        # Blocks that move memory on their own (the DMA engine) join the ordering.
+        for block in soc.blocks.values():
+            attach = getattr(block, "attach_ordering", None)
+            if attach is not None:
+                attach(inflight, ordering)
     for core in soc.cores:
         memory = MemoryTiming(timing, soc.blocks, ports, inflight)
         for block in soc.blocks.values():

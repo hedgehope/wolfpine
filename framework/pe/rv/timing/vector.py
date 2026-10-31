@@ -496,6 +496,12 @@ class VectorTiming:
                 )
                 if at:  # an earlier store is still writing these bytes
                     return self._stall(at, MEM_RAW)
+            if inflight.ordered:
+                fp = self._footprint(op, addr, nbytes, register_file)
+                if op.kind == STORE:
+                    at, why = inflight.store_wait(fp, cycle)
+                    if at:  # an earlier load is still reading / store still writing these bytes
+                        return self._stall(at, why)
             bw = spec.mem_bytes_per_cycle
             if region.bandwidth is not None:
                 bw = min(bw, region.bandwidth)
@@ -509,6 +515,8 @@ class VectorTiming:
                 inflight.add(
                     self._footprint(op, addr, nbytes, register_file), cycle + t, cycle
                 )
+            elif inflight.war and nbytes:  # the load reads memory until the LSU frees
+                inflight.reads.add(fp, cycle + t, cycle)
             if op.kind == LOAD and op.vdst is not None:
                 done = cycle + spec.mem_startup + latency + t
                 for r in self._regs(*op.vdst):
@@ -655,6 +663,12 @@ class VectorTiming:
                 )
                 if at_mem:  # an earlier store is still writing these bytes
                     return self._stall(at_mem, MEM_RAW)
+            if inflight.ordered:
+                fp = self._footprint(op, addr, nbytes, register_file)
+                if op.kind == STORE:
+                    at_mem, why = inflight.store_wait(fp, cycle)
+                    if at_mem:
+                        return self._stall(at_mem, why)
             if whole > cycle:
                 self.chained += 1
             latency = region.access(addr, nbytes, op.kind == STORE, cycle, t)
@@ -665,6 +679,8 @@ class VectorTiming:
                 inflight.add(
                     self._footprint(op, addr, nbytes, register_file), cycle + t, cycle
                 )
+            elif inflight.war and nbytes:
+                inflight.reads.add(fp, cycle + t, cycle)
             if op.kind == LOAD and op.vdst is not None:
                 self._stream_out(op, cycle, n, t, t, spec.mem_startup + latency)
             return cycle + 1

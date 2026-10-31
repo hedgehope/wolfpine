@@ -478,12 +478,16 @@ class AMETiming:
             if op.rows:
                 fp = None
                 inflight = self.memory.inflight
-                if pipe == "store" or inflight.until > cycle:
+                if pipe == "store" or inflight.until > cycle or inflight.war:
                     fp = self._footprint(op, base, register_file)
                 if pipe == "load" and inflight.until > cycle:
                     at = inflight.wait(fp, cycle)
                     if at:  # an earlier store is still writing these bytes
                         return self._stall(at, MEM_RAW)
+                if pipe == "store" and inflight.ordered:
+                    at, why = inflight.store_wait(fp, cycle)
+                    if at:  # an earlier load is still reading / store still writing these bytes
+                        return self._stall(at, why)
 
         # -- commit: nothing below can stall --------------------------------
         if kind in _UNIT_OPS:
@@ -530,6 +534,8 @@ class AMETiming:
             self.pipe_free[pipe] = cycle + t_cycles
             self.busy[pipe] += t_cycles
             done = cycle + latency + t_cycles - 1
+            if pipe == "load" and op.rows and self.memory.inflight.war:
+                self.memory.inflight.reads.add(fp, cycle + t_cycles, cycle)
             if is_write and op.rows:
                 # Written once the last byte leaves the store path; the region's
                 # latency is the trip a later load makes too, so it cancels.

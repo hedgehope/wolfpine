@@ -31,15 +31,38 @@ cycle it may issue.
   that overlaps waits (stall reason ``mem_raw``, counter
   ``timing.stall_mem_raw``) until that cycle and then pays its own latency in
   full: no store-to-load forwarding from an in-flight async store.
-* **Scalar stores are not registered**: they are posted and occupy the LSU for
-  ``timing.scalar.store`` cycles (1 in every shipped design), so their bytes
-  are written before any later instruction issues. WAR and WAW between memory
-  accesses are not modelled (only RAW).
+* **Scalar stores** are posted and occupy the LSU for ``timing.scalar.store``
+  cycles (1 in every shipped design), so by default they are not registered:
+  their bytes are written before any later instruction on the same hart can
+  load them. With ``timing.memory.scalar_stores`` a scalar store whose LSU
+  occupancy (plus any MSI bus cycles) outlasts the next cycle is registered
+  until the LSU frees, so a *vector* or tile load (a different issue path that
+  can issue while the scalar LSU is still busy), another hart's load and a DMA
+  read all wait for it. A one-cycle store is never registered (its bytes are
+  visible from the next cycle, and registering it would make a same-cycle
+  load on another hart depend on hart tick order).
+* **WAR and WAW** (``timing.memory.war`` / ``timing.memory.waw``, off by
+  default). The functional model applies every access at issue, so a *later*
+  access can overtake an *earlier* one that is still draining on another path:
+  a store that lands while an earlier load is still reading the bytes (WAR; the
+  load would see the new data) or while an earlier store is still writing them
+  (WAW; the earlier store's bytes would win). With the options on, a store
+  waits (stall reasons ``mem_war`` / ``mem_waw``) until every overlapping
+  in-flight read (``reads``: vector / tile / IME / VME loads, which hold their
+  path for ``t`` cycles, and DMA source ranges) or write (this table, plus the
+  DMA's destination ranges in ``dma_writes``) has completed. Loads never wait
+  on a DMA *destination*: a core reading it before the engine shows DONE is
+  the documented race, not a hazard the model resolves. A scalar load reads at
+  issue so it is not tracked as an in-flight read.
+* **DMA** (``timing.memory.dma_coherence``): see :mod:`framework.ip.dma`. A
+  DMA chunk read waits for overlapping in-flight stores from any unit, a chunk
+  write for overlapping stores and reads (WAW / WAR); the engine registers its
+  own source and destination ranges here when ``war`` / ``waw`` are on.
 * **Multi-hart**: one tracker per SoC, shared by every hart (all harts see one
   memory, so a store in flight on hart A delays hart B's load of those bytes
   as it would its own). Harts tick in lockstep, so cycles compare directly.
-  DMA engines do not register or check (their transfers are functionally
-  timed and software-polled).
+  DMA engines check and register only under ``timing.memory.dma_coherence``
+  / ``war`` / ``waw`` (above).
 * **Bounded and cheap when empty.** :attr:`until` is the latest completion
   registered; callers test ``until > cycle`` inline before calling
   :meth:`wait`, so with nothing in flight a load pays one attribute compare.
@@ -50,6 +73,8 @@ cycle it may issue.
 """
 
 MEM_RAW = "mem_raw"
+MEM_WAR = "mem_war"
+MEM_WAW = "mem_waw"
 _EMPTY = (0, 0, 0, 0, 1, 0)
 
 
@@ -101,13 +126,53 @@ def overlaps(a, b):
 class StoresInFlight:
     """Address footprint -> completion cycle for every asynchronous store still writing."""
 
-    __slots__ = ("entries", "until", "capacity", "dropped")
+    __slots__ = (
+        "entries",
+        "until",
+        "capacity",
+        "dropped",
+        "war",
+        "waw",
+        "ordered",
+        "reads",
+        "dma_writes",
+    )
 
     def __init__(self, capacity=64):
         self.capacity = capacity
+        self.war = self.waw = self.ordered = False
+        self.reads = self.dma_writes = None
         self.reset()
 
+    def configure(self, war=False, waw=False):
+        """Turn on WAR / WAW tracking (``timing.memory.war`` / ``waw``): adds the read and DMA-write tables."""
+        self.war, self.waw = bool(war), bool(waw)
+        self.ordered = self.war or self.waw
+        if self.ordered and self.reads is None:
+            self.reads = StoresInFlight(self.capacity)
+            self.dma_writes = StoresInFlight(self.capacity)
+
+    def store_wait(self, fp, cycle):
+        """``(cycle, reason)`` a store of footprint ``fp`` may issue given WAW / WAR, or ``(0, None)``.
+
+        Call only when :attr:`ordered`.
+        """
+        at, why = 0, None
+        if self.waw:
+            for table in (self, self.dma_writes):
+                t = table.wait(fp, cycle)
+                if t > at:
+                    at, why = t, MEM_WAW
+        if self.war:
+            t = self.reads.wait(fp, cycle)
+            if t > at:
+                at, why = t, MEM_WAR
+        return at, why
+
     def reset(self):
+        if self.reads is not None:
+            self.reads.reset()
+            self.dma_writes.reset()
         #: ``[(footprint, done), ...]``.
         self.entries = []
         #: The latest ``done`` registered (0: nothing in flight).

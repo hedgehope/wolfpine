@@ -103,6 +103,8 @@ STALL_REASONS = (
     "vector_busy",
     "vector_raw",
     "mem_raw",
+    "mem_war",
+    "mem_waw",
 )
 (
     _RAW,
@@ -114,6 +116,8 @@ STALL_REASONS = (
     _VECTOR_BUSY,
     _VECTOR_RAW,
     _MEM_RAW,
+    _MEM_WAR,
+    _MEM_WAW,
 ) = range(len(STALL_REASONS))
 _REASON_INDEX = {name: i for i, name in enumerate(STALL_REASONS)}
 
@@ -169,6 +173,29 @@ DEFAULT_REGION = RegionTimingSpec()
 
 
 @dataclass(frozen=True)
+class MemoryOrderingSpec:
+    """``timing.memory.{scalar_stores, dma_coherence, war, waw}``: the opt-in memory-ordering hazards.
+
+    All off by default (the pre-existing behaviour); ``timing.memory.hazards:
+    true`` turns on all four. See :mod:`framework.pe.rv.timing.store_hazards`
+    and :mod:`framework.ip.dma`.
+    """
+
+    #: Scalar stores whose LSU occupancy outlasts the next cycle are in flight until the LSU frees.
+    scalar_stores: bool = False
+    #: A DMA read waits for in-flight stores and dirty cache lines; a DMA write for stores / reads and invalidates cache lines.
+    dma_coherence: bool = False
+    #: A store waits for overlapping in-flight loads to finish reading.
+    war: bool = False
+    #: A store waits for overlapping in-flight stores to finish writing.
+    waw: bool = False
+
+    @property
+    def any(self):
+        return self.scalar_stores or self.dma_coherence or self.war or self.waw
+
+
+@dataclass(frozen=True)
 class TimingSpec:
     """A design's ``timing:`` section."""
 
@@ -183,6 +210,8 @@ class TimingSpec:
     #: all harts share, so a region's ``bandwidth`` caps the harts together;
     #: False gives each hart a private port. Ignored on one hart.
     shared_ports: bool = True
+    #: Opt-in memory-ordering hazards (``timing.memory.{scalar_stores, dma_coherence, war, waw}``).
+    ordering: MemoryOrderingSpec = field(default_factory=MemoryOrderingSpec)
 
     def region(self, name, type_name):
         """The timing for block ``name`` of type ``type_name``.
@@ -577,6 +606,7 @@ class NaiadCostState:
         self.timing = timing
         self.memory = memory
         self.inflight = memory.inflight
+        self._track_scalar_stores = timing.ordering.scalar_stores
         self.xlen = xlen
         s = timing.scalar
         self._latency = {
@@ -771,6 +801,14 @@ class NaiadCostState:
                 at = inflight.wait_span(addr, extra, cycle_num)
                 if at:  # an async store is still writing these bytes
                     return self._stall(at, _MEM_RAW)
+            if kind == _STORE and inflight.ordered:
+                at, why = inflight.store_wait(
+                    (addr, addr + extra, addr, 0, 1, extra), cycle_num
+                )
+                if (
+                    at
+                ):  # an earlier load is still reading / store still writing these bytes
+                    return self._stall(at, _MEM_WAR if why == "mem_war" else _MEM_WAW)
             # -- commit
             t_cycles = (
                 1 if region.bandwidth is None else max(1, -(-extra // region.bandwidth))
@@ -783,6 +821,8 @@ class NaiadCostState:
                 self._lsu_free = cycle_num + self.store_occupancy
                 if region.coherent:  # posted, but the bus upgrade holds the LSU
                     self._lsu_free += region.provider.coherence_cycles
+                if self._track_scalar_stores and self._lsu_free > cycle_num + 1:
+                    inflight.add_span(addr, extra, self._lsu_free, cycle_num)
                 return True
             latency += extra_latency + t_cycles - 1
             if dst > 0:
