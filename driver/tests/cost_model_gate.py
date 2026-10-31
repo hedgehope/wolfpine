@@ -133,13 +133,18 @@ BUDGET_INDEPENDENT = (VALUE_PUMPED,)
 #: run; this is the tripwire that stops a reclassification happening silently.
 BASELINE_TREE = (
     "24403ae (+ the Wormhole poll-until-DONE guard conversion, + the multi-bank "
-    "DRAM guard, + the fp32-DEST untilize guards)"
+    "DRAM guard, + the fp32-DEST untilize guards, + the dest-reuse and split probe "
+    "guards)"
 )
 BASELINE = {
     # Pumps to DONE and then asserts values (each page read back from its own
     # bank's coordinate), so its verdict cannot depend on how many cycles the
     # recorded conversation happened to allow.
     "blackhole/banks": VALUE_PUMPED,
+    # The compiler team's dest-reuse and fp32 split probes: each pumps every
+    # launch to DONE, then checks every element against a reference computed
+    # in Python (the p150b-measured register model / closed-form hi-lo split).
+    "blackhole/destreuse": VALUE_PUMPED,
     "blackhole/dramtop": VALUE_POLL_BUDGET,
     "blackhole/eight": VALUE_PUMPED,
     "blackhole/five": VALUE_PUMPED,
@@ -163,6 +168,7 @@ BASELINE = {
     "blackhole/sfpumath": VALUE_PUMPED,
     "blackhole/six": VALUE_PUMPED,
     "blackhole/softplus": VALUE_PUMPED,
+    "blackhole/splitprobe": VALUE_PUMPED,
     "blackhole/three": VALUE_PUMPED,
     "blackhole/tilize": VALUE_PUMPED,
     "blackhole/transpose": VALUE_PUMPED,
