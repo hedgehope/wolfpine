@@ -10,15 +10,25 @@ interconnect, the RISC-V cores, the clock and reset fabric, the cost and
 trace machinery — is architecture-agnostic; a target is described by an
 *architecture profile* plus a thin device class, not by a fork.
 
-The framework ships with backends for the Tenstorrent architecture,
-**Wormhole** and **Blackhole**, built from the public
-[Tenstorrent ISA Documentation](https://github.com/tenstorrent/tt-isa-documentation/tree/main).
-Both run real tt-metal programs unmodified, on the full default worker grid —
-72 workers on Wormhole, 130 on Blackhole. Note that it is not cycle accurate
-(or intended to be). The idea was to build a simulator from public
-documentation, so developers can experiment with writing accelerator code
-without needing physical hardware — and, because it is Python all the way
-down, poke at simulator state directly from a driver script.
+The framework ships with three targets:
+
+- **Wormhole** and **Blackhole**, Tenstorrent's architectures, built from the public
+  [Tenstorrent ISA Documentation](https://github.com/tenstorrent/tt-isa-documentation/tree/main).
+  Both run real tt-metal programs unmodified, on the full default worker grid —
+  72 workers on Wormhole, 130 on Blackhole.
+- **Naiad**, a configurable RISC-V reference SoC assembled from a YAML design:
+  RV32/RV64 harts with optional F/D and RVV, a matrix unit in any of the three
+  RISC-V matrix-extension styles (attached AME, integrated IME/Zvvm, vector-matrix
+  VME/Zvt), and DMA, caches, timers and interrupts on the bus. It runs freestanding C
+  programs, with an optional cycle model, and is the platform for an experiment
+  harness that compares matrix and vector implementations of the Berkeley dwarfs. See
+  **[`docs/naiad.md`](docs/naiad.md)**.
+
+Note that it is not cycle accurate (or intended to be). The idea was to build
+simulators from public documentation and specifications, so developers can
+experiment with writing accelerator code without needing physical hardware — and,
+because it is Python all the way down, poke at simulator state directly from a
+driver script.
 
 ## Contents
 
@@ -62,6 +72,10 @@ eval "$(wolfpine env blackhole)"   # or wormhole, or hw
 cmake -B build -S . && cmake --build build && ./build/my_program
 eval "$(wolfpine env off)"
 ```
+
+Naiad is not a tt-metal target: `wolfpine run naiad` runs a RISC-V ELF on a Naiad design
+in-process (`wolfpine run naiad --design naiad-rvv prog.elf`). See
+[`docs/naiad.md`](docs/naiad.md) for building programs and choosing a design.
 
 Run `wolfpine --help` for the full list of commands.
 
@@ -134,6 +148,8 @@ how to turn it on, and how to read the output.
 | [`docs/simulator-overview.md`](docs/simulator-overview.md) | How Wolfpine is put together: repository layout, the key parts of the simulator, and what the timing model claims |
 | [`docs/trace-schema.md`](docs/trace-schema.md) | The stable, versioned schema for building tools on the trace outputs |
 | [`examples/README.md`](examples/README.md) | The example tt-metal programs and their test suite |
+| [`docs/naiad.md`](docs/naiad.md) | **Naiad**, the RISC-V reference SoC: designs, building and running programs, the cycle model, matrix units, the experiment harness |
+| [`driver/naiad/README.md`](driver/naiad/README.md) | The guided Naiad examples (console, timer, DMA, counters, AME GEMM, multicore, traps) |
 
 
 ## Contributing
