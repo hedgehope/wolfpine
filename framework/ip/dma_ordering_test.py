@@ -135,7 +135,8 @@ def test_a_core_store_into_the_dma_destination_waits_waw():
         (DST + 8, DST + 16, DST + 8, 0, 1, 8), soc.clock.current_cycle
     )
     assert why == "mem_waw"
-    assert at == soc.clock.current_cycle + SETUP + N // 8
+    # The real end is not known yet: the store re-polls next cycle.
+    assert at == soc.clock.current_cycle + 1
     assert inflight.store_wait(
         (DST + N, DST + N + 8, DST + N, 0, 1, 8), soc.clock.current_cycle
     ) == (0, None)
@@ -162,6 +163,90 @@ def test_a_load_of_the_dma_destination_never_waits():
     dt._start(soc, SRC, DST, N)
     inflight = soc.cores[0].rv_cost.inflight
     assert inflight.wait_span(DST, N, soc.clock.current_cycle) == 0
+
+
+# -- actual completion, not an estimate -------------------------------------------
+
+
+def _store_wait(soc, lo):
+    """``(cycle, reason)`` a core store of ``[lo, lo + 8)`` could first issue, by the ordering table."""
+    inflight = soc.cores[0].rv_cost.inflight
+    return inflight.store_wait((lo, lo + 8, lo, 0, 1, 8), soc.clock.current_cycle)
+
+
+def test_unobstructed_transfer_ends_where_the_estimate_said():
+    soc = _soc(memory={"hazards": True})
+    start = soc.clock.current_cycle
+    _go(soc)
+    assert soc.clock.current_cycle == start + BASE
+    soc.clock.current_cycle += 1
+    assert _store_wait(soc, DST) == (0, None)
+
+
+def test_a_stalled_transfer_holds_its_destination_until_it_really_ends():
+    soc = _soc(memory={"hazards": True})
+    soc.cores[0].rv_cost.inflight.add_span(
+        SRC + 16, 8, 100, 0
+    )  # stalls chunk 3 to cycle 100
+    soc.memory.write(SRC, dt._pattern(N))
+    dt._start(soc, SRC, DST, N)
+    estimate = soc.clock.current_cycle + BASE  # what the old model registered
+    # Past the estimate's end, a store to the destination still waits.
+    for _ in range(BASE + 20):
+        cycle = soc.clock.current_cycle + 1
+        soc.clock.current_cycle = cycle
+        soc.blocks["dma"].clock_tick(cycle)
+    assert soc.clock.current_cycle > estimate
+    assert _store_wait(soc, DST + N - 8) == (soc.clock.current_cycle + 1, "mem_waw")
+    end = dt._tick_until_idle(soc)
+    assert end == 100 + N // 8 - 3  # the stalled chunk moves at 100
+    # DONE at `end`: free from end + 1, and not before.
+    assert _store_wait(soc, DST + N - 8) == (end + 1, "mem_waw")
+    soc.clock.current_cycle = end + 1
+    assert _store_wait(soc, DST + N - 8) == (0, None)
+
+
+def test_source_range_is_held_until_the_stalled_transfer_ends_war():
+    soc = _soc(memory={"hazards": True})
+    soc.cores[0].rv_cost.inflight.add_span(
+        SRC, 8, 90, 0
+    )  # first chunk waits for cycle 90
+    soc.memory.write(SRC, dt._pattern(N))
+    dt._start(soc, SRC, DST, N)
+    end = dt._tick_until_idle(soc)
+    assert end >= 90 + N // 8 - 1
+    assert _store_wait(soc, SRC + 8) == (end + 1, "mem_war")
+
+
+def test_back_to_back_transfers_each_hold_their_own_actual_end():
+    soc = _soc(memory={"hazards": True})
+    soc.cores[0].rv_cost.inflight.add_span(SRC + 256, 8, 200, 0)
+    soc.memory.write(SRC, dt._pattern(N))
+    soc.memory.write(SRC + 256, dt._pattern(N))
+    dt._start(soc, SRC, DST, N)
+    end1 = dt._tick_until_idle(soc)
+    assert end1 == BASE
+    dt._start(soc, SRC + 256, DST + 256, N)
+    end2 = dt._tick_until_idle(soc)
+    assert end2 > 200
+    soc.clock.current_cycle = end2
+    assert _store_wait(soc, DST) == (0, None)
+    assert _store_wait(soc, DST + 256) == (end2 + 1, "mem_waw")
+
+
+def test_overlapping_transfers_cannot_deadlock():
+    soc = _soc(memory={"hazards": True})
+    soc.memory.write(SRC, dt._pattern(N))
+    dt._start(soc, SRC, SRC + 8, N)  # destination overlaps its own source
+    dt._tick_until_idle(soc)
+
+
+def test_reset_drops_open_transfers():
+    soc = _soc(memory={"hazards": True})
+    soc.memory.write(SRC, dt._pattern(N))
+    dt._start(soc, SRC, DST, N)
+    soc.reset()
+    assert _store_wait(soc, DST) == (0, None)
 
 
 # -- cache coherence --------------------------------------------------------------

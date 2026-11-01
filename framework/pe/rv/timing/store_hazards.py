@@ -73,6 +73,8 @@ cycle it may issue.
 """
 
 MEM_RAW = "mem_raw"
+#: ``done`` of an entry whose completion is not yet known (:meth:`StoresInFlight.open`).
+OPEN = 1 << 62
 MEM_WAR = "mem_war"
 MEM_WAW = "mem_waw"
 _EMPTY = (0, 0, 0, 0, 1, 0)
@@ -199,14 +201,44 @@ class StoresInFlight:
         """:meth:`add` for one contiguous run."""
         self.add((base, base + nbytes, base, 0, 1, nbytes), done, cycle)
 
-    def wait(self, fp, cycle):
-        """The cycle a load of footprint ``fp`` may issue: the latest overlapping completion, or 0."""
+    def open(self, fp, cycle):
+        """Register ``fp`` as busy until :meth:`close`; returns the handle to close.
+
+        For a DMA transfer, whose completion cycle is not known at START (it
+        depends on the stalls it meets). While open, :meth:`wait` reports
+        ``cycle + 1`` for it, so a waiter polls once a cycle until the real
+        completion is known.
+        """
+        entry = [fp, OPEN]
+        entries = self.entries
+        if self.until <= cycle:
+            entries.clear()
+        entries.append(entry)
+        self.until = OPEN
+        return entry
+
+    def close(self, entry, done):
+        """The transfer behind :meth:`open`'s ``entry`` really completed at ``done``."""
+        entry[1] = done
+        self.until = max((e[1] for e in self.entries), default=0)
+
+    def wait(self, fp, cycle, skip_open=False):
+        """The cycle a load of footprint ``fp`` may issue: the latest overlapping completion, or 0.
+
+        ``skip_open`` ignores still-open (DMA) entries; a DMA chunk uses it so two
+        overlapping transfers (undefined, as on hardware) cannot wait on each other forever.
+        """
         if self.until <= cycle:
             return 0
         at = 0
         for efp, done in self.entries:
-            if done > cycle and done > at and overlaps(efp, fp):
-                at = done
+            if done > cycle and overlaps(efp, fp):
+                if done == OPEN:
+                    if skip_open:
+                        continue
+                    done = cycle + 1
+                if done > at:
+                    at = done
         return at
 
     def wait_span(self, base, nbytes, cycle):

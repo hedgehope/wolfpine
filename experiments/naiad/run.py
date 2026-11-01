@@ -27,6 +27,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
 
+import yaml
+
 from experiments.naiad import metrics
 from experiments.naiad.sweep import (
     OUT,
@@ -271,10 +273,11 @@ def run_sweep(
     no_run=False,
     out_root=None,
     build_root=None,
+    extra_overrides=None,
     log=print,
 ):
     """Expand, run and report one sweep; returns ``(sweep, points, rows, crossovers)``."""
-    sweep = load_sweep(sweep_path, quick=quick)
+    sweep = load_sweep(sweep_path, quick=quick, extra_overrides=extra_overrides)
     if quick:
         sweep = Sweep(f"{sweep.name}-quick", sweep.path, sweep.studies)
     out_dir = Path(out_root or OUT) / sweep.name
@@ -342,6 +345,16 @@ def run_sweep(
     return sweep, points, rows, cross
 
 
+def _parse_sets(items, ap):
+    out = {}
+    for item in items:
+        key, eq, value = item.partition("=")
+        if not eq or not key:
+            ap.error(f"--set expects KEY=VALUE, got {item!r}")
+        out[key] = yaml.safe_load(value)
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m experiments.naiad.run", description=__doc__.split("\n\n")[1]
@@ -381,6 +394,14 @@ def main(argv=None):
         action="store_true",
         help="only rewrite results.csv / crossover.csv from stored results",
     )
+    ap.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="add a design override (dotted key, YAML value, e.g. timing.memory.hazards=true) "
+        "to every study; repeatable. Use --out to keep results apart from the unmodified sweep's",
+    )
     ap.add_argument("--out", help=f"output root (default {OUT})")
     ap.add_argument(
         "--build-root", help="build cache directory (default out/<sweep>/build)"
@@ -397,6 +418,7 @@ def main(argv=None):
         no_run=args.no_run,
         out_root=args.out,
         build_root=args.build_root,
+        extra_overrides=_parse_sets(args.set, ap),
     )
     return 0
 

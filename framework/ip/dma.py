@@ -52,9 +52,14 @@ chunk as the channel ticks, so these only add *waiting*, never change bytes:
 * ``waw`` / ``war``: a chunk **write** waits for overlapping in-flight stores
   (WAW) or loads still reading (WAR). Conversely the transfer registers its
   source range as a read (``war``) and its destination range as a write
-  (``waw``) from START until its estimated end, ``start + setup +
-  ceil(bytes / bytes_per_cycle)``, so a core store into either waits. The
-  estimate ignores the channel's own stalls (optimistic: a floor). A core
+  (``waw``) from START until the cycle after the channel *really* writes its
+  last chunk (setup, bandwidth and every hazard / write-back stall it met, not
+  an estimate), so a core store into either waits exactly that long. The
+  granularity is the whole transfer, not per byte: a store to a part already
+  copied still waits for the end. Until the end is known a waiting core
+  re-polls each cycle. A DMA chunk never waits on another transfer's
+  registered ranges (overlapping transfers are undefined, and waiting could
+  deadlock them). A core
   *load* of a destination is never made to wait; reading it before DONE is
   the race described above.
 
@@ -123,6 +128,8 @@ class _Channel:
         self.path = None
         #: Cycles left idling for a cache write-back / invalidate (``dma_coherence``).
         self.hold = 0
+        #: ``(table, handle)`` pairs this transfer holds open in the ordering model (``war`` / ``waw``).
+        self.open = ()
 
 
 class DMAEngine(RegisterBlock):
@@ -164,6 +171,7 @@ class DMAEngine(RegisterBlock):
         self.order = None
         self.ordering = None
         self.caches = ()
+        self._now = 0
         self.reset()
 
     def attach_ordering(self, inflight, ordering):
@@ -276,9 +284,10 @@ class DMAEngine(RegisterBlock):
         ch.src_stride, ch.dst_stride = src_stride, dst_stride
         ch.setup_left = self.setup_latency
         ch.hold = 0
+        ch.open = ()
         ch.start_cycle = self.soc.clock.current_cycle
         if total and self.order is not None:
-            self._register(ch, src, dst, rows, length, src_stride, dst_stride, total)
+            self._register(ch, src, dst, rows, length, src_stride, dst_stride)
         self.stats["transfers"] += 1
         if not total and not ch.setup_left:
             ch.status = STATUS_DONE
@@ -286,14 +295,25 @@ class DMAEngine(RegisterBlock):
         ch.status = STATUS_BUSY
         self.active.append(ch)
 
-    def _register(self, ch, src, dst, rows, length, src_stride, dst_stride, total):
-        """``war`` / ``waw``: publish the transfer's source (a read) and destination (a write) until its estimated end."""
+    def _register(self, ch, src, dst, rows, length, src_stride, dst_stride):
+        """``war`` / ``waw``: publish the transfer's source (a read) and destination (a write).
+
+        The entries stay open until the transfer really completes (:meth:`_finish`),
+        so a core store waits for the channel's actual end, stalls included.
+        """
         order, cycle = self.order, self.soc.clock.current_cycle
-        done = cycle + self.setup_latency + -(-total // self.bytes_per_cycle)
+        held = []
         if self.ordering.war:
-            order.reads.add(footprint(src, src_stride, rows, length), done, cycle)
+            table = order.reads
+            held.append(
+                (table, table.open(footprint(src, src_stride, rows, length), cycle))
+            )
         if self.ordering.waw:
-            order.dma_writes.add(footprint(dst, dst_stride, rows, length), done, cycle)
+            table = order.dma_writes
+            held.append(
+                (table, table.open(footprint(dst, dst_stride, rows, length), cycle))
+            )
+        ch.open = tuple(held)
 
     def _blocked(self, ch, take, cycle):
         """True if the next ``take``-byte chunk must wait this cycle: in-flight stores / loads, or a cache write-back."""
@@ -314,11 +334,11 @@ class DMAEngine(RegisterBlock):
             1,
             take,
         )
-        if ordering.dma_coherence and order.wait(src_fp, cycle):
+        if ordering.dma_coherence and order.wait(src_fp, cycle, True):
             return True
-        if ordering.waw and order.wait(dst_fp, cycle):
+        if ordering.waw and order.wait(dst_fp, cycle, True):
             return True
-        if ordering.war and order.reads.wait(dst_fp, cycle):
+        if ordering.war and order.reads.wait(dst_fp, cycle, True):
             return True
         if self.caches:
             hold = sum(
@@ -332,6 +352,10 @@ class DMAEngine(RegisterBlock):
         return False
 
     def _finish(self, ch, status):
+        # Bytes of the last chunk landed this tick, so they are visible from the next cycle.
+        for table, handle in ch.open:
+            table.close(handle, self._now + 1)
+        ch.open = ()
         ch.status = (ch.status & ~STATUS_BUSY) | status
         self.active.remove(ch)
 
@@ -368,6 +392,7 @@ class DMAEngine(RegisterBlock):
     def clock_tick(self, cycle):
         if not self.active:
             return
+        self._now = cycle
         for ch in tuple(self.active):
             # The cycle a START landed in is not one of the transfer's cycles,
             # whether this block ticks before or after the core that wrote it.

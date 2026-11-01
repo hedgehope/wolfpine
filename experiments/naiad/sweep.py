@@ -289,7 +289,12 @@ def _as_list(value):
 # -- loading ---------------------------------------------------------------------
 
 
-def load_sweep(path, quick=False):
+def load_sweep(path, quick=False, extra_overrides=None):
+    """Parse a sweep.
+
+    ``extra_overrides`` (``{dotted.key: value}``, the CLI's ``--set``) is added to every
+    study's overrides, replacing its own value for the key.
+    """
     path = Path(path)
     with open(path) as f:
         raw = yaml.safe_load(f) or {}
@@ -322,6 +327,8 @@ def load_sweep(path, quick=False):
         overrides = {
             k: _as_list(v) for k, v in (merged.pop("overrides", None) or {}).items()
         }
+        for k, v in (extra_overrides or {}).items():
+            overrides[k] = [v]
         if merged.get("seeds") is not None and (
             not isinstance(merged["seeds"], list) or not merged["seeds"]
         ):
