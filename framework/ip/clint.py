@@ -38,6 +38,12 @@ clear (or ``mtvec`` unset) it just carries on, which is what generated
 multi-hart ``crt0.S`` relies on to park secondary harts until hart 0 releases
 them.
 
+With a ``plic`` block (:mod:`framework.ip.plic`) in the design the machine
+external interrupt joins the picture: ``pending`` also reports its ``MEIP``
+(bit 11), and ``mie.MEIE`` (bit 11) is a third wake-up source, woken by the
+PLIC when a source becomes pending and enabled for the hart. Without a PLIC
+``MEIE`` is ignored here, as before.
+
 A sleeping hart's ``mcycle`` is advanced by the cycles it slept when it wakes.
 
 Offsets outside these registers (inside the 64 KiB block) are plain storage.
@@ -54,6 +60,7 @@ MTIMECMP_STRIDE = 8
 _MASK64 = (1 << 64) - 1
 _MIE_MSIE = 1 << 3
 _MIE_MTIE = 1 << 7
+_MIE_MEIE = 1 << 11
 _CSR_MIE = 0x304
 
 
@@ -78,6 +85,8 @@ class CLINT(RegisterBlock):
         self.cores = {}
         #: hart id -> True if its ``wfi`` sleeps even with no wake-up source enabled.
         self._always_sleeps = {}
+        #: ``None`` or ``hart -> mip bits`` (``MEIP``): a PLIC attaches itself here.
+        self.external_pending = None
         self.reset()
 
     def attach(self, soc):
@@ -125,6 +134,8 @@ class CLINT(RegisterBlock):
             bits |= _MIE_MSIE
         if self._timer_due(hart):
             bits |= _MIE_MTIE
+        if self.external_pending is not None:
+            bits |= self.external_pending(hart)
         return bits
 
     def _timer_due(self, hart):
@@ -136,10 +147,14 @@ class CLINT(RegisterBlock):
         """Hart ``core`` executed ``wfi``: sleep unless a wake-up is already due."""
         hart = core.core_id
         mie = self._mie(core)
-        if not mie & (_MIE_MSIE | _MIE_MTIE) and not self._always_sleeps.get(
-            hart, True
-        ):
+        sources = _MIE_MSIE | _MIE_MTIE
+        if self.external_pending is not None:
+            sources |= _MIE_MEIE
+        if not mie & sources and not self._always_sleeps.get(hart, True):
             return
+        if mie & _MIE_MEIE and self.external_pending is not None:
+            if self.external_pending(hart):
+                return
         if mie & _MIE_MTIE and self._timer_due(hart):
             return
         if mie & _MIE_MSIE and hart < self.harts and self.msip[hart]:
@@ -156,6 +171,12 @@ class CLINT(RegisterBlock):
                 if self._timer_due(hart):
                     self._wake(hart, _MIE_MTIE)
 
+    def wake_external(self):
+        """A PLIC source became pending / enabled: wake the sleeping harts whose ``MEIP`` is now set."""
+        for hart in sorted(self.sleeping):
+            if self.external_pending(hart):
+                self._wake(hart, _MIE_MEIE)
+
     def _wake(self, hart, cause=_MIE_MSIE):
         core = self.cores.get(hart)
         slept_at = self.sleeping.get(hart)
@@ -164,7 +185,9 @@ class CLINT(RegisterBlock):
         del self.sleeping[hart]
         self.timer_sleepers.discard(hart)
         # The ticks it missed, so mcycle counts wall-clock cycles (to within one).
-        if core.csrs is not None:
+        if (
+            getattr(core.csrs, "cycles", None) is not None
+        ):  # RV32 mcycle follows the clock
             core.csrs.cycles += max(0, self.soc.clock.current_cycle - slept_at - 1)
         core.active = True
 

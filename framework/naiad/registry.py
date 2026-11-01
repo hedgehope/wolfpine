@@ -17,6 +17,7 @@ from framework.ip.dma import DMAEngine
 from framework.ip.htif import HTIF
 from framework.ip.memories import DRAMBlock, ScratchpadBlock
 from framework.ip.perfcounters import PerfCounters
+from framework.ip.plic import PLICLite
 from framework.ip.tensix.block import TensixBlock
 from framework.pe.rv.isa.a_isa import RV_ZAAMO_ISA
 from framework.pe.rv.isa.b_isa import RV_ZBA_ISA, RV_ZBB_ISA
@@ -28,6 +29,7 @@ IP_REGISTRY = {
     "dram": DRAMBlock,
     "scratchpad": ScratchpadBlock,
     "clint": CLINT,
+    "plic": PLICLite,
     "htif": HTIF,
     "perfcounters": PerfCounters,
     "dma": DMAEngine,

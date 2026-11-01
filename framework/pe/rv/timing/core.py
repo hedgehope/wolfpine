@@ -22,6 +22,10 @@ tick that is and when its result may be read.
   second one waits for the unit (``structural``). Everything else pipelines.
 * A taken branch or a jump holds the next instruction for ``branch_taken``
   cycles (``branch``). There is no predictor.
+* Delivering a trap (exception or interrupt) holds the handler's first
+  instruction for ``trap_entry`` cycles and ``mret`` the instruction after it
+  for ``trap_return`` (both ``branch`` stalls): a pipeline flush and redirect.
+  They cost nothing unless a trap happens (``mtvec`` armed).
 * Loads cost ``load`` plus the latency of the region the address falls in;
   stores are posted and hold the load/store unit for ``store`` cycles. Both hold
   the region's port for ``ceil(bytes / bandwidth)`` cycles, and a second access
@@ -142,6 +146,14 @@ class ScalarTimingSpec:
     store: int = 1
     #: Extra cycles before the instruction after a taken branch, ``jal`` or ``jalr``.
     branch_taken: int = 2
+    #: Extra cycles before the first instruction of a trap handler: the pipeline flush and
+    #: redirect when an exception or interrupt is delivered (:mod:`framework.pe.rv.trap`).
+    #: Charged only when a trap actually happens, so a program that never arms ``mtvec``
+    #: is unaffected. Default: one cycle more than a taken branch (the flush starts later,
+    #: at the faulting instruction's execute stage); 0 makes delivery free.
+    trap_entry: int = 3
+    #: The same for ``mret`` (a jump through ``mepc``, so a taken branch's cost by default).
+    trap_return: int = 2
     csr: int = 1
     fp_add: int = 4
     fp_mul: int = 4
@@ -281,6 +293,8 @@ def _parse_scalar(raw):
             "div_pipelined": _flag,
             "fp_div_pipelined": _flag,
             "branch_taken": lambda v, w: _number(v, w, minimum=0),
+            "trap_entry": lambda v, w: _number(v, w, minimum=0),
+            "trap_return": lambda v, w: _number(v, w, minimum=0),
         },
     )
     if spec.issue_width not in (1, 2):
@@ -633,6 +647,8 @@ class NaiadCostState:
         if not s.fp_div_pipelined:
             self._unit_of[_FP_DIV] = self._unit_of[_FP_SQRT] = 1
         self.branch_taken = s.branch_taken
+        self.trap_entry = s.trap_entry
+        self.trap_return = s.trap_return
         self.store_occupancy = s.store
         self.matrix = None
         mode = getattr(matrix_unit, "mode", None)
@@ -842,6 +858,17 @@ class NaiadCostState:
             self._stall_until = cycle_num + 1 + self.branch_taken
             self._stall_reason = _CONTROL
         return True
+
+    def charge_redirect(self, cycle_num, penalty):
+        """Hold the next instruction ``penalty`` cycles after the one ticking in ``cycle_num``.
+
+        Used by trap delivery and ``mret`` (:mod:`framework.pe.rv.trap`), which
+        redirect the pc outside any instruction the model saw issue; the hold
+        is booked as a ``branch`` stall.
+        """
+        if penalty > 0:
+            self._stall_until = max(self._stall_until, cycle_num + 1 + penalty)
+            self._stall_reason = _CONTROL
 
     def _taken(self, instr, register_file):
         a = register_file[(instr >> 15) & 0x1F].read_uint()

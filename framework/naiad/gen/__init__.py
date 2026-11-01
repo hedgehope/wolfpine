@@ -178,6 +178,7 @@ def gen_header(design):
     # The first block of each type the platform header uses, under a name-independent alias.
     for type_name, alias in (
         ("clint", "CLINT"),
+        ("plic", "PLIC"),
         ("perfcounters", "PERF"),
         ("htif", "HTIF"),
         ("dma", "DMA"),

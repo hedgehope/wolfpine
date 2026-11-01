@@ -306,9 +306,7 @@ class NaiadSoC:
             block.attach(self)
         if clints:
             for core in self.cores:
-                # RV32 cores' ISA never calls the wfi hook; only RV64 harts sleep.
-                if cores_spec.xlen == 64:
-                    clints[0].bind_wfi(core, always_sleeps=multicore)
+                clints[0].bind_wfi(core, always_sleeps=multicore)
         # The cycle model, before the counter hub so the hub finds each
         # ``rv_cost``. No ``timing:`` section leaves every core untimed.
         if design.timing is not None:

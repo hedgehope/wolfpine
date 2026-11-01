@@ -7,10 +7,13 @@ at ``RES``; each test reads the table back after the run.
 """
 
 import pytest
+import yaml
 
 from framework.naiad import DESIGNS_DIR
 from framework.naiad.builder import NaiadRunError, build
-from framework.naiad.design import load_design
+from framework.naiad.design import DesignError, load_design, parse_design
+from framework.pe.rv.isa.v.state import UINT
+from framework.pe.rv.isa.v.vtesting import vmem, vsetivli, vtype
 from framework.util.elf_testing import write_elf
 
 BASE = 0x80000000
@@ -22,6 +25,7 @@ MTIMECMP = CLINT + 0x4000
 MTIME = CLINT + 0xBFF8
 
 X0, T0, T1, S0, S1, A0, S2, S3, S5, T3, T4 = 0, 5, 6, 8, 9, 10, 18, 19, 21, 28, 29
+T5, T6 = 30, 31
 MSTATUS, MIE, MTVEC, MEPC, MCAUSE, MTVAL, MIP = (
     0x300,
     0x304,
@@ -220,7 +224,9 @@ def run(
         {"tohost": TOHOST, "fromhost": TOHOST + 0x40},
         elfclass=main.xlen,
     )
-    soc = build(load_design(DESIGNS_DIR / f"{design}.yaml"))
+    if isinstance(design, str):
+        design = load_design(DESIGNS_DIR / f"{design}.yaml")
+    soc = build(design)
     soc.htif.console_stream = None
     soc.load(elf)
     result = soc.run(max_cycles)
@@ -538,3 +544,315 @@ def test_rv32_unarmed_ecall_is_a_nop_and_illegal_is_an_error(tmp_path):
     q.exit()
     with pytest.raises(NaiadRunError, match="Unknown instruction"):
         run(tmp_path, q, design="naiad-base")
+
+
+# -- jal / jalr to a misaligned target leave rd alone ----------------------------
+
+
+def test_misaligned_jalr_does_not_write_rd(tmp_path):
+    p = prog64().setup()
+    p.li(T4, BASE + 0x202)
+    p.emit(addi(7, X0, 0x123))  # t2 = 0x123, the jalr's rd
+    pc = p.pc()
+    p.emit(jalr(7, T4, 0))
+    p.emit(p.sd(S1, 7, 48))  # runs after the handler skips the jalr
+    p.exit()
+    _, result, res = run(tmp_path, p, handler(p, "skip"))
+    assert result.exit_code == 0
+    assert (res(0), res(1), res(2)) == (0, BASE + 0x202, pc)
+    assert res(6) == 0x123
+
+
+def test_misaligned_jal_does_not_write_rd(tmp_path):
+    p = prog64().setup()
+    p.emit(addi(7, X0, 0x123))
+    pc = p.pc()
+    p.emit(jal(7, 6))  # pc + 6: not a multiple of 4
+    p.emit(p.sd(S1, 7, 48))
+    p.exit()
+    _, result, res = run(tmp_path, p, handler(p, "skip"))
+    assert result.exit_code == 0
+    assert (res(0), res(1), res(2)) == (0, pc + 6, pc)
+    assert res(6) == 0x123
+
+
+def test_misaligned_jalr_with_rd_equal_rs1_keeps_the_register_on_rv32(tmp_path):
+    p = Prog(32).setup()
+    p.li(T4, BASE + 0x202)
+    p.emit(jalr(T4, T4, 0))
+    p.emit(p.sd(S1, T4, 48))
+    p.exit()
+    _, result, res = run(tmp_path, p, handler(p, "skip"), design="naiad-base")
+    assert result.exit_code == 0
+    assert res(0) == 0
+    assert res(6) == BASE + 0x202
+
+
+def test_misaligned_jump_does_not_retire(tmp_path):
+    def retired(target):
+        p = prog64().setup()
+        p.li(T4, target)
+        p.emit(jalr(X0, T4, 0), NOP)
+        p.exit()
+        return run(tmp_path, p, handler(p, "skip"))[0].cores[0].csrs.retired
+
+    # The trapping jalr is skipped by the handler either way; only the trap path differs:
+    # an aligned jump to the instruction after the nop retires the jalr, a misaligned one does not.
+    assert retired(BASE + 0x202) < retired(BASE + 0x200)
+
+
+# -- vector misalignment -----------------------------------------------------------
+
+VDATA = BASE + 0x3000
+VSTART = 0x008
+
+
+def vload(eew, vd, rs1, **kw):
+    return vmem(True, eew, vd, rs1, **kw)
+
+
+def vstore(eew, vd, rs1, **kw):
+    return vmem(False, eew, vd, rs1, **kw)
+
+
+def vector_prog(base_offset, *ops, vl=4, sew=32, armed=True):
+    """vl elements of ``sew`` bits; t4 = VDATA + base_offset, t6 = 6 (a stride), 0x11223344 stored at VDATA."""
+    p = prog64().setup(mtvec=HANDLER if armed else None)
+    p.li(T3, VDATA)
+    p.li(T5, 0x11223344)
+    p.emit(store(2, T3, T5, 0), addi(T6, X0, 6))
+    p.li(T4, VDATA + base_offset)
+    p.emit(vsetivli(0, vl, vtype(sew)), *ops)
+    p.exit()
+    return p
+
+
+def vector_run(tmp_path, p, hw=None):
+    return run(tmp_path, p, hw or handler(p, "skip"), design="naiad-rvv")
+
+
+@pytest.mark.parametrize("op,cause", [(vload(32, 2, T4), 4), (vstore(32, 2, T4), 6)])
+def test_misaligned_unit_stride_vector_access_traps(tmp_path, op, cause):
+    _, result, res = vector_run(tmp_path, vector_prog(2, op))
+    assert result.exit_code == 0
+    assert (res(0), res(1), res(4)) == (cause, VDATA + 2, 1)
+
+
+def test_aligned_and_unarmed_vector_accesses_do_not_trap(tmp_path):
+    _, result, res = vector_run(tmp_path, vector_prog(4, vload(32, 2, T4)))
+    assert (result.exit_code, res(4)) == (0, 0)
+    _, result, _ = vector_run(tmp_path, vector_prog(2, vload(32, 2, T4), armed=False))
+    assert result.exit_code == 0  # unarmed: a misaligned vector load is just a load
+
+
+def test_byte_vector_accesses_are_never_misaligned(tmp_path):
+    p = vector_prog(1, vload(8, 2, T4), vstore(8, 2, T4), sew=8, vl=8)
+    _, result, res = vector_run(tmp_path, p)
+    assert (result.exit_code, res(4)) == (0, 0)
+
+
+def test_strided_access_runs_the_elements_before_the_misaligned_one(tmp_path):
+    # Stride 6: element 0 at VDATA is aligned, element 1 at VDATA + 6 is not.
+    p = vector_prog(0, vload(32, 2, T4, mop=2, rs2=T6))
+    h = handler(p, "skip")[:-1] + [csrr(T3, VSTART), p.sd(S1, T3, 72), MRET]
+    soc, result, res = vector_run(tmp_path, p, h)
+    assert result.exit_code == 0
+    assert (res(0), res(1), res(4)) == (4, VDATA + 6, 1)
+    assert res(9) == 1  # vstart = the faulting element
+    assert int(soc.cores[0].vector.group(2, 1, UINT[32])[0]) == 0x11223344
+
+
+def test_indexed_segment_and_whole_register_misalignment(tmp_path):
+    whole_load = (1 << 25) | (8 << 20) | (T4 << 15) | (6 << 12) | (2 << 7) | 0x07
+    whole_store = (1 << 25) | (8 << 20) | (T4 << 15) | (0 << 12) | (2 << 7) | 0x27
+    for op in (
+        vload(32, 2, T4, mop=1, rs2=4),  # indexed, v4 = 0: every address is the base
+        vload(32, 2, T4, nf=2),  # segment: fields of 4 bytes
+        whole_load,  # vl1re32.v
+    ):
+        _, result, res = vector_run(tmp_path, vector_prog(2, op))
+        assert (res(0), res(1), res(4)) == (4, VDATA + 2, 1)
+    # vs1r.v moves bytes: never misaligned.
+    _, result, res = vector_run(tmp_path, vector_prog(2, whole_store))
+    assert (result.exit_code, res(4)) == (0, 0)
+
+
+def test_masked_off_misaligned_elements_do_not_trap(tmp_path):
+    # v0 is zero: every element is masked off, so none is accessed.
+    _, result, res = vector_run(tmp_path, vector_prog(2, vload(32, 2, T4, vm=0)))
+    assert (result.exit_code, res(4)) == (0, 0)
+
+
+# -- trap timing --------------------------------------------------------------------
+
+
+def timed_design(**scalar):
+    raw = yaml.safe_load((DESIGNS_DIR / "naiad-base-rv64.yaml").read_text())
+    raw["timing"] = {"scalar": scalar}
+    return parse_design(raw)
+
+
+def cycles_of(tmp_path, program, handler_words, **scalar):
+    soc, result, _ = run(
+        tmp_path, program, handler_words, design=timed_design(**scalar)
+    )
+    assert result.exit_code == 0
+    return soc.clock.current_cycle, soc
+
+
+def test_trap_entry_and_return_are_charged_when_a_trap_happens(tmp_path):
+    p = prog64().setup()
+    p.emit(ECALL, NOP, NOP)
+    p.exit()
+    h = handler(p, "skip")
+    free, _ = cycles_of(tmp_path, p, h, trap_entry=0, trap_return=0)
+    entry, soc = cycles_of(tmp_path, p, h, trap_entry=5, trap_return=0)
+    both, _ = cycles_of(tmp_path, p, h, trap_entry=5, trap_return=7)
+    assert entry - free == 5
+    assert both - entry == 7
+    assert soc.counters()["hart0.timing.stall_branch"] >= 5
+
+
+def test_trap_options_do_not_matter_without_a_trap(tmp_path):
+    p = prog64().setup()  # armed, but nothing traps
+    p.emit(NOP, NOP)
+    p.exit()
+    a, _ = cycles_of(tmp_path, p, None, trap_entry=0, trap_return=0)
+    b, _ = cycles_of(tmp_path, p, None, trap_entry=9, trap_return=9)
+    assert a == b
+
+
+def test_trap_timing_has_defaults_and_rejects_negatives():
+    spec = timed_design().timing.scalar
+    assert (spec.trap_entry, spec.trap_return) == (3, 2)
+    with pytest.raises(DesignError):
+        timed_design(trap_entry=-1)
+
+
+# -- RV32 wfi sleeps like RV64's -----------------------------------------------------
+
+
+def test_rv32_wfi_is_a_nop_without_a_wake_source(tmp_path):
+    p = Prog(32).setup(mtvec=None)
+    p.emit(WFI, WFI)
+    p.exit()
+    assert run(tmp_path, p, design="naiad-base")[1].exit_code == 0
+
+
+def test_rv32_wfi_sleeps_when_a_source_is_enabled_and_nothing_wakes_it(tmp_path):
+    p = Prog(32).setup(mtvec=None)
+    p.emit(addi(T4, X0, 8), csrw(MIE, T4), WFI)
+    p.exit()
+    _, result, _ = run(tmp_path, p, design="naiad-base", max_cycles=2000)
+    assert result.exit_code is None
+
+
+def test_rv32_timer_interrupt_wakes_wfi(tmp_path):
+    p = Prog(32).setup()
+    p.li(T4, MTIME)
+    p.emit(p.ldw(T3, T4, 0), addi(T3, T3, 300), p.sd(S2, T3, 0))
+    p.emit(addi(T4, X0, 0x80), csrw(MIE, T4), csrsi(MSTATUS, 8))
+    wfi_pc = p.pc()
+    p.emit(WFI, csrci(MSTATUS, 8))
+    p.exit()
+    soc, result, res = run(tmp_path, p, handler(p, "timer"), design="naiad-base")
+    assert result.exit_code == 0
+    assert (res(0), res(2), res(4)) == (0x80000007, wfi_pc + 4, 1)
+    assert soc.clock.current_cycle > 250
+    assert soc.cores[0].csrs.retired < 150
+
+
+# -- machine external interrupts (plic) ---------------------------------------------
+
+PLIC = 0x0C000000
+MEIE = 1 << 11
+
+
+def plic_design(schedule=(), **params):
+    raw = yaml.safe_load((DESIGNS_DIR / "naiad-base-rv64.yaml").read_text())
+    if schedule:
+        params["schedule"] = [list(entry) for entry in schedule]
+    block = {"name": "plic", "type": "plic", "base": PLIC, "window": 0x4000}
+    raw["blocks"].append({**block, "params": params})
+    return parse_design(raw)
+
+
+def plic_handler(prog):
+    """Record the trap, then clear every pending source (write ~0 to CLEAR)."""
+    h = Prog(prog.xlen)
+    h.li(T3, PLIC + 8)
+    h.emit(addi(T4, X0, -1), h.sd(T3, T4, 0), store(2, S3, X0, 0))  # and msip = 0
+    return handler(prog, "none")[:-1] + h.words + [MRET]
+
+
+def set_meie(p):
+    p.emit(addi(T4, X0, 1), slli(T4, T4, 11), csrw(MIE, T4))
+
+
+def test_scheduled_external_interrupt_wakes_wfi_and_is_taken(tmp_path):
+    p = prog64().setup()
+    p.li(T4, PLIC + 0x1000)
+    p.emit(addi(T3, X0, 1 << 5), p.sd(T4, T3, 0))  # enable[0] = source 5
+    set_meie(p)
+    p.emit(csrsi(MSTATUS, 8))
+    wfi_pc = p.pc()
+    p.emit(WFI, csrci(MSTATUS, 8))
+    p.exit()
+    soc, result, res = run(
+        tmp_path, p, plic_handler(p), design=plic_design([(300, 5)]), max_cycles=5000
+    )
+    assert result.exit_code == 0
+    assert (res(0), res(1), res(2), res(4)) == (INTERRUPT64 | 11, 0, wfi_pc + 4, 1)
+    core = soc.cores[0]
+    assert core.csrs.cycles > 250
+    assert core.csrs.retired < 150
+    assert soc.blocks["plic"].pending == 0  # the handler cleared it
+
+
+def test_external_interrupt_needs_an_enabled_source_and_beats_the_others(tmp_path):
+    # Source 2 raised through PENDING: no MEIP until enabled for hart 0. Then, with
+    # msip pending too, the external interrupt is the one taken.
+    p = prog64().setup()
+    p.li(T4, PLIC)
+    p.li(S5, PLIC + 0x1000)
+    p.emit(addi(T3, X0, 4), p.sd(T4, T3, 0))  # pending |= source 2
+    p.emit(csrr(T3, MIP), p.sd(S1, T3, 56))
+    p.emit(p.ldw(T3, T4, 0), p.sd(S1, T3, 64))
+    p.emit(addi(T3, X0, 4), p.sd(S5, T3, 0))  # enable[0] = source 2
+    p.emit(csrr(T3, MIP), p.sd(S1, T3, 72))
+    p.emit(addi(T3, X0, -1), p.sd(S2, T3, 0))  # mtimecmp = max: no timer interrupt
+    p.emit(addi(T3, X0, 1), store(2, S3, T3, 0))  # msip
+    p.emit(addi(T3, X0, 0x8), csrw(MIE, T3))  # MSIE
+    p.emit(addi(T3, X0, 1), slli(T3, T3, 11), csrs(MIE, T3))  # | MEIE
+    p.emit(csrsi(MSTATUS, 8), NOP, csrci(MSTATUS, 8))
+    p.exit()
+    _, result, res = run(
+        tmp_path, p, plic_handler(p), design=plic_design(), max_cycles=5000
+    )
+    assert result.exit_code == 0
+    assert res(7) & MEIE == 0
+    assert res(8) == 4
+    assert res(9) & MEIE
+    assert res(0) == INTERRUPT64 | 11
+
+
+def test_wfi_with_meie_is_still_a_nop_without_a_plic(tmp_path):
+    p = prog64().setup(mtvec=None)
+    set_meie(p)
+    p.emit(WFI)
+    p.exit()
+    assert run(tmp_path, p)[1].exit_code == 0
+
+
+def test_plic_needs_a_clint_and_validates_params():
+    raw = yaml.safe_load((DESIGNS_DIR / "naiad-base-rv64.yaml").read_text())
+    raw["blocks"] = [b for b in raw["blocks"] if b["type"] != "clint"]
+    raw["blocks"].append(
+        {"name": "plic", "type": "plic", "base": PLIC, "window": 0x4000}
+    )
+    with pytest.raises(DesignError, match="clint"):
+        parse_design(raw)
+    with pytest.raises(DesignError, match="sources"):
+        plic_design(sources=65)
+    with pytest.raises(DesignError, match="schedule"):
+        plic_design([(10, 40)])

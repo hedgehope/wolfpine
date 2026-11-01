@@ -28,9 +28,9 @@ cause name                         raised when / ``mtval``
 ===== ============================ ==========================================
 0     instruction address          a taken branch / jump target not aligned
       misaligned                   to IALIGN (4, or 2 with C); ``mtval`` is the
-                                   target. The link register of a ``jal`` /
-                                   ``jalr`` has already been written (the
-                                   spec says it is not); nothing else is.
+                                   target. The instruction does not retire and
+                                   writes nothing: a ``jal`` / ``jalr`` link
+                                   register keeps its old value.
 1     instruction access fault     the fetch address is unmapped; ``mtval`` = pc
 2     illegal instruction          an unclaimed encoding, or a CSR the core does
                                    not implement / a write to a read-only one;
@@ -39,8 +39,10 @@ cause name                         raised when / ``mtval``
 4, 6  load / store-AMO address     a load, store, FP load/store, ``lr`` / ``sc`` /
       misaligned                   AMO whose address is not a multiple of its
                                    size (a Naiad bus otherwise allows it);
-                                   ``mtval`` is the address. Vector accesses
-                                   are not checked.
+                                   ``mtval`` is the address. A vector load /
+                                   store traps when an active element's address
+                                   is not a multiple of its EEW (SEW for an
+                                   indexed access): see **Vector accesses**.
 5, 7  load / store access fault    the access hit no mapped block, or a register
                                    that refuses it (read-only); ``mtval`` is
                                    the address
@@ -52,7 +54,9 @@ Interrupts (``mcause`` bit XLEN-1 set): machine software (3, the CLINT's
 before an instruction when ``mstatus.MIE`` is set and ``mip & mie`` is non-zero
 (software before timer, the spec's priority order). ``mip`` is read-only here: it reflects the CLINT, and the
 interrupt is level-triggered, so a handler clears it by writing ``msip`` or
-``mtimecmp``. Machine external (11) is not modelled; no block raises it.
+``mtimecmp``. Machine external (11, ``MEIP``) comes from a ``plic`` block
+(:mod:`framework.ip.plic`), if the design has one, and has the highest priority
+(external, software, timer); a design without one never raises it.
 
 Delivery sets ``mepc`` (pc of the interrupted or faulting instruction),
 ``mcause``, ``mtval`` (0 for an interrupt), ``mstatus.MPIE = MIE``,
@@ -65,9 +69,25 @@ jumps to ``mepc`` and sets ``MIE = MPIE``, ``MPIE = 1``, ``MPP = 3``.
 ``mstatus.MIE``); if ``mstatus.MIE`` is set the trap is then taken with
 ``mepc`` = the instruction after the ``wfi``. See ``framework/ip/clint.py``.
 
-Cost model. Delivery of a trap, and ``mret``, are not timed beyond the one
-cycle a delivery takes (the timing model's floor; nothing is charged for the
-redirect). A trapping ``ecall`` / ``ebreak`` / faulting instruction does not
+Vector accesses. Before an RVV load / store (unit-stride, strided, indexed,
+segment, whole-register) runs, the active elements' addresses are checked
+against the element size (the fault-only-first load, the segment forms and the
+whole-register forms included; ``vlm.v`` / ``vsm.v`` are byte accesses and
+never misalign). The first misaligned element ``i`` raises cause 4 / 6 with
+``mtval`` = its address and ``vstart`` = ``i``. Elements before ``i`` *are*
+performed (the access is run once with ``vl`` cut to ``i``), so ``mret`` after
+the handler fixed the cause re-executes from ``vstart``. Simplifications:
+Zvvm / Zvt tile loads and stores are not checked, and the cost model charges
+the truncated access, not the whole one. (A unit-stride access is misaligned
+at its first element or not at all, so a fault-only-first load never has a
+later element to trim ``vl`` to.)
+
+Cost model. Delivery of a trap takes the one cycle of the tick itself; with a
+timing model the cost state then holds the handler's first instruction for
+``timing.scalar.trap_entry`` cycles, and the instruction after an ``mret`` for
+``trap_return`` (see :mod:`framework.pe.rv.timing.core`; both are ``branch``
+stalls, charged only when a trap or ``mret`` happens, so a core that never arms
+``mtvec`` is unaffected). A trapping ``ecall`` / ``ebreak`` / faulting instruction does not
 retire (``minstret`` unchanged), an ``mret`` does.
 
 Implementation caveat: while armed, each instruction is peeked (decoded a
@@ -76,6 +96,11 @@ misalignment and the access-fault address are known; the simulator runs
 slower for it, not the simulated clock.
 """
 
+import numpy as np
+
+from framework.pe.rv.isa.v import mem as vmem
+from framework.pe.rv.isa.v.common import nregs
+from framework.pe.rv.isa.v.state import UINT
 from framework.pe.rv.isa.zicsr_isa import CSRError, CSRFile
 from framework.pe.rv.rv32 import RV32I, RV32IM
 from framework.pe.rv.rv64 import RV64I
@@ -95,8 +120,10 @@ MSTATUS_MPP = 3 << 11
 
 IRQ_MSI = 3
 IRQ_MTI = 7
+IRQ_MEI = 11
 MIP_MSIP = 1 << IRQ_MSI
 MIP_MTIP = 1 << IRQ_MTI
+MIP_MEIP = 1 << IRQ_MEI
 
 CAUSE_FETCH_MISALIGNED = 0
 CAUSE_FETCH_ACCESS = 1
@@ -176,6 +203,8 @@ class TrapMixin:
     :class:`~framework.pe.rv.isa.zicsr64_isa.CSRFile64`; call
     :meth:`enable_traps` once it is in place.
     """
+
+    _trap_cycle = 0
 
     def enable_traps(self):
         """Hook this core's CSR file so writing ``mtvec`` arms and disarms it."""
@@ -279,6 +308,7 @@ class TrapMixin:
         cycles = getattr(csrs, "cycles", None)
         if own_cycle and cycles is not None:
             csrs.cycles = cycles + 1
+        self._charge("trap_entry")
 
     def _mret(self):
         store = self.csrs.store
@@ -289,6 +319,14 @@ class TrapMixin:
         store[CSR_MSTATUS] = new | MSTATUS_MPIE | MSTATUS_MPP
         epc = store.get(CSR_MEPC, 0)
         self.pc_register.write(epc.to_bytes(self.XLEN_BYTES, "little"))
+        self._charge("trap_return")
+
+    def _charge(self, which):
+        """Hold the redirect target for the cost model's ``which`` penalty (no model: free)."""
+        cost = self.rv_cost
+        charge = getattr(cost, "charge_redirect", None)
+        if charge is not None:
+            charge(self._trap_cycle, getattr(cost, which, 0))
 
     def _classify(self, error, instr, raw):
         """``(cause, tval)`` for an exception an instruction raised, or ``None`` to let it propagate."""
@@ -304,11 +342,85 @@ class TrapMixin:
                 return CAUSE_STORE_ACCESS, self._effective_address(instr)
         return None
 
+    # -- vector misalignment ---------------------------------------------------
+
+    def _vector_misalignment(self, instr):
+        """``(element, is_store, address)`` of the first misaligned element of an RVV access, else ``None``."""
+        vs = getattr(self, "vector", None)
+        if vs is None or vs.vill or instr & 0x7F not in (0x07, 0x27):
+            return None
+        if (instr >> 12) & 7 not in (0, 5, 6, 7):
+            return None
+        decoded = vmem.decode(instr)
+        if decoded is None:
+            return None
+        handler, args, _ = decoded
+        rf = self.register_file
+        start, vl = vs.vstart, vs.vl
+        if handler is vmem.whole:
+            is_load, nreg, eew, _vd, rs1 = args
+            esz = eew // 8
+            base = rf[rs1].read_uint()
+            if base % esz == 0 or start * esz >= nreg * vs.vlenb:
+                return None
+            return start, not is_load, (base + start * esz) & ((1 << 64) - 1)
+        if handler is not vmem.access or start >= vl:
+            return None
+        is_load, mode, eew, nf, _vd, rs1, rs2, vm, *_ff = args
+        if eew > vs.elen:
+            return None
+        esz = (vs.sew if mode == "indexed" else eew) // 8
+        if esz == 1:
+            return None
+        base = rf[rs1].read_uint()
+        elems = np.arange(start, vl, dtype=np.uint64)
+        with np.errstate(over="ignore"):
+            if mode == "unit":
+                addrs = np.uint64(base) + elems * np.uint64(nf * esz)
+            elif mode == "strided":
+                addrs = np.uint64(base) + elems * np.uint64(rf[rs2].read_uint())
+            else:
+                idx_lg = vs.lmul_log2 + (eew.bit_length() - vs.sew.bit_length())
+                if not -3 <= idx_lg <= 3:
+                    return None
+                idx = vs.group(rs2, nregs(idx_lg), UINT[eew])[start:vl]
+                addrs = np.uint64(base) + idx.astype(np.uint64)
+        bad = addrs % np.uint64(esz) != 0
+        if not vm:
+            bad &= vs.mask(0, vl)[start:]
+        hits = np.flatnonzero(bad)
+        if len(hits) == 0:
+            return None
+        k = int(hits[0])
+        return start + k, not is_load, int(addrs[k])
+
+    def _vector_prefix(self, cycle_num, pc, element):
+        """Perform the elements of a vector access before its misaligned ``element``; set ``vstart``.
+
+        False when the cost model stalled the access (it is offered again next cycle).
+        """
+        vs = self.vector
+        if element > vs.vstart:
+            vl = vs.vl
+            vs.vl = element
+            try:
+                super().clock_tick(cycle_num)
+            finally:
+                vs.vl = vl
+            if self.pc_register.read_uint() == pc:
+                return False
+            self.pc_register.write(pc.to_bytes(self.XLEN_BYTES, "little"))
+            if self.csrs.retired:
+                self.csrs.retired -= 1
+        vs.vstart = element
+        return True
+
     # -- the armed interpreter ----------------------------------------------
 
     def _trap_tick(self, cycle_num):
         if not self.active:
             return
+        self._trap_cycle = cycle_num
         csrs = self.csrs
         store = csrs.store
         pc_register = self.pc_register
@@ -320,7 +432,10 @@ class TrapMixin:
             if enabled and csrs.mip_source is not None:
                 pending = csrs.mip_source() & enabled
                 if pending:
-                    code = IRQ_MSI if pending & MIP_MSIP else IRQ_MTI
+                    if pending & MIP_MEIP:
+                        code = IRQ_MEI
+                    else:
+                        code = IRQ_MSI if pending & MIP_MSIP else IRQ_MTI
                     self._take(code, pc, 0, interrupt=True)
                     return
 
@@ -350,7 +465,24 @@ class TrapMixin:
                 )
                 return
 
+        # A vector access with a misaligned element: run the elements before it, then trap.
+        vfault = self._vector_misalignment(instr)
+        link = None
+        if instr & 0x7F in (0x6F, 0x67) and (instr >> 7) & 0x1F:
+            rd = (
+                instr >> 7
+            ) & 0x1F  # jal / jalr: kept so a misaligned target can undo the link write
+            link = (rd, self.register_file[rd].read_uint())
+
         try:
+            if vfault is not None:
+                if self._vector_prefix(cycle_num, pc, vfault[0]):
+                    self._take(
+                        CAUSE_STORE_MISALIGNED if vfault[1] else CAUSE_LOAD_MISALIGNED,
+                        pc,
+                        vfault[2],
+                    )
+                return
             super().clock_tick(cycle_num)
         except Exception as error:
             cause = self._classify(error, instr, raw)
@@ -365,8 +497,14 @@ class TrapMixin:
         if instr == _MRET:
             self._mret()
         elif new_pc & (1 if getattr(self, "_rvc", False) else 3):
-            # A taken branch / jump to a target IALIGN forbids. (The link register,
-            # if the instruction had one, is already written.)
+            # A taken branch / jump to a target IALIGN forbids: the instruction
+            # traps instead, so it neither retires nor writes its link register.
+            if link is not None:
+                self.register_file[link[0]].write(
+                    link[1].to_bytes(self.XLEN_BYTES, "little")
+                )
+            if csrs.retired:
+                csrs.retired -= 1
             self._take(CAUSE_FETCH_MISALIGNED, pc, new_pc, own_cycle=False)
 
 

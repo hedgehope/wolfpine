@@ -159,14 +159,16 @@ class RV_I_ISA(RV_ISA):
         rd = (instr >> 7) & 0x1F
         pc = register_file["pc"]
         pc_val = pc.read_uint()
+        rs1 = (instr >> 15) & 0x1F
+        rs1_val = register_file[
+            rs1
+        ].read_uint()  # before rd is written: they may be the same register
         if rd > 0:
             # If provided register is x0 then don't store
             register_file[rd].write(
                 conv_to_bytes(pc_val + 4)
             )  # Address of the next instruction
 
-        rs1 = (instr >> 15) & 0x1F
-        rs1_val = register_file[rs1].read_uint()
         offset = _imm_i(instr)
 
         new_pc_val = (rs1_val + offset) & ~1
@@ -696,6 +698,15 @@ class RV_I_ISA(RV_ISA):
                     f"framework/pe/rv/isa/zicsr_isa.py."
                 )
             return False
+        if instr == 0x10500073:
+            # wfi: a nop unless the platform routes it (a Naiad SoC's CLINT puts
+            # the hart to sleep; the Tenstorrent baby cores have no such hook).
+            hook = getattr(register_file, "wfi", None)
+            if hook is not None:
+                hook()
+            if snoop:
+                RV_ISA.print_snoop(snoop, "wfi", "sleep" if hook else "nop")
+            return True
         is_ebreak = type_val == 0x0 and ((instr >> 20) & 0x1) == 1
         if is_ebreak and breakpoint_trap.trapping_enabled():
             # A kernel asserting on itself: see framework/pe/rv/breakpoint.py.
