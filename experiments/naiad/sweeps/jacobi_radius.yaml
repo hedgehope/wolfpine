@@ -9,7 +9,7 @@
 # 132x2, 136x4). The AME kernel does the same 5 mma per output tile at every r
 # (banded form; 4 in the window form) while the useful FLOPs per point grow as
 # 4 r, so redundancy should fall roughly as 1 / r. Radius 1 is the same binary
-# as talk_tier1 / talk_tier2's (the plain size 66 builds without a radius flag).
+# as dwarfs_tier1 / dwarfs_tier2's (the plain size 66 builds without a radius flag).
 #
 # Every point derives its design from naiad-dwarfs.yaml by overrides only.
 name: jacobi_radius
@@ -24,7 +24,7 @@ references: [scalar]
 ratio: {vector: rvv}
 
 studies:
-  # Tier-2 axis (talk_tier2's crossover study): speedup over RVV against the
+  # Tier-2 axis (dwarfs_tier2's crossover study): speedup over RVV against the
   # matrix:RVV peak ratio, fp32, with RVV's LSU at the tile path's 64 B/cycle so
   # the ratio is the only resource that differs. 4..8192 MACs/cycle in
   # half-octave steps is a fp32 ratio of 1/8..256. crossover.csv also gives each
@@ -118,7 +118,7 @@ studies:
         timing.vector.mem_bytes_per_cycle: 64
         timing.matrix.macs_per_cycle: [16, 256, 2048]
 
-  # Tier-1 axis (talk_tier1's crossover study): speedup over the scalar F/D
+  # Tier-1 axis (dwarfs_tier1's crossover study): speedup over the scalar F/D
   # baseline against the matrix:scalar ratio (1 FMA/cycle), fp32, default LSU.
   - name: vs_scalar
     description: jacobi r = 1, 2, 4 speedup over scalar vs matrix:scalar ratio, fp32, interior 64^2
@@ -137,7 +137,7 @@ studies:
         timing.matrix.macs_per_cycle: [16, 256, 2048]
 
   # Bytes per path and redundant arithmetic at the default design (RVV at
-  # naiad-dwarfs' 32 B/cycle LSU, as talk_tier2's bytes study).
+  # naiad-dwarfs' 32 B/cycle LSU, as dwarfs_tier2's bytes study).
   - name: bytes
     description: bytes per path and redundancy per radius, default design, fp32
     formats: [[fp32, fp32]]

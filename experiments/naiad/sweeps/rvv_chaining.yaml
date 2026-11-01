@@ -1,5 +1,5 @@
-# Sensitivity of the talk's AME-vs-RVV crossovers to RVV chaining: the tier-2
-# crossover (talk_tier2's `crossover`) and the fused fft / nbody crossover
+# Sensitivity of the headline AME-vs-RVV crossovers to RVV chaining: the tier-2
+# crossover (dwarfs_tier2's `crossover`) and the fused fft / nbody crossover
 # (epilogue's `crossover`), re-run with `timing.vector.chaining: true`
 # (framework/pe/rv/timing/vector.py: element-group chaining between dependent
 # vector instructions, loads into arithmetic and arithmetic into stores).
@@ -7,7 +7,7 @@
 #   python -m experiments.naiad.run rvv_chaining -j 8 && python -m experiments.naiad.plot rvv_chaining
 #   python -m experiments.naiad.run rvv_chaining --quick
 #
-# The unchained crossovers are talk_tier2's and epilogue's own crossover.csv; the
+# The unchained crossovers are dwarfs_tier2's and epilogue's own crossover.csv; the
 # `rvv_control` study runs every RVV baseline (and the RVV-hybrid variants) both
 # ways side by side. Chaining is set for every point, but only kernels that
 # execute vector instructions can see it: the AME / scalar variants are built
@@ -23,7 +23,7 @@ references: [scalar]
 ratio: {vector: rvv}
 
 studies:
-  # talk_tier2 `crossover` with a chaining RVV (equal 64 B/cycle memory bandwidth).
+  # dwarfs_tier2 `crossover` with a chaining RVV (equal 64 B/cycle memory bandwidth).
   - name: crossover
     description: speedup over a chaining RVV vs matrix:vector peak ratio, fp32/fp32, mid size, equal memory bandwidth
     variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]

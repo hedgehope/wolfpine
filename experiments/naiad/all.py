@@ -1,6 +1,6 @@
-"""``python -m experiments.naiad.all [--quick] [--jobs N] [sweep ...]``: run the talk's sweeps and redraw every figure.
+"""``python -m experiments.naiad.all [--quick] [--jobs N] [sweep ...]``: run the headline sweeps and redraw every figure.
 
-With no sweep names it runs ``sweeps/talk_tier1.yaml``. Runs resume, so a
+With no sweep names it runs ``sweeps/dwarfs_tier1.yaml``. Runs resume, so a
 repeated call only simulates points that have no stored result and then
 regenerates the CSVs and all figures.
 """
@@ -14,7 +14,7 @@ from experiments.naiad.plot import plot_sweep
 from experiments.naiad.run import resolve_sweep, run_sweep
 from experiments.naiad.sweep import OUT
 
-TALK_SWEEPS = ["talk_tier1"]
+HEADLINE_SWEEPS = ["dwarfs_tier1"]
 
 
 def main(argv=None):
@@ -24,8 +24,8 @@ def main(argv=None):
     ap.add_argument(
         "sweeps",
         nargs="*",
-        default=TALK_SWEEPS,
-        help=f"sweep names or files (default {TALK_SWEEPS})",
+        default=HEADLINE_SWEEPS,
+        help=f"sweep names or files (default {HEADLINE_SWEEPS})",
     )
     ap.add_argument(
         "--quick", action="store_true", help="the CI profile: smallest sizes"

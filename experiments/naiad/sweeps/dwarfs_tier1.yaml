@@ -1,4 +1,4 @@
-# Tier-1 talk figures: the AME crossover, precision and data-movement studies
+# Tier-1 figures: the AME crossover, precision and data-movement studies
 # over every dwarf in kernels/naiad/dwarfs/ (missing or broken ones are skipped).
 #
 #   python -m experiments.naiad.all            # run + plot (also: make -C experiments/naiad figures)
@@ -7,7 +7,7 @@
 # Every point derives its design from naiad-dwarfs.yaml by overrides only; no
 # override may move an address. The "vector" baseline is the scalar F/D variant
 # until RVV lands in Phase C: switching is ratio.vector (and baseline.variant).
-name: talk_tier1
+name: dwarfs_tier1
 base_design: framework/naiad/designs/naiad-dwarfs.yaml
 dwarfs: all
 sizes: mid

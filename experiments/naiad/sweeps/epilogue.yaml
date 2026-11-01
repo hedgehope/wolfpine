@@ -26,14 +26,14 @@ baseline: {variant: rvv, formats: [fp32, fp32]}
 ratio: {vector: rvv}
 # Every study lists the element-wise features (they only add header defines to the
 # kernels that do not use them) and gives the vector LSU the tile path's 64 B/cycle,
-# as talk_tier2's crossover does, so the ratio is the only resource that differs.
+# as dwarfs_tier2's crossover does, so the ratio is the only resource that differs.
 overrides:
   timing.vector.mem_bytes_per_cycle: 64
   matrix.features: [[transpose, shift, epilogue, semiring, acc_move, convert, ewise, ewise_tx]]
 
 studies:
   # -- 1. speedup over RVV vs matrix:vector ratio, fused vs unfused -------------
-  # talk_tier2's crossover axis: macs_per_cycle 4..8192 is a fp32 ratio of 1/8..256.
+  # dwarfs_tier2's crossover axis: macs_per_cycle 4..8192 is a fp32 ratio of 1/8..256.
   - name: crossover
     description: fft / nbody speedup over RVV vs ratio, fp32, mid size; unfused, RVV-epilogue hybrid and fused
     variants: [ame, ame_rvv, ame_fused, rvv]

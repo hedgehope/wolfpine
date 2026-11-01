@@ -1,6 +1,6 @@
 # The Naiad experiment harness (see experiments/naiad/run.py).
 #
-#   make -C experiments/naiad figures        # run the talk sweeps, regenerate every figure
+#   make -C experiments/naiad figures        # run the headline sweeps, regenerate every figure
 #   make -C experiments/naiad quick          # the same at the smallest sizes (CI)
 #   make -C experiments/naiad test           # the harness's own tests
 #   make -C experiments/naiad clean          # remove out/

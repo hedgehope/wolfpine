@@ -36,7 +36,7 @@ from framework.naiad import costmodel
 from framework.naiad.costmodel.dwarfs.common import Unsupported
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_SWEEPS = ("talk_tier1", "talk_tier2", "feature_ranking")
+DEFAULT_SWEEPS = ("dwarfs_tier1", "dwarfs_tier2", "feature_ranking")
 
 
 def _size(value):

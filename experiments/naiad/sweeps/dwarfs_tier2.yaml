@@ -1,16 +1,16 @@
-# Tier-2 talk figures: the AME crossover, precision and data-movement studies
+# Tier-2 figures: the AME crossover, precision and data-movement studies
 # against the RVV baseline (every dwarf's `rvv` variant), with the scalar F/D
 # variant kept as a second reference.
 #
-#   python -m experiments.naiad.run talk_tier2 -j 8 && python -m experiments.naiad.plot talk_tier2
-#   python -m experiments.naiad.run talk_tier2 --quick     # smallest sizes, three ratios, two seeds
+#   python -m experiments.naiad.run dwarfs_tier2 -j 8 && python -m experiments.naiad.plot dwarfs_tier2
+#   python -m experiments.naiad.run dwarfs_tier2 --quick     # smallest sizes, three ratios, two seeds
 #
 # Every point derives its design from naiad-dwarfs.yaml (RVV at VLEN 256, a
 # 256-bit vector datapath) by overrides only; no override may move an address.
 # The ratio is matrix peak MACs/cycle for the row's input format over the RVV
 # peak FMAs/cycle (timing.vector.datapath_bits / SEW: 8 for fp32).
 # Variants are listed explicitly: gemm's `ime` variant needs an IME design.
-name: talk_tier2
+name: dwarfs_tier2
 base_design: framework/naiad/designs/naiad-dwarfs.yaml
 dwarfs: all
 variants: [ame, ame_gauss, ame_fgemm, rvv, scalar]

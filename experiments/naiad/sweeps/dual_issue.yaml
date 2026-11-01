@@ -1,5 +1,5 @@
 # Front-end sensitivity: the coupling study (coupling_all.yaml) and the tier-2
-# crossover (talk_tier2.yaml's crossover study) at timing.scalar.issue_width 1
+# crossover (dwarfs_tier2.yaml's crossover study) at timing.scalar.issue_width 1
 # and 2 (framework.pe.rv.timing.core: an in-order dual-issue front end; two ALU
 # pipes, one each of memory, mul/div, FP and vector/matrix dispatch).
 #
@@ -34,7 +34,7 @@ ratio_keys:
   - normalise.peak_flops_per_cycle
 
 studies:
-  # talk_tier2's crossover study, both widths.
+  # dwarfs_tier2's crossover study, both widths.
   - name: crossover
     description: speedup over RVV vs matrix:vector peak ratio, fp32/fp32, mid size, issue width 1 and 2
     base_design: framework/naiad/designs/naiad-dwarfs.yaml

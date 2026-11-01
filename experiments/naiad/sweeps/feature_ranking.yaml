@@ -9,7 +9,7 @@
 #    SWITCHES), one at a time, at the default design (naiad-dwarfs) with every
 #    optional feature listed, so a switch only changes the kernel. Row
 #    `ovr:kernel.cflags` names the switch; the empty one is the default kernel,
-#    whose binary is the talk_tier1 one (the feature list adds header defines
+#    whose binary is the dwarfs_tier1 one (the feature list adds header defines
 #    the default kernels never read). Features and their Ztt v0.6 counterparts:
 #      acc_move  amov.t.a / amov.a.t   (Ztt mmov.m.a / mmov.a.m)
 #      convert   tconv                 (Ztt mconv.ew)

@@ -162,7 +162,7 @@ whose sources are cited here), plus what was found while writing `xsmt/xsmt_gemm
   - **The operand syntax.** It is taken to be `smt.vmadot vd, vs1, vs2`. The A100 forms
     take a trailing type (`, i8`); if the K1 assembler wants one too, set
     `#define XSMT_SUFFIX ", i8"` at the top of `xsmt/xsmt_gemm.c`.
-- **For the talk:** the K1 is a real-hardware proxy for IME **geometry and data
+- **As a hardware proxy:** the K1 is a real-hardware proxy for IME **geometry and data
   movement** (A and B in vector registers, C in a register pair, 4x8x4 per instruction)
   at int8. It is not a proxy for FP numerics. `xsmt_gemm` reports IME and scalar GEMM
   times for a 16x16x64 problem as a first data point.
