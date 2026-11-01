@@ -26,11 +26,21 @@ by every row block), and the same transposing load reads the panel. **Edges
 are padded**: a block cut by M or N, a K tail, or an unaligned A goes through
 zero-padded staging buffers (scalar copies), so every product goes through
 the unit. Needs Zvvmtls and Zvvmttls.
+
+**Dual issue.** For a design with ``timing.scalar.issue_width: 2`` the asm statements carry their own
+pointer advances: the tile-load pointers are persistent ``+r`` operands (one per A / B tile, each at the
+K step its next load reads), and each load is followed by one ``add`` that moves its pointer a K chunk on.
+:func:`framework.naiad.emit.dual_sched.schedule` orders the statement so every advance pairs with a tile op
+(a vector / matrix op takes the vec port, a scalar ``add`` the other slot), where the single-issue text
+leaves the compiler to compute ``bm + bn`` pointers before each statement, none of which can pair with the
+statement that needs it. The tile ops keep their order and operands; single issue emits the same text as
+before.
 """
 
 import math
 
 from framework.matrix import ime
+from framework.naiad.emit import dual_sched
 
 #: Format -> (C storage type from dwarf_util.h, bytes); only these pairs are emitted.
 C_TYPES = {
@@ -85,6 +95,13 @@ class PairPlan:
         self.timing = getattr(getattr(design, "timing", None), "matrix", None)
         self.vtiming = getattr(getattr(design, "timing", None), "vector", None)
         self.load_latency = self._load_latency(design)
+        #: ``timing.scalar.issue_width`` 2: the tile-load pointers are advanced inside the asm statement
+        #: (one ``add`` after each load, which pairs with it), not recomputed by the compiler before it.
+        scalar = getattr(getattr(design, "timing", None), "scalar", None)
+        self.dual = getattr(scalar, "issue_width", 1) >= 2 and (
+            self.lam * 8 * self.sew // 8
+            <= 2047  # the A advance is an addi of K_eff-chunk bytes
+        )
         self.bm, self.bn, self.lmul, self.db = self._choose(block)
         self.ke = self.lam * self.w * self.lmul
         self.mb, self.nb = self.bm * self.m, self.bn * self.m
@@ -101,7 +118,7 @@ class PairPlan:
 
     def _fits(self, bm, bn, lmul, db):
         regs = bm * bn * self.emul_c + (bm + bn) * lmul * (2 if db else 1)
-        operands = bm * bn + (3 if db else 2) * (bm + bn) + 4
+        operands = bm * bn + (3 if db else 2) * (bm + bn) + 4 + (1 if self.dual else 0)
         return regs <= 32 and operands <= _ASM_OPERANDS
 
     def _step_cycles(self, bm, bn, lmul, db):
@@ -227,6 +244,8 @@ class PairPlan:
         """One asm statement: optionally vsetvl, the tile loads of ``step`` into set ``load``,
         then every multiply-accumulate on set ``use`` (sets are the suffixes ``x`` / ``y``)."""
         s = self
+        if s.dual and load is not None:
+            return self._asm_dual(mma, load, use, vsetvl, indent)
         cs = [(i, j) for i in range(s.bm) for j in range(s.bn)]
         ls = s.lam * s.lmul
         L = []
@@ -275,6 +294,88 @@ class PairPlan:
         ]
         return L
 
+    def _asm_dual(self, mma, load, use, vsetvl, indent):
+        """:meth:`_asm` for the dual-issue front end: the tile loads read persistent pointers (``pa<i>`` /
+        ``pb<j>``, each ``+r``) that the statement itself advances to the next K step, with one ``add``
+        after each load, and :func:`dual_sched.schedule` orders the statement so every advance pairs with
+        a tile op. The compiler has no pointer arithmetic left to place between the statements."""
+        s = self
+        cs = [(i, j) for i in range(s.bm) for j in range(s.bn)]
+        eb = s.sew // 8
+        vl_ = 'NAIAD_STR(NAIAD_IME_VMTL_V_OPCODE) ", 7, " NAIAD_STR(NAIAD_IME_VMTL_V_FUNCT7)'
+        tl_ = 'NAIAD_STR(NAIAD_IME_VMTTL_V_OPCODE) ", 7, " NAIAD_STR(NAIAD_IME_VMTTL_V_FUNCT7)'
+        outs = [f'[c{i}{j}] "+vr"(c{i}{j})' for i, j in cs]
+        ins = []
+        ops = []
+        if vsetvl:
+            ops.append(
+                dual_sched.Op(
+                    '"vsetvl %[t], zero, %[vt]\\n\\t"', ("vt",), ("vtype", "t"), True
+                )
+            )
+            outs.append('[t] "=&r"(t)')
+            ins.append('[vt] "r"(vt_k)')
+        for i in range(s.bm):
+            ops.append(
+                dual_sched.Op(
+                    f'".insn r " {vl_} ", %[a{i}{load}], %[pa{i}], %[lda]\\n\\t"',
+                    (f"pa{i}", "vtype"),
+                    (f"a{i}{load}",),
+                    True,
+                )
+            )
+            ops.append(
+                dual_sched.Op(
+                    f'"addi %[pa{i}], %[pa{i}], {s.lam * s.lmul * eb}\\n\\t"',
+                    (f"pa{i}",),
+                    (f"pa{i}",),
+                )
+            )
+        for j in range(s.bn):
+            ops.append(
+                dual_sched.Op(
+                    f'".insn r " {tl_} ", %[b{j}{load}], %[pb{j}], %[ldb]\\n\\t"',
+                    (f"pb{j}", "vtype"),
+                    (f"b{j}{load}",),
+                    True,
+                )
+            )
+            ops.append(
+                dual_sched.Op(
+                    f'"add %[pb{j}], %[pb{j}], %[bs]\\n\\t"',
+                    (f"pb{j}", "bs"),
+                    (f"pb{j}",),
+                )
+            )
+        outs += [f'[a{i}{load}] "=&vr"(a{i}{load})' for i in range(s.bm)]
+        outs += [f'[b{j}{load}] "=&vr"(b{j}{load})' for j in range(s.bn)]
+        outs += [f'[pa{i}] "+r"(pa{i})' for i in range(s.bm)]
+        outs += [f'[pb{j}] "+r"(pb{j})' for j in range(s.bn)]
+        ins += ['[lda] "r"(lda_s)', '[ldb] "r"(ldb_s)', '[bs] "r"(bs_)']
+        if use is not None:
+            for i, j in cs:
+                ops.append(
+                    dual_sched.Op(
+                        f'".insn r " NAIAD_STR({mma}_OPCODE) ", " NAIAD_STR({mma}_FUNCT3) ", " NAIAD_STR({mma}_FUNCT7) '
+                        f'", %[c{i}{j}], %[a{i}{use}], %[b{j}{use}]\\n\\t"',
+                        (f"c{i}{j}", f"a{i}{use}", f"b{j}{use}", "vtype"),
+                        (f"c{i}{j}",),
+                        True,
+                    )
+                )
+            if use != load:
+                ins += [f'[a{i}{use}] "vr"(a{i}{use})' for i in range(s.bm)]
+                ins += [f'[b{j}{use}] "vr"(b{j}{use})' for j in range(s.bn)]
+        ordered, _ = dual_sched.schedule(ops)
+        L = [f"{indent}__asm__ volatile("]
+        L += [f"{indent}    {o.text}" for o in ordered]
+        L += [
+            f"{indent}    : {', '.join(outs)}",
+            f"{indent}    : {', '.join(ins)}",
+            f'{indent}    : "memory");',
+        ]
+        return L
+
     def _ukernel(self, p, st, vab, vc, eb, mma):
         s = self
         cs = [(i, j) for i in range(s.bm) for j in range(s.bn)]
@@ -298,6 +399,21 @@ class PairPlan:
             f"    const {st} *ap = (const {st} *)a, *bp = (const {st} *)b;",
             f"    const long n = kc / {s.ke};",
             "    unsigned long t;",
+        ]
+        if s.dual:
+            # one persistent pointer per tile load, at step 0; the asm statements advance them
+            L += [
+                f"    const long bs_ = {s.lam * s.lmul}L * ldb_s * {s.sew // 8};",
+                *[
+                    f"    const char *pa{i} = (const char *)(ap + {i * s.m}L * lda_s);"
+                    for i in range(s.bm)
+                ],
+                *[
+                    f"    const char *pb{j} = (const char *)(bp + {j * s.m}L);"
+                    for j in range(s.bn)
+                ],
+            ]
+        L += [
             "    if (accumulate) {",
             "        ime_vsetvlmax(vt_c);",
         ]

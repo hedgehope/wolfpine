@@ -1,7 +1,8 @@
 """The design parameters the cost model reads, flattened out of a Naiad design.
 
 :class:`Machine` is everything the per-dwarf formulas need to know about the
-hardware, and nothing else: issue width (one instruction a cycle), per-class
+hardware, and nothing else: issue width (one instruction a cycle, or two at
+``timing.scalar.issue_width: 2``), per-class
 scalar latencies, the data region's latency and bandwidth, the vector unit's
 datapath / LSU, and the matrix unit's shape, peak and transfer paths. Every
 field comes from the design's ``timing:`` section (or that section's documented
@@ -22,8 +23,11 @@ FORMAT_BYTES = {"fp64": 8, "fp32": 4, "fp16": 2, "bf16": 2, "int8": 1, "int32": 
 
 @dataclass(frozen=True)
 class Scalar:
-    """In-order single-issue core: result latencies per class (1 = back to back)."""
+    """In-order core: result latencies per class (1 = back to back); ``issue_width`` 1 or 2."""
 
+    #: ``timing.scalar.issue_width``. At 2 the engine pairs adjacent instructions by the simulator's
+    #: rules (two ALU pipes; one each of memory, mul/div, FP and vector/matrix dispatch).
+    issue_width: int = 1
     alu: int = 1
     mul: int = 3
     div: int = 20

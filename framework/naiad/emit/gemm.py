@@ -40,6 +40,12 @@ Every encoding (format codes, opcodes) comes from ``naiad.h`` through
 ``matrix.h``; the emitted shape and blocking are checked against ``naiad.h`` at
 compile time, so a stale header fails to build rather than computing garbage.
 
+**Dual issue.** For a design with ``timing.scalar.issue_width: 2`` the K loop (``_kbody``) keeps one
+persistent pointer per tile and advances it inside the tile-load statement that reads it
+(``mx_tload_a_adv`` / ``mx_tload_b_adv``: the load, then one ``add`` in the same asm), so the advance
+pairs with the next matrix op instead of an address computation sitting in front of every load. Single
+issue emits the text it always did.
+
 The attached mode (AME) is this module; an IME design gets the IME micro-kernel
 (:mod:`framework.naiad.emit.gemm_ime`, same API) and a VME design the Zvt
 driver (:mod:`framework.naiad.emit.gemm_vme`: the driver half of the API, with
@@ -78,6 +84,12 @@ class Blocking:
         return (self.bm + self.bn) * (2 if self.double_buffer else 1)
 
 
+def _issue_width(design):
+    timing = getattr(design, "timing", None)
+    scalar = getattr(timing, "scalar", None)
+    return getattr(scalar, "issue_width", 1) or 1
+
+
 @dataclass(frozen=True)
 class GemmShape:
     """What the emitter needs from a design's ``matrix:`` section."""
@@ -91,6 +103,9 @@ class GemmShape:
     in_formats: tuple
     acc_formats: tuple
     name: str = "design"
+    #: ``timing.scalar.issue_width``: at 2 the K loop walks persistent pointers advanced in the
+    #: tile-load statements (``mx_tload_*_adv``), so the advance pairs with a matrix op.
+    issue_width: int = 1
 
     @classmethod
     def from_design(cls, design):
@@ -112,6 +127,7 @@ class GemmShape:
             in_formats=tuple(mx.in_formats),
             acc_formats=tuple(mx.acc_formats),
             name=design.name,
+            issue_width=_issue_width(design),
         )
 
 
@@ -226,6 +242,19 @@ class _PairEmitter:
         ]
         return _interleave(la, lb)
 
+    def loads_adv(self, buf):
+        """The K loop's loads at ``issue_width`` 2: one persistent pointer per tile (``pa<i>`` / ``pb<j>``),
+        each advanced to the next K step by the load that reads it."""
+        la = [
+            f"mx_tload_a_adv({self.a_tile(buf, i)}, {self.IN}, pa{i}, sa, abump);"
+            for i in range(self.b.bm)
+        ]
+        lb = [
+            f"mx_tload_b_adv({self.b_tile(buf, j)}, {self.IN}, pb{j}, sb, bbump);"
+            for j in range(self.b.bn)
+        ]
+        return _interleave(la, lb)
+
     def mmas(self, buf, guard=False):
         out = []
         for i in range(self.b.bm):
@@ -236,6 +265,50 @@ class _PairEmitter:
                 )
                 out.append(f"if (rv[{i}] > 0 && cv[{j}] > 0) {mma}" if guard else mma)
         return out
+
+    def _emit_kbody_dual(self, w):
+        """The K loop for the dual-issue front end: one persistent pointer per tile, advanced to the next
+        K step inside the tile-load statement that reads it (``mx_tload_*_adv``), so the advance pairs
+        with the matrix op after the load and no address computation sits in front of a load."""
+        s, b = self.s, self.b
+        w(
+            f"    const long abump = {s.k * self.ies}, bbump = {s.k} * sb; /* bytes to the next K step */"
+        )
+        # the pointers name step 1: step 0 was loaded by _kload0, and every load advances its pointer
+        for i in range(b.bm):
+            w(f"    const char *pa{i} = (const char *)(A + {i * s.m} * lda + {s.k});")
+        for j in range(b.bn):
+            w(f"    const char *pb{j} = (const char *)(B + {s.k} * ldb + {j * s.n});")
+        if b.double_buffer:
+            w(
+                "    /* Double-buffered: buffer 0 holds even steps, buffer 1 odd ones; the loads of"
+            )
+            w("       the next step issue between the mma of this one. */")
+            w("    long s = 0;")
+            w("    for (; s + 2 <= steps; s += 2) {")
+            for line in _interleave(self.loads_adv(1), self.mmas(0)):
+                w(f"        {line}")
+            w("        if (s + 2 < steps) {")
+            for line in _interleave(self.loads_adv(0), self.mmas(1)):
+                w(f"            {line}")
+            w("        } else {")
+            for line in self.mmas(1):
+                w(f"            {line}")
+            w("        }")
+            w("    }")
+            w("    if (s < steps) {")
+            for line in self.mmas(0):
+                w(f"        {line}")
+            w("    }")
+        else:
+            w("    for (long s = 0; s < steps; s++) {")
+            w("        if (s) {")
+            for line in self.loads_adv(0):
+                w(f"            {line}")
+            w("        }")
+            for line in self.mmas(0):
+                w(f"        {line}")
+            w("    }")
 
     def emit(self):
         s, b, p = self.s, self.b, self.p
@@ -327,44 +400,47 @@ class _PairEmitter:
         w(
             f"    const long sa = lda * (long)sizeof({it}), sb = ldb * (long)sizeof({it});"
         )
-        w(f"    const long bstep = {s.k} * ldb;")
-        w(f"    const {it} *a = A, *b = B;")
-        if b.double_buffer:
-            w(
-                "    /* Double-buffered: buffer 0 holds even steps, buffer 1 odd ones; the loads of"
-            )
-            w("       the next step issue between the mma of this one. */")
-            w("    long s = 0;")
-            w("    for (; s + 2 <= steps; s += 2) {")
-            w(f"        const {it} *a1 = a + {s.k}, *b1 = b + bstep;")
-            for line in _interleave(self.loads(1, "a1", "b1"), self.mmas(0)):
-                w(f"        {line}")
-            w("        if (s + 2 < steps) {")
-            w(f"            const {it} *a2 = a + {2 * s.k}, *b2 = b + 2 * bstep;")
-            for line in _interleave(self.loads(0, "a2", "b2"), self.mmas(1)):
-                w(f"            {line}")
-            w("        } else {")
-            for line in self.mmas(1):
-                w(f"            {line}")
-            w("        }")
-            w(f"        a += {2 * s.k};")
-            w("        b += 2 * bstep;")
-            w("    }")
-            w("    if (s < steps) {")
-            for line in self.mmas(0):
-                w(f"        {line}")
-            w("    }")
+        if s.issue_width >= 2:
+            self._emit_kbody_dual(w)
         else:
-            w("    for (long s = 0; s < steps; s++) {")
-            w("        if (s) {")
-            for line in self.loads(0, "a", "b"):
-                w(f"            {line}")
-            w("        }")
-            for line in self.mmas(0):
-                w(f"        {line}")
-            w(f"        a += {s.k};")
-            w("        b += bstep;")
-            w("    }")
+            w(f"    const long bstep = {s.k} * ldb;")
+            w(f"    const {it} *a = A, *b = B;")
+            if b.double_buffer:
+                w(
+                    "    /* Double-buffered: buffer 0 holds even steps, buffer 1 odd ones; the loads of"
+                )
+                w("       the next step issue between the mma of this one. */")
+                w("    long s = 0;")
+                w("    for (; s + 2 <= steps; s += 2) {")
+                w(f"        const {it} *a1 = a + {s.k}, *b1 = b + bstep;")
+                for line in _interleave(self.loads(1, "a1", "b1"), self.mmas(0)):
+                    w(f"        {line}")
+                w("        if (s + 2 < steps) {")
+                w(f"            const {it} *a2 = a + {2 * s.k}, *b2 = b + 2 * bstep;")
+                for line in _interleave(self.loads(0, "a2", "b2"), self.mmas(1)):
+                    w(f"            {line}")
+                w("        } else {")
+                for line in self.mmas(1):
+                    w(f"            {line}")
+                w("        }")
+                w(f"        a += {2 * s.k};")
+                w("        b += 2 * bstep;")
+                w("    }")
+                w("    if (s < steps) {")
+                for line in self.mmas(0):
+                    w(f"        {line}")
+                w("    }")
+            else:
+                w("    for (long s = 0; s < steps; s++) {")
+                w("        if (s) {")
+                for line in self.loads(0, "a", "b"):
+                    w(f"            {line}")
+                w("        }")
+                for line in self.mmas(0):
+                    w(f"        {line}")
+                w(f"        a += {s.k};")
+                w("        b += bstep;")
+                w("    }")
         w("}")
         w("")
         w(f"/* Accumulators += A[{MB} x steps*{s.k}] . B[steps*{s.k} x {NB}]. */")

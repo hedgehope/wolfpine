@@ -73,6 +73,17 @@
                      : [op] "i"(NAIAD_MI_##insn##_OPCODE), [f3] "i"(NAIAD_MI_##insn##_FUNCT3),     \
                        [f7] "i"(f7_), [rd] "i"(d_), [ra] "i"(a_), [rb] "i"(b_))
 
+/* The same, then `add base, base, bump` in the same asm statement: the base register is advanced
+ * where the load reads it. A dual-issue core (timing.scalar.issue_width 2) pairs the add with the
+ * load's slot-0 successor instead of waiting out an address computation in front of the next load,
+ * so the emitted K loops (framework/naiad/emit) use these for the pointers they walk. */
+#define MX_R_IRR_ADV(insn, f7_, idx_, r1_, r2_, bump_)                                                 \
+    __asm__ volatile(".insn r %[op], %[f3], %[f7], x%[i], %[a], %[b]\n\tadd %[a], %[a], %[n]"       \
+                     : [a] "+r"(r1_)                                                               \
+                     : [op] "i"(NAIAD_MI_##insn##_OPCODE), [f3] "i"(NAIAD_MI_##insn##_FUNCT3),     \
+                       [f7] "i"(f7_), [i] "i"(idx_), [b] "r"(r2_), [n] "r"(bump_)                      \
+                     : "memory")
+
 /* -- tiles ---------------------------------------------------------------- */
 
 MX_INLINE void mx_tload_a(const int t, const int fmt, const void *base, long stride) {
@@ -84,6 +95,12 @@ MX_INLINE void mx_tload_b(const int t, const int fmt, const void *base, long str
 }
 
 /* From memory holding the transpose: K rows of M (for a) or N rows of K (for b). */
+/* base must be an lvalue pointer; it is advanced by bump bytes after the load. */
+#define mx_tload_a_adv(t, fmt, base, stride, bump) \
+    MX_R_IRR_ADV(TLOAD_A, (fmt) << NAIAD_MI_TLOAD_A_FMT_SHIFT, t, base, stride, bump)
+#define mx_tload_b_adv(t, fmt, base, stride, bump) \
+    MX_R_IRR_ADV(TLOAD_B, (fmt) << NAIAD_MI_TLOAD_B_FMT_SHIFT, t, base, stride, bump)
+
 MX_INLINE void mx_tload_at(const int t, const int fmt, const void *base, long stride) {
     MX_R_IRR(TLOAD_A, (fmt << NAIAD_MI_TLOAD_A_FMT_SHIFT) | (1 << NAIAD_MI_TLOAD_A_T_SHIFT), t, base, stride);
 }

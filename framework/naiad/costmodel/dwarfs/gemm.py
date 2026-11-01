@@ -418,14 +418,31 @@ def vme(m, size, in_fmt, acc_fmt):
     blocks = math.ceil(M / plan.mb) * math.ceil(N / plan.nb)
     init_ops = plan.mps + 6
     store_ops = 3 * plan.mps * geo.e + 4 * plan.bm
+    width = m.scalar.issue_width
+    store_cycles = None
+    pair_cycles = 2 * 3  # a row load and a column store, three issue slots each
+    if width >= 2:
+        # dual issue: the emitter orders the tile moves and the C store for the front end, and its own
+        # scheduler says how many cycles they take
+        deltas = [plan.a_offset(c + 1, 0) - plan.a_offset(c, 0) for c in range(geo.e)]
+        moved = gemm_vme.dual_move_cycles(geo, costs, deltas)
+        if moved is not None:
+            pair_cycles = moved
+        if plan.bn <= gemm_vme.MAX_DUAL_BN:
+            # per block row: the schedule, the per-column pointer and index set-up, the loop control
+            store_cycles = plan.bm * (
+                gemm_vme.dual_store_cycles(geo, costs, plan.bn)
+                + math.ceil((2 * plan.bn + 2) / 2)
+            )
     nb = steps // plan.u
+    args = (init_ops, store_ops, width, store_cycles)
     if nb <= 3:
-        cyc, _ = gemm_vme._simulate(sched, costs, steps, init_ops, store_ops)
+        cyc, _ = gemm_vme._simulate(sched, costs, steps, *args)
     else:
-        c2, _ = gemm_vme._simulate(sched, costs, 2 * plan.u, init_ops, store_ops)
-        c3, _ = gemm_vme._simulate(sched, costs, 3 * plan.u, init_ops, store_ops)
+        c2, _ = gemm_vme._simulate(sched, costs, 2 * plan.u, *args)
+        c3, _ = gemm_vme._simulate(sched, costs, 3 * plan.u, *args)
         cyc = c2 + (nb - 2) * (c3 - c2)
-    transpose = 2 * 3 * math.ceil(M * K / geo.e)
+    transpose = math.ceil(pair_cycles * math.ceil(M * K / geo.e))
     e = new_engine(m)
     e.add_cycles(blocks * cyc + transpose + 30)
     return e

@@ -8,7 +8,8 @@ into accumulator 0 from tiles 1 and 2", "a 128-byte vector load". The
 to real instructions (``framework.pe.rv.timing.core``,
 ``framework.pe.rv.timing.vector``, ``framework.matrix.timing``):
 
-* one instruction issues per cycle, in program order, once every operand is
+* one instruction issues per cycle (two at ``Scalar.issue_width`` 2, when the pair needs different
+  pipes: see :data:`P_SINGLE`), in program order, once every operand is
   ready and the unit it needs is free (an instruction that waits holds up
   everything behind it);
 * per-class result latencies; divides and FP divide/sqrt unpipelined; a taken
@@ -75,6 +76,14 @@ _LATENCY_FIELD = {
 }
 
 
+#: Issue pipes (``framework.pe.rv.timing.core``): at ``issue_width`` 2 two instructions pair
+#: unless both need one of the single pipes, the first ends the issue group, or either issues alone.
+P_MEM, P_MULDIV, P_FP, P_VEC = 1, 2, 4, 8
+P_SINGLE = P_MEM | P_MULDIV | P_FP | P_VEC
+P_CTRL = 16  # a branch or jump: nothing issues after it in its cycle
+P_ALONE = 32  # a CSR access: issues alone
+
+
 @dataclass(frozen=True)
 class VGroup:
     """A vector register group as a chained operand: its registers in order, and how they are read.
@@ -134,6 +143,10 @@ class Engine:
         #: Set to a list to record ``(issue cycle, op)`` for every instruction (debugging).
         self.log = None
         self.label = None
+        #: Dual issue (``Machine.scalar.issue_width`` 2): the cycle and pipes of the last instruction
+        #: if it issued in slot 0 and slot 1 of its cycle is still free, else None.
+        self.width = machine.scalar.issue_width
+        self._open = None
 
     # -- helpers ----------------------------------------------------------------
 
@@ -145,17 +158,41 @@ class Engine:
                 c = v
         return c
 
-    def _issue_at(self, *times):
+    def _issue_at(self, *times, pipes=0):
+        """Issue one instruction needing ``pipes`` once every ``times`` has passed; returns its cycle.
+
+        Single issue: the first cycle at or after ``self.t``. Dual issue: also slot 1 of the previous
+        instruction's cycle when it pairs (the simulator's ``DualIssueCostState`` rules) and
+        everything it waits for is already there.
+        """
         c = self.t
         for v in times:
             if v > c:
                 c = v
+        if self.width > 1:
+            prev, self._open = self._open, None
+            if prev is not None and c <= prev[0] + 1 and self.t <= prev[0] + 1:
+                at = prev[0]
+                if (
+                    all(v <= at for v in times)
+                    and not (pipes | prev[1]) & P_ALONE
+                    and not prev[1] & P_CTRL
+                    and not prev[1] & pipes & P_SINGLE
+                ):
+                    self.t = at + 1
+                    self._log(at)
+                    return at
+            if not pipes & (P_CTRL | P_ALONE):
+                self._open = (c, pipes)
         self.t = c + 1
+        self._log(c)
+        return c
+
+    def _log(self, c):
         if self.log is not None:
             import sys
 
-            self.log.append((c, self.label or sys._getframe(1).f_code.co_name))
-        return c
+            self.log.append((c, self.label or sys._getframe(2).f_code.co_name))
 
     # -- scalar -----------------------------------------------------------------
 
@@ -164,10 +201,26 @@ class Engine:
         if n <= 0:
             return
         c = self._issue_at(self._at(self.ready, srcs))
-        self.t = c + n
+        last = c
+        if self.width > 1:
+            # two ALU pipes: the rest pair up (slot 1 of this cycle first, if it is free)
+            rest = n - 1
+            if self._open is not None and rest:
+                rest -= 1
+                self._open = None
+            if rest:
+                last = c + (rest + 1) // 2
+                if rest % 2 == 0:
+                    self._open = None
+                else:
+                    self._open = (last, 0)
+                self.t = last + 1
+        else:
+            last = c + n - 1
+            self.t = c + n
         self.instret["scalar"] += n
         if dst is not None:
-            self.ready[dst] = c + n - 1 + self.lat["alu"]
+            self.ready[dst] = last + self.lat["alu"]
 
     def op(self, kind, dst=None, srcs=()):
         """One scalar instruction of class ``kind`` (see ``_LATENCY_FIELD``)."""
@@ -177,7 +230,10 @@ class Engine:
             unit = "div"
         elif kind in ("fdiv", "fsqrt") and not self.m.scalar.fp_div_pipelined:
             unit = "fdiv"
-        c = self._issue_at(self._at(self.ready, srcs), self.unit.get(unit, 0))
+        pipes = {"mul": P_MULDIV, "div": P_MULDIV, "csr": P_ALONE}.get(kind, P_FP)
+        c = self._issue_at(
+            self._at(self.ready, srcs), self.unit.get(unit, 0), pipes=pipes
+        )
         if unit is not None:
             self.unit[unit] = c + lat
         if dst is not None:
@@ -188,7 +244,10 @@ class Engine:
     def load(self, dst=None, srcs=(), after=(), fp=False):
         """A scalar load; ``after`` names memory tokens of asynchronous stores it must wait for."""
         c = self._issue_at(
-            self._at(self.ready, srcs), self.lsu, self._at(self.mem, after)
+            self._at(self.ready, srcs),
+            self.lsu,
+            self._at(self.mem, after),
+            pipes=P_MEM,
         )
         if dst is not None:
             self.ready[dst] = c + self.m.load_latency
@@ -196,13 +255,13 @@ class Engine:
         return c
 
     def store(self, srcs=(), fp=False):
-        c = self._issue_at(self._at(self.ready, srcs), self.lsu)
+        c = self._issue_at(self._at(self.ready, srcs), self.lsu, pipes=P_MEM)
         self.lsu = c + self.m.scalar.store
         self.instret["fp" if fp else "scalar"] += 1
         return c
 
     def branch(self, taken=True, srcs=()):
-        c = self._issue_at(self._at(self.ready, srcs))
+        c = self._issue_at(self._at(self.ready, srcs), pipes=P_CTRL)
         if taken and self.m.scalar.branch_taken:
             self.t = c + 1 + self.m.scalar.branch_taken
         self.instret["scalar"] += 1
@@ -214,7 +273,7 @@ class Engine:
     # -- vector -------------------------------------------------------------------
 
     def vset(self, dst=None):
-        c = self._issue_at()
+        c = self._issue_at(pipes=P_VEC)
         if dst is not None:
             self.ready[dst] = c + 1
         self.instret["vector"] += 1
@@ -316,7 +375,7 @@ class Engine:
             vat = self._chain_at(srcs, sgroups, n, occ, beats)
         else:
             vat = self._at(self.vready, srcs)
-        c = self._issue_at(vat, self._at(self.ready, xsrcs), self.vunit)
+        c = self._issue_at(vat, self._at(self.ready, xsrcs), self.vunit, pipes=P_VEC)
         done = c + occ + v.startup
         if kind == "red":
             lanes = max(1, v.datapath_bits // sew)
@@ -370,7 +429,11 @@ class Engine:
             else:
                 vat = self._at(self.vready, srcs)
         c = self._issue_at(
-            vat, self._at(self.ready, xsrcs), self.vlsu, self._at(self.mem, after)
+            vat,
+            self._at(self.ready, xsrcs),
+            self.vlsu,
+            self._at(self.mem, after),
+            pipes=P_VEC | P_MEM,
         )
         self.vlsu = c + t
         self.busy["vector_mem"] += t
@@ -402,7 +465,9 @@ class Engine:
             vat = self._chain_at(names, sgroups, n or t, t, t)
         else:
             vat = self._at(self.vready, names)
-        c = self._issue_at(vat, self._at(self.ready, xsrcs), self.vlsu)
+        c = self._issue_at(
+            vat, self._at(self.ready, xsrcs), self.vlsu, pipes=P_VEC | P_MEM
+        )
         self.vlsu = c + t
         self.busy["vector_mem"] += t
         if token is not None:
@@ -429,6 +494,7 @@ class Engine:
             acc_wait,
             self.acc_rfree.get(acc, 0),
             self.pipe["mma"],
+            pipes=P_VEC,
         )
         self.pipe["mma"] = c + ii
         self.busy["mma"] += ii
@@ -466,6 +532,7 @@ class Engine:
                 for a in accs_written
             ),
             self.pipe[pipe] if pipe else 0,
+            pipes=P_VEC,
         )
         if pipe:
             self.pipe[pipe] = c + ii
@@ -515,6 +582,7 @@ class Engine:
             dst_wait,
             self.pipe["load"],
             self._at(self.mem, after),
+            pipes=P_VEC | P_MEM,
         )
         t = transfer(nbytes, x.tile_load_bandwidth, self.m.memory.bandwidth)
         self.pipe["load"] = c + t
@@ -544,7 +612,12 @@ class Engine:
             )
             return self.tstore(st, nbytes, xsrcs, token=token)
         src_wait = (self.acc_ready if acc else self.tile_ready).get(src, 0)
-        c = self._issue_at(self._at(self.ready, xsrcs), src_wait, self.pipe["store"])
+        c = self._issue_at(
+            self._at(self.ready, xsrcs),
+            src_wait,
+            self.pipe["store"],
+            pipes=P_VEC | P_MEM,
+        )
         t = transfer(nbytes, x.tile_store_bandwidth, self.m.memory.bandwidth)
         self.pipe["store"] = c + t
         self.busy["store"] += t
@@ -559,7 +632,9 @@ class Engine:
 
     def azero(self, acc):
         x = self.m.ame
-        c = self._issue_at(self.acc_rfree.get(acc, 0), self.acc_ready.get(acc, 0))
+        c = self._issue_at(
+            self.acc_rfree.get(acc, 0), self.acc_ready.get(acc, 0), pipes=P_VEC
+        )
         self.acc_ready[acc] = self.acc_mready[acc] = c + x.azero
         self.instret["matrix"] += 1
         return c
@@ -570,6 +645,7 @@ class Engine:
         c = self._issue_at(
             self.tile_ready.get(src, 0),
             max(self.tile_ready.get(dst, 0), self.tile_rfree.get(dst, 0)),
+            pipes=P_VEC,
         )
         self.tile_ready[dst] = c + lat
         self.tile_rfree[src] = max(self.tile_rfree.get(src, 0), c + lat)
@@ -582,6 +658,8 @@ class Engine:
         if d <= 0:
             return
         self.t += d
+        if self._open is not None and self._open[0] >= since:
+            self._open = (self._open[0] + d, self._open[1])
         for table in (
             self.ready,
             self.unit,
@@ -650,10 +728,12 @@ class Engine:
         for v in (*self.pipe.values(), self.vlsu, self.vunit):
             c = max(c, v)
         self.t = c
+        self._open = None
 
     def add_cycles(self, n):
         """Serial cycles a formula computes outside the engine (an emitter's own schedule model)."""
         self.t += n
+        self._open = None
 
     @property
     def cycles(self):
@@ -869,7 +949,14 @@ class BoundEngine(Engine):
 
     @property
     def cycles(self):
-        par = max((v for k, v in self.demand.items() if k != "serial"), default=0)
+        par = max(
+            (
+                v / self.width if k == "issue" else v
+                for k, v in self.demand.items()
+                if k != "serial"
+            ),
+            default=0,
+        )
         return int(round(par + self.demand["serial"])) or 1
 
     @property

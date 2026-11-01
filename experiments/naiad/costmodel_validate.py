@@ -29,6 +29,7 @@ import math
 import statistics
 import sys
 from collections import defaultdict
+from functools import cache
 from pathlib import Path
 
 from framework.naiad import costmodel
@@ -42,6 +43,15 @@ def _size(value):
     if isinstance(value, list):
         return tuple(_size(v) for v in value)
     return value
+
+
+@cache
+def _issue_width(design_path):
+    """``timing.scalar.issue_width`` of a stored design file (1 when it has no timing section)."""
+    import yaml
+
+    raw = yaml.safe_load(Path(design_path).read_text()) or {}
+    return int(((raw.get("timing") or {}).get("scalar") or {}).get("issue_width", 1))
 
 
 def load_points(out_dir, source=None):
@@ -69,6 +79,7 @@ def load_points(out_dir, source=None):
                     "seed": int(r["seed"] or 0),
                     "cflags": tuple(p.get("extra_cflags") or ()),
                     "design": str(out_dir / r["design_file"]),
+                    "issue_width": _issue_width(str(out_dir / r["design_file"])),
                     "design_hash": r["design_hash"],
                     "mv_ratio": float(r["mv_ratio"]) if r.get("mv_ratio") else None,
                     "sim": int(r["region_cycles"]),
@@ -171,6 +182,7 @@ def decisions(preds):
             p["in_fmt"],
             p["acc_fmt"],
             p["cflags"],
+            p["issue_width"],
         )
         mod = costmodel.dwarf_module(p["dwarf"])
         if p["variant"] in getattr(mod, "redundant", lambda _m: set())(
@@ -213,6 +225,7 @@ def decisions(preds):
                     "in_fmt": key[4],
                     "acc_fmt": key[5],
                     "cflags": " ".join(key[6]),
+                    "issue_width": key[7],
                     "design_hash": dh or "",
                     "mv_ratio": next(
                         (c["mv_ratio"] for c in mats.values() if c["mv_ratio"]), None
@@ -244,6 +257,7 @@ def crossovers(preds, baseline="rvv"):
             p["in_fmt"],
             p["acc_fmt"],
             p["cflags"],
+            p["issue_width"],
         )
         if p["variant"] == baseline:
             bases[key] = p
@@ -268,7 +282,8 @@ def crossovers(preds, baseline="rvv"):
                 "size": gk[3],
                 "in_fmt": gk[4],
                 "acc_fmt": gk[5],
-                "variant": gk[7],
+                "issue_width": gk[7],
+                "variant": gk[8],
                 "baseline": baseline,
                 "points": len(ps),
                 "sim_crossover": x_sim,
@@ -377,17 +392,25 @@ def figure(panels, path):
     plt.close(fig)
 
 
-def report(name, timing, skipped=None):
+def report(name, timing, skipped=None, table=True):
     summary = summarise(timing)
     dec = decisions(timing)
     xo = crossovers(timing) + crossovers(timing, "scalar")
     print(f"\n=== {name} model: {len(timing)} unique points")
     for (d, v, why), n in sorted((skipped or {}).items()):
         print(f"  skipped {d}/{v}: {n} ({why})")
-    print(f"{'dwarf':12s}{'variant':11s}{'n':>5s}{'median':>9s}{'max':>9s}{'bias':>9s}")
-    for s in summary:
+    if table:
         print(
-            f"{s['dwarf']:12s}{s['variant']:11s}{s['n']:5d}{s['median_abs_err']:9.1%}{s['max_abs_err']:9.1%}{s['mean_signed_err']:+9.1%}"
+            f"{'dwarf':12s}{'variant':11s}{'n':>5s}{'median':>9s}{'max':>9s}{'bias':>9s}"
+        )
+        for s in summary:
+            print(
+                f"{s['dwarf']:12s}{s['variant']:11s}{s['n']:5d}{s['median_abs_err']:9.1%}{s['max_abs_err']:9.1%}{s['mean_signed_err']:+9.1%}"
+            )
+    errs = [abs(p["rel_err"]) for p in timing]
+    if errs:
+        print(
+            f"overall: {len(errs)} points, median error {statistics.median(errs):.2%}, max {max(errs):.1%}"
         )
     if dec:
         ok = sum(d["correct"] for d in dec)
@@ -447,6 +470,16 @@ def main(argv=None):
         timing = _unique_timing(preds)
         sfx = "" if model == "schedule" else f"_{model}"
         summary, dec, xo = report(model, timing, skipped)
+        widths = sorted({p["issue_width"] for p in timing})
+        if (
+            len(widths) > 1
+        ):  # a sweep over the front end: the same numbers per issue width
+            for w in widths:
+                report(
+                    f"{model}, issue_width {w}",
+                    [p for p in timing if p["issue_width"] == w],
+                    table=False,
+                )
         write_csv(out / f"predictions{sfx}.csv", preds)
         write_csv(out / f"summary{sfx}.csv", summary)
         write_csv(out / f"decisions{sfx}.csv", dec)

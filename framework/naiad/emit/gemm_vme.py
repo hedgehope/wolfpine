@@ -680,8 +680,13 @@ def _orders(loads, stream, u, units):
     return sum(1 for ld in loads if ld.stream == stream) * u // units
 
 
-def _simulate(sched, costs, steps, init_ops, store_ops):
-    """Modelled ``(cycles, instructions)`` of one block: prologue, ``steps / U`` bodies, init and store."""
+def _simulate(sched, costs, steps, init_ops, store_ops, width=1, store_cycles=None):
+    """Modelled ``(cycles, instructions)`` of one block: prologue, ``steps / U`` bodies, init and store.
+
+    ``width`` 2 models the dual-issue front end for the scalar work: an ALU op pairs with the vector /
+    matrix op before it and two ALU ops pair with each other (the shape choice itself is single-issue:
+    ``width`` is only for predicting a built kernel). ``store_cycles``, when given, replaces the
+    ``store_ops`` instruction count with a cycle count (the dual-issue store's own schedule)."""
     plan = sched.plan
     g = plan.geo
     ra, rb = plan.rings()
@@ -700,13 +705,24 @@ def _simulate(sched, costs, steps, init_ops, store_ops):
     mma_free = 0
     tile_ready = {}
 
+    free_slot = (
+        False  # the last vec op issued in slot 0 and slot 1 of its cycle is free
+    )
+
     def alu(k=1):
-        nonlocal cyc, instr
-        cyc += k
+        nonlocal cyc, instr, free_slot
         instr += k
+        if width < 2:
+            cyc += k
+            return
+        if free_slot and k:
+            k -= 1
+            free_slot = False
+        cyc += (k + 1) // 2
+        free_slot = k % 2 == 1
 
     def op(o):
-        nonlocal cyc, lsu, instr
+        nonlocal cyc, lsu, instr, free_slot
         kind, ld, _ = o
         if kind == "adv":
             alu()
@@ -719,9 +735,10 @@ def _simulate(sched, costs, steps, init_ops, store_ops):
             ready[r] = t + costs.load_latency + dt
         cyc = t + 1
         instr += 1
+        free_slot = True
 
     def mma(item):
-        nonlocal cyc, mma_free, instr
+        nonlocal cyc, mma_free, instr, free_slot
         uu, i, j = item
         regs = ra.regs(uu, i) + rb.regs(uu, j)
         tile = (i, j)
@@ -734,6 +751,7 @@ def _simulate(sched, costs, steps, init_ops, store_ops):
             read_until[r] = t + costs.mma_read
         cyc = t + 1
         instr += 1
+        free_slot = True
 
     for o in sched.prologue:
         op(o)
@@ -748,7 +766,11 @@ def _simulate(sched, costs, steps, init_ops, store_ops):
         if b < nb - 1:
             alu(2)
     cyc = max(cyc, mma_free + costs.mma_drain)
-    alu(store_ops)
+    if store_cycles is not None:
+        cyc += store_cycles
+        instr += store_ops
+    else:
+        alu(store_ops)
     return cyc, instr
 
 
@@ -852,6 +874,83 @@ def choose(geo, costs, block=None, ref=REF_SIZE):
 
 def _lcm(a, b):
     return a * b // math.gcd(a, b)
+
+
+def tile_move_ops(g, deltas, zero_la, rows, cols, offset=2):
+    """The A transpose's tile moves as scheduler ops: ``rows`` row loads (``vtle``, a pointer advance
+    and an index advance each) interleaved with ``cols`` column stores (``vtse``), the stores ``offset``
+    behind. A zero row stride (``zero_la``) drops the pointer advance."""
+    e = g.e
+    r_seq, c_seq = [], []
+    for r in range(e):
+        seq = [dual_sched.Op(f"vme_vtle({g.sew}, s_, ti_);", ("s_", "ti_"), (), True)]
+        if r < e - 1:
+            if not zero_la:
+                seq.append(
+                    dual_sched.Op("NAIAD_GEMM_ADD(s_, la);", ("s_", "la"), ("s_",))
+                )
+            seq.append(dual_sched.Op("NAIAD_GEMM_ADDI(ti_, 1);", ("ti_",), ("ti_",)))
+        r_seq.append(seq)
+    for c in range(e):
+        seq = [dual_sched.Op(f"vme_vtse({g.sew}, d_, ts_);", ("d_", "ts_"), (), True)]
+        if c < e - 1:
+            seq += [
+                dual_sched.Op(f"NAIAD_GEMM_ADDI(d_, {deltas[c]});", ("d_",), ("d_",)),
+                dual_sched.Op("NAIAD_GEMM_ADDI(ts_, 1);", ("ts_",), ("ts_",)),
+            ]
+        c_seq.append(seq)
+    ops = []
+    if rows and cols:
+        for r in range(min(offset, e)):
+            ops += r_seq[r]
+        for x in range(e):
+            if x + offset < e:
+                ops += r_seq[x + offset]
+            ops += c_seq[x]
+    else:
+        for seq in (r_seq if rows else []) + (c_seq if cols else []):
+            ops += seq
+    return ops
+
+
+def store_ops_dual(g, bn):
+    """One row of ``bn`` C tiles' store as scheduler ops: ``e`` tile rows of ``vtse`` per column, each with
+    its own pointer and index advance (a register pair per column, so no advance waits on another)."""
+    ops = []
+    for r in range(g.e):
+        for j in range(bn):
+            ops.append(
+                dual_sched.Op(
+                    f"vme_vtse({g.tew}, c{j}_, t{j}_);", (f"c{j}_", f"t{j}_"), (), True
+                )
+            )
+            if r < g.e - 1:
+                ops += [
+                    dual_sched.Op(
+                        f"NAIAD_GEMM_ADD(c{j}_, cs_);", (f"c{j}_", "cs_"), (f"c{j}_",)
+                    ),
+                    dual_sched.Op(
+                        f"NAIAD_GEMM_ADDI(t{j}_, 1);", (f"t{j}_",), (f"t{j}_",)
+                    ),
+                ]
+    return ops
+
+
+def dual_move_cycles(g, costs, deltas):
+    """Steady-state issue cycles of one A-transpose pair (a row load and a column store with their
+    advances) on the dual-issue front end, from the scheduler's own model; ``None`` when the emitter
+    keeps the single-issue text for these strides."""
+    if not all(-2048 <= d < 2048 for d in deltas):
+        return None
+    ops = tile_move_ops(g, deltas, False, True, True)
+    gap = costs.load_time(g.e * g.ies)
+    return dual_sched.schedule(ops, vec_gap=gap)[1] / g.e
+
+
+def dual_store_cycles(g, costs, bn):
+    """Issue cycles of one block row's C store (``bn`` tile columns) on the dual-issue front end."""
+    gap = costs.load_time(g.e * g.aes)
+    return dual_sched.schedule(store_ops_dual(g, bn), vec_gap=gap)[1]
 
 
 class _PairEmitter:
@@ -1057,49 +1156,7 @@ class _PairEmitter:
         gap = self._tile_gap(e * g.ies)
 
         def body(zero_la):
-            r_seq, c_seq = [], []
-            for r in range(e):
-                seq = [
-                    dual_sched.Op(
-                        f"vme_vtle({g.sew}, s_, ti_);", ("s_", "ti_"), (), True
-                    )
-                ]
-                if r < e - 1:
-                    if not zero_la:
-                        seq.append(
-                            dual_sched.Op(
-                                "NAIAD_GEMM_ADD(s_, la);", ("s_", "la"), ("s_",)
-                            )
-                        )
-                    seq.append(
-                        dual_sched.Op("NAIAD_GEMM_ADDI(ti_, 1);", ("ti_",), ("ti_",))
-                    )
-                r_seq.append(seq)
-            for c in range(e):
-                seq = [
-                    dual_sched.Op(
-                        f"vme_vtse({g.sew}, d_, ts_);", ("d_", "ts_"), (), True
-                    )
-                ]
-                if c < e - 1:
-                    seq += [
-                        dual_sched.Op(
-                            f"NAIAD_GEMM_ADDI(d_, {deltas[c]});", ("d_",), ("d_",)
-                        ),
-                        dual_sched.Op("NAIAD_GEMM_ADDI(ts_, 1);", ("ts_",), ("ts_",)),
-                    ]
-                c_seq.append(seq)
-            ops = []
-            if rows and cols:
-                for r in range(min(offset, e)):
-                    ops += r_seq[r]
-                for x in range(e):
-                    if x + offset < e:
-                        ops += r_seq[x + offset]
-                    ops += c_seq[x]
-            else:
-                for seq in (r_seq if rows else []) + (c_seq if cols else []):
-                    ops += seq
+            ops = tile_move_ops(g, deltas, zero_la, rows, cols, offset)
             return [o.text for o in dual_sched.schedule(ops, vec_gap=gap)[0]]
 
         head = ["{"]
@@ -1366,28 +1423,7 @@ class _PairEmitter:
                 f"            unsigned long t{j}_ = (unsigned long)((i * {bn} + {j}) * {g.acc_step}) << 27;"
             )
             w(f"            NAIAD_GEMM_OPAQUE(t{j}_);")
-        ops = []
-        for r in range(e):
-            for j in range(bn):
-                ops.append(
-                    dual_sched.Op(
-                        f"vme_vtse({g.tew}, c{j}_, t{j}_);",
-                        (f"c{j}_", f"t{j}_"),
-                        (),
-                        True,
-                    )
-                )
-                if r < e - 1:
-                    ops += [
-                        dual_sched.Op(
-                            f"NAIAD_GEMM_ADD(c{j}_, cs_);",
-                            (f"c{j}_", "cs_"),
-                            (f"c{j}_",),
-                        ),
-                        dual_sched.Op(
-                            f"NAIAD_GEMM_ADDI(t{j}_, 1);", (f"t{j}_",), (f"t{j}_",)
-                        ),
-                    ]
+        ops = store_ops_dual(g, bn)
         ordered, _ = dual_sched.schedule(ops, vec_gap=self._tile_gap(e * g.aes))
         for o in ordered:
             w(f"            {o.text}")

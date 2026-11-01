@@ -648,3 +648,207 @@ def test_chained_rvv_predictions_track_the_simulator():
         assert p_on <= p_off, dwarf
         # the predicted gain tracks the measured one to within a percentage point
         assert abs((p_on / p_off) - (chained_sim / unchained_sim)) < 0.012, dwarf
+
+
+# -- dual issue (``Scalar.issue_width`` 2) ------------------------------------------------------------
+
+
+def dual_mach(**kw):
+    m = mach(**kw)
+    return m.with_(scalar=dataclasses.replace(m.scalar, issue_width=2))
+
+
+def test_issue_width_defaults_to_single_issue():
+    assert Scalar().issue_width == 1
+    e = engine.Engine(mach())
+    e.alu(1)
+    e.alu(1)
+    assert e.cycles == 3  # one a cycle from cycle 1
+
+
+def test_dual_issue_pairs_independent_alu_work():
+    e = engine.Engine(dual_mach())
+    e.alu(1)
+    e.alu(1)
+    e.alu(1)
+    e.alu(1)
+    assert e.cycles == 3  # two pairs: cycles 1 and 2
+    e = engine.Engine(dual_mach())
+    e.alu(5)  # two ALU pipes: ceil(5 / 2) cycles
+    assert e.cycles == 1 + 3
+    assert engine.Engine(mach()).t == 1
+
+
+def test_dual_issue_raw_and_single_pipes_do_not_pair():
+    # a RAW on slot 0's result fails the pair (every latency is >= 1)
+    e = engine.Engine(dual_mach())
+    e.alu(1, dst="x")
+    e.alu(1, srcs=("x",))
+    assert e.cycles == 3
+    # one memory pipe: two scalar loads never pair, a load pairs with ALU work
+    e = engine.Engine(dual_mach())
+    e.load("a")
+    e.load("b")
+    assert e.cycles == 3
+    e = engine.Engine(dual_mach())
+    e.load("a")
+    e.alu(1)
+    assert e.cycles == 2
+    # one vector / matrix dispatch port; a vector op pairs with scalar ALU work after it
+    e = engine.Engine(dual_mach())
+    e.vset()
+    e.vset()
+    assert e.cycles == 3
+    e = engine.Engine(dual_mach())
+    e.vset()
+    e.alu(1)
+    assert e.cycles == 2
+    # a vector load takes the memory pipe too: it never pairs with a scalar load
+    e = engine.Engine(dual_mach())
+    e.vload("v", 32)
+    e.load("a")
+    assert e.cycles == 3
+
+
+def test_dual_issue_branch_ends_the_issue_group():
+    e = engine.Engine(dual_mach())
+    e.branch(taken=False)
+    e.alu(1)
+    assert e.cycles == 3  # nothing issues after a branch in its cycle
+    e = engine.Engine(dual_mach())
+    e.alu(1)
+    e.branch(taken=False)  # a branch may be slot 1
+    assert e.cycles == 2
+
+
+def test_dual_issue_fast_forward_matches_full_replay():
+    def run(trips, warm=None):
+        e = engine.Engine(dual_mach())
+
+        def body(_):
+            e.load("x", fp=True)
+            e.alu(2)
+            e.op("fadd", "s", ("s", "x"))
+            e.vset()
+            e.alu(1)
+            e.branch()
+
+        e.loop(trips, body, warm=warm, measure=None)
+        return e.cycles
+
+    assert run(300) == run(300, warm=400)  # fast-forwarded vs replayed in full
+
+
+def test_dual_issue_bound_engine_halves_the_issue_demand():
+    one = engine.BoundEngine(mach())
+    two = engine.BoundEngine(dual_mach())
+    for e in (one, two):
+        e.alu(40)
+    assert one.cycles == 40
+    assert two.cycles == 20
+
+
+def test_machine_reads_issue_width_from_the_design(tmp_path):
+    import yaml
+
+    assert costmodel.machine(DWARFS_DESIGN).scalar.issue_width == 1
+    raw = yaml.safe_load(DWARFS_DESIGN.read_text())
+    raw.setdefault("timing", {}).setdefault("scalar", {})["issue_width"] = 2
+    path = tmp_path / "dual.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    assert costmodel.machine(path).scalar.issue_width == 2
+
+
+def test_dual_issue_never_slows_a_schedule_and_single_is_unchanged():
+    base = costmodel.machine(DWARFS_DESIGN)
+    two = base.with_(scalar=dataclasses.replace(base.scalar, issue_width=2))
+    for dwarf, size in (("gemm", 64), ("jacobi", 66), ("scan", 4096), ("reduce", 4096)):
+        one = costmodel.predict(dwarf, size, "fp32", "fp32", base)
+        dual = costmodel.predict(dwarf, size, "fp32", "fp32", two)
+        assert set(one) == set(dual)
+        for v in one:
+            assert dual[v] <= one[v], (dwarf, v)
+        assert dual["scalar"] < one["scalar"], dwarf
+
+
+#: Region cycles on naiad-dwarfs.yaml with ``timing.vector.mem_bytes_per_cycle: 64`` and the AME at 2048
+#: MACs/cycle, mid size, fp32 (the dual_issue sweep's ``crossover`` study): (dwarf, size) -> variant ->
+#: (issue_width 1 cycles, issue_width 2 cycles).
+RECORDED_DUAL = {
+    ("apsp", 64): {
+        "ame": (4919, 4697),
+        "rvv": (127619, 106243),
+        "scalar": (1741379, 1597762),
+    },
+    ("fft", 1024): {
+        "ame": (125619, 104044),
+        "ame_gauss": (299881, 248728),
+        "rvv": (61832, 52623),
+        "scalar": (727532, 622875),
+    },
+    ("gemm", 64): {
+        "ame": (1317, 1253),
+        "rvv": (40307, 36859),
+        "scalar": (505805, 486519),
+    },
+    ("jacobi", 66): {
+        "ame": (9510, 9045),
+        "rvv": (33045, 30391),
+        "scalar": (732317, 660063),
+    },
+    ("nbody", (256, "clustered")): {
+        "ame": (4760440, 4389926),
+        "ame_fgemm": (4214873, 3990887),
+        "rvv": (270529, 264212),
+        "scalar": (4649493, 4385803),
+    },
+    ("reduce", 16384): {
+        "ame": (1387, 1354),
+        "rvv": (2251, 2112),
+        "scalar": (163847, 147461),
+    },
+    ("scan", 16384): {
+        "ame": (7611, 7356),
+        "rvv": (33625, 30797),
+        "scalar": (229381, 196611),
+    },
+    ("spmv", (256, 0.25)): {
+        "ame": (2584, 2503),
+        "rvv": (50370, 46674),
+        "scalar": (1460286, 1357052),
+    },
+    ("tensorprod", 12): {
+        "ame": (5158, 4635),
+        "rvv": (141721, 114118),
+        "scalar": (1109080, 1026090),
+    },
+}
+
+
+def _dual_machine(width):
+    base = costmodel.machine(DWARFS_DESIGN)
+    m = base.with_(
+        scalar=dataclasses.replace(base.scalar, issue_width=width),
+        vector=dataclasses.replace(base.vector, mem_bytes_per_cycle=64),
+    )
+    return costmodel.with_matrix_peak(m, 2048)
+
+
+def test_dual_issue_predictions_track_the_simulator():
+    """The schedule model at issue_width 2 predicts the dual-issue simulator, and the width-1 predictions are
+    what they were. tensorprod's AME streams keep a compiled address-arithmetic count whose dependences the
+    model does not see (they pair as if independent), so its dual-issue gain is overpredicted (-13%)."""
+    one, two = _dual_machine(1), _dual_machine(2)
+    errs = []
+    for (dwarf, size), variants in RECORDED_DUAL.items():
+        names = list(variants)
+        p1 = costmodel.predict(dwarf, size, "fp32", "fp32", one, variants=names)
+        p2 = costmodel.predict(dwarf, size, "fp32", "fp32", two, variants=names)
+        for v, (sim1, sim2) in variants.items():
+            assert abs(p1[v] / sim1 - 1) < 0.03, (dwarf, v, "width 1")
+            err = p2[v] / sim2 - 1
+            limit = 0.15 if (dwarf, v) == ("tensorprod", "ame") else 0.06
+            assert abs(err) < limit, (dwarf, v, p2[v], sim2)
+            assert p2[v] <= p1[v], (dwarf, v)
+            errs.append(abs(err))
+    assert statistics.median(errs) < 0.015

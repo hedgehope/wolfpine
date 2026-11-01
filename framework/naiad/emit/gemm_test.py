@@ -298,3 +298,98 @@ def test_micro_kernel_alone_and_its_overlap(tmp_path):
     region = int(run.outputs["region_cycles"][0])
     model = steps * 64 + 23 + 4 * 8 + 4 + 4 * 16
     assert abs(region - model) <= 8, (region, model)
+
+
+# -- dual issue (timing.scalar.issue_width: 2) ---------------------------------------------------
+
+
+def _with_width(base, width, tmp_path):
+    import yaml
+
+    from framework.naiad.design import load_design
+
+    raw = yaml.safe_load((DESIGNS / base).read_text())
+    raw["timing"]["scalar"]["issue_width"] = width
+    path = tmp_path / f"{base}.{width}.yaml"
+    path.write_text(yaml.safe_dump(raw, sort_keys=False))
+    return load_design(path)
+
+
+def _insns(text):
+    """Every ``.insn`` line of the asm in ``text``, in order (the vector / matrix ops)."""
+    return [ln.strip() for ln in text.splitlines() if '".insn r' in ln]
+
+
+def test_ame_single_issue_header_is_unchanged_by_the_dual_issue_emission(tmp_path):
+    one = emit_gemm_header(_with_width("naiad-dwarfs.yaml", 1, tmp_path))
+    assert "_adv(" not in one
+    assert one == emit_gemm_header(DWARFS_DESIGN)  # no issue_width key = width 1
+    assert one == emit_gemm_header(GemmShape.from_design(DWARFS_DESIGN))
+
+
+def test_ame_dual_issue_k_loop_walks_persistent_pointers(tmp_path):
+    one = emit_gemm_header(_with_width("naiad-dwarfs.yaml", 1, tmp_path))
+    two = emit_gemm_header(_with_width("naiad-dwarfs.yaml", 2, tmp_path))
+    assert one != two
+    assert "mx_tload_a_adv" in two
+    assert "mx_tload_b_adv" in two
+    # the K loop no longer rebuilds a pointer per tile per step ...
+    assert "const naiad_fp32_t *a1" not in two
+    assert "const naiad_fp32_t *a1" in one
+
+    # ... and issues the same tile loads and mmas in the same order, only the loads advance in place
+    def ops(text):
+        names = ("mx_tload_a", "mx_tload_b", "mx_mma(")
+        return [
+            ln.split("(")[0].strip().replace("_adv", "")
+            for ln in text.splitlines()
+            if any(n in ln for n in names)
+        ]
+
+    assert ops(one) == ops(two)
+    assert one.count("mx_mma(") == two.count("mx_mma(")
+
+    # outside kbody (init, store, kload0, staging, the driver) the text is identical
+    def outside_kbody(text):
+        out, skip = [], False
+        for ln in text.splitlines():
+            if "_kbody(long steps" in ln:
+                skip = True
+            if not skip:
+                out.append(ln)
+            elif ln == "}":
+                skip = False
+        return out
+
+    assert outside_kbody(one) == outside_kbody(two)
+
+
+def test_ame_dual_issue_width_is_read_from_the_design(tmp_path):
+    shape = GemmShape.from_design(_with_width("naiad-dwarfs.yaml", 2, tmp_path))
+    assert shape.issue_width == 2
+    assert GemmShape.from_design(DWARFS_DESIGN).issue_width == 1
+    assert "_adv(" in emit_gemm_header(shape)
+
+
+def test_ime_single_issue_header_is_unchanged_by_the_dual_issue_emission(tmp_path):
+    one = emit_gemm_header(_with_width("naiad-ime-timed.yaml", 1, tmp_path))
+    assert "[bs]" not in one
+    assert '"+r"(pa' not in one
+    assert one == emit_gemm_header(DESIGNS / "naiad-ime-timed.yaml")
+
+
+def test_ime_dual_issue_advances_the_pointers_inside_the_asm(tmp_path):
+    one = emit_gemm_header(_with_width("naiad-ime-timed.yaml", 1, tmp_path))
+    two = emit_gemm_header(_with_width("naiad-ime-timed.yaml", 2, tmp_path))
+    assert '"+r"(pa0)' in two
+    assert '"+r"(pb0)' in two
+    # the vector / matrix ops are the same, in the same order: only scalar advances were added
+    assert _insns(one) == _insns(two)
+    n_loads = sum(1 for ln in _insns(two) if "VMTL" in ln or "VMTTL" in ln)
+    adds = [
+        ln
+        for ln in two.splitlines()
+        if ln.strip().startswith(('"addi %[pa', '"add %[pb'))
+    ]
+    assert len(adds) == n_loads
+    assert n_loads > 0

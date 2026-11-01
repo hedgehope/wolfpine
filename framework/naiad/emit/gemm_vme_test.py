@@ -336,3 +336,45 @@ def test_dual_issue_store_falls_back_when_the_block_has_too_many_columns():
     assert (
         plan.bn <= G.MAX_DUAL_BN
     )  # the default shapes stay within the per-column registers
+
+
+def test_dual_issue_cycle_model_follows_the_scheduler():
+    """The cost model's view of the dual-issue loops is the scheduler's own count: a row load plus a column
+    store pair in fewer cycles than the single-issue text's six, and the block model (``_simulate``) only
+    gets cheaper when its scalar work may pair."""
+    d = _dual(2)
+    sched = G.plan_for(d, "fp32", "fp32")
+    plan, geo = sched.plan, sched.plan.geo
+    costs = G.costs_for(d, geo)
+    deltas = [plan.a_offset(c + 1, 0) - plan.a_offset(c, 0) for c in range(geo.e)]
+    per_pair = G.dual_move_cycles(geo, costs, deltas)
+    assert 2 <= per_pair < 6
+    ops = G.tile_move_ops(geo, deltas, False, True, True)
+    assert (
+        per_pair * geo.e
+        == G.dual_sched.schedule(ops, vec_gap=costs.load_time(geo.e * geo.ies))[1]
+    )
+    # a stride the immediate cannot hold keeps the single-issue text, so there is no dual count
+    assert G.dual_move_cycles(geo, costs, [4096]) is None
+    init_ops, store_ops = plan.mps + 6, 3 * plan.mps * geo.e + 4 * plan.bm
+    one, _ = G._simulate(sched, costs, 4 * plan.u, init_ops, store_ops, width=1)
+    two, _ = G._simulate(sched, costs, 4 * plan.u, init_ops, store_ops, width=2)
+    assert two < one
+    assert G._simulate(sched, costs, 4 * plan.u, init_ops, store_ops) == (
+        G._simulate(sched, costs, 4 * plan.u, init_ops, store_ops, width=1)
+    )
+    store = G.dual_store_cycles(geo, costs, plan.bn)
+    assert store < 3 * geo.e * plan.bn  # three issue slots a tile row, single issue
+
+
+def test_cost_model_vme_follows_issue_width():
+    import dataclasses
+
+    from framework.naiad import costmodel
+
+    base = costmodel.machine(_dual(1))
+    two = base.with_(scalar=dataclasses.replace(base.scalar, issue_width=2))
+    for size in (64, 128):
+        a = costmodel.predict("gemm", size, "fp32", "fp32", base, variants=["vme"])
+        b = costmodel.predict("gemm", size, "fp32", "fp32", two, variants=["vme"])
+        assert b["vme"] < a["vme"], size
