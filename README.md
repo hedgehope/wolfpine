@@ -18,8 +18,8 @@ The framework ships with three targets:
   72 workers on Wormhole, 130 on Blackhole.
 - **Naiad**, a configurable RISC-V reference SoC assembled from a YAML design:
   RV32/RV64 harts with optional F/D and RVV, a matrix unit in any of the three
-  RISC-V matrix-extension styles (attached AME, integrated IME/Zvvm, vector-matrix
-  VME/Zvt), and DMA, caches, timers and interrupts on the bus. It runs freestanding C
+  RISC-V matrix-extension styles (attached AME, including the AME TG's Ztt v0.6 draft
+  ISA as written; integrated IME/Zvvm; vector-matrix VME/Zvt), and DMA, caches, timers and interrupts on the bus. It runs freestanding C
   programs, with an optional cycle model, and is the platform for an experiment
   harness that compares matrix and vector implementations of the Berkeley dwarfs. See
   **[`docs/naiad.md`](docs/naiad.md)**.

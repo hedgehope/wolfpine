@@ -318,6 +318,12 @@ def _parse_matrix(raw, design):
         from framework.matrix.ime_timing import parse_ime_timing
 
         return parse_ime_timing(raw, design, _parse_fields, _number, _flag, DesignError)
+    if design.matrix.mode == "ztt":
+        if raw is not None:
+            raise DesignError(
+                "timing.matrix: the Ztt unit (matrix.mode ztt) has no cycle model yet; its instructions take one cycle"
+            )
+        return None
     if design.matrix.mode == "vme":
         from framework.matrix.vme_timing import parse_vme_timing
 

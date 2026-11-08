@@ -85,6 +85,10 @@ def _matrix_defines(spec):
         from framework.matrix.vme import header_lines as vme_header_lines
 
         return vme_header_lines(spec)
+    if spec.mode == "ztt":
+        from framework.matrix.ztt import header_lines as ztt_header_lines
+
+        return ztt_header_lines(spec)
     from framework.matrix.encodings import TABLE, header_defines
 
     lines = [

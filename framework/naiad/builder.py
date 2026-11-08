@@ -278,6 +278,12 @@ class NaiadSoC:
             for core in self.cores:
                 unit = VMEUnit(design.matrix, core.vector, cores_spec.xlen)
                 self.matrix_units.append(attach_vme(core, unit))
+        elif design.matrix is not None and design.matrix.mode == "ztt":
+            from framework.matrix.ztt_isa import attach as attach_ztt
+            from framework.matrix.ztt_isa import make_harts
+
+            for core, hart in zip(self.cores, make_harts(design.matrix, self.cores)):
+                self.matrix_units.append(attach_ztt(core, hart))
         elif design.matrix is not None:
             for core in self.cores:
                 unit = make_matrix_unit(design.matrix, cores_spec.xlen)

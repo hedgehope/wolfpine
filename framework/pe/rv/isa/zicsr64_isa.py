@@ -171,8 +171,17 @@ class CSRFile64:
         #: The hart's ``VectorState`` once one is attached (framework.pe.rv.isa.v.attach):
         #: vstart / vxsat / vxrm / vcsr / vl / vtype / vlenb are forwarded to it.
         self.vector = None
-        #: Read-only CSRs an attached extension adds (VME's ``mtype``): address -> reader.
+        #: CSRs an attached extension adds (VME's ``mtype``, Ztt's): address -> reader.
         self.ext_csrs = {}
+        #: Writable ones among them: address -> writer(value). Checked before the
+        #: read-only-range refusal, so an extension may make a 0xC00-0xFFF address writable
+        #: when its spec says so (Ztt's provisional ``amestype`` at 0xCC2). A reader or
+        #: writer refuses an access by raising ``CSRError`` (an illegal-instruction trap).
+        self.ext_csr_writers = {}
+        #: address -> check(value), called before a write to a plain-storage CSR is kept;
+        #: it may refuse the write by raising ``CSRError`` (Ztt: ``mstatus.MS`` Off while
+        #: the hart owns the AME backend).
+        self.write_guards = {}
         #: ``None`` or a zero-argument callable giving the pending-interrupt bits (``mip``).
         self.mip_source = None
         #: ``None`` or a callable told every new ``mtvec`` value (arms trap delivery).
@@ -235,6 +244,10 @@ class CSRFile64:
 
     def write(self, addr, value, pc=None):
         value &= _M64
+        writer = self.ext_csr_writers.get(addr)
+        if writer is not None:
+            writer(value)
+            return
         if addr >> 10 == 0x3:
             if addr not in CSR_NAMES:
                 self.read(addr, pc)  # raises UnknownCSRError
@@ -244,6 +257,9 @@ class CSRFile64:
                 f"illegal-instruction trap, which Wolfpine does not model."
             )
         if addr in _STORAGE:
+            guard = self.write_guards.get(addr)
+            if guard is not None:
+                guard(value)
             if addr == CSR_MEPC:
                 value &= self.mepc_mask  # WARL: IALIGN
             elif addr == CSR_MTVEC:

@@ -372,6 +372,21 @@ _NOT_A_GUARANTEE = MappingProxyType(
             "non-RNE frm, a spec that does not match the vector unit, a bad "
             "encodings table); a modelling boundary, not an architectural trap"
         ),
+        "ZttError": (
+            "the Naiad Ztt mode refusing a design or encodings table it cannot "
+            "model; input validation before any device exists, not an "
+            "architectural trap"
+        ),
+        "ZttTrap": (
+            "a Ztt (AME draft v0.6) instruction's synchronous exception on a "
+            "Naiad research SoC (illegal instruction, misaligned or faulting "
+            "square transfer), delivered as a trap; a draft ISA's behaviour, "
+            "not a Tenstorrent modelling guarantee"
+        ),
+        "_Unsupported": (
+            "internal to the Ztt executor: an unsupported datatype tuple, caught "
+            "where it is raised and reported as amestatus.UN; never escapes"
+        ),
         "MatrixAccessFault": (
             "a Naiad tile load that reaches unmapped memory; an access fault "
             "of a research SoC, not a Tenstorrent modelling guarantee"

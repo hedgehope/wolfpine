@@ -675,6 +675,10 @@ def emit_gemm_header(design, *, mode=None, block=None, double_buffer=None, pairs
             from framework.naiad.emit.gemm_vme import emit_vme_gemm_header
 
             return emit_vme_gemm_header(design, block=block, pairs=pairs)
+        if design.matrix is not None and design.matrix.mode == "ztt":
+            raise NotImplementedError(
+                "no GEMM driver is emitted for a Ztt design yet (kernels/naiad/include/ztt.h has the instructions)"
+            )
     shape = design if isinstance(design, GemmShape) else GemmShape.from_design(design)
     mode = mode or shape.mode
     if mode not in MODES:

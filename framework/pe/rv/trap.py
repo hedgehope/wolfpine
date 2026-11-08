@@ -329,7 +329,15 @@ class TrapMixin:
             charge(self._trap_cycle, getattr(cost, which, 0))
 
     def _classify(self, error, instr, raw):
-        """``(cause, tval)`` for an exception an instruction raised, or ``None`` to let it propagate."""
+        """``(cause, tval)`` for an exception an instruction raised, or ``None`` to let it propagate.
+
+        An exception with an ``rv_cause`` attribute (Ztt's, :mod:`framework.matrix.ztt_isa`)
+        names its own cause and ``mtval`` (``rv_tval``; None for the instruction bits).
+        """
+        cause = getattr(error, "rv_cause", None)
+        if cause is not None:
+            tval = getattr(error, "rv_tval", None)
+            return cause, raw if tval is None else tval
         if (type(error) is Exception and error.args == _UNKNOWN) or isinstance(
             error, CSRError
         ):

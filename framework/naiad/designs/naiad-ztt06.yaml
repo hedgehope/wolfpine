@@ -1,0 +1,40 @@
+# naiad-ztt06: naiad-base-rv64's memory map plus a unit implementing the RISC-V AME TG's
+# Ztt v0.6 draft ISA itself (matrix.mode: ztt): its custom-1 encodings, its M and Acc
+# registers with their Md / Ad datatype descriptors, its CSRs, mstatus.MS and
+# ame.acquire / ame.release. A Ztt v0.6 binary runs here unchanged. (naiad-ztt is a
+# different thing: Naiad's own AME encodings restricted to Ztt's shapes.)
+#
+# Parameters: AME_NELEM 256 (16 x 16 squares), AME_UNIT_DATATYPE_SIZE 8 (an int8 square
+# is one M register, bf16 two, fp32 four), 16 M registers, 8 accumulators. Supported
+# types and multiplies: int8 / uint8 into int32, fp16 / bf16 / fp32 into fp32, fp64.
+# Instructions outside framework/matrix/ztt_isa.py's implemented set report
+# amestatus.UN, as the draft allows. Kernels: kernels/naiad/include/ztt.h. Untimed.
+name: naiad-ztt06
+cores:
+  count: 1
+  xlen: 64
+  isa: [i, m, a, f, d, zicsr, zicntr]
+  reset_pc: 0x1000
+program:
+  memory: dram
+  stack_size: 64KiB
+matrix:
+  mode: ztt
+  nelem: 256
+  unit_bits: 8
+  m_regs: 16
+  acc_regs: 8
+  datatypes: [int8, uint8, int32, fp16, bf16, fp32, fp64]
+  backend: dedicated
+blocks:
+  - {name: bootrom, type: bootrom, base: 0x1000, window: 0x1000}
+  - {name: clint, type: clint, base: 0x02000000, window: 0x10000}
+  - name: perf
+    type: perfcounters
+    base: 0x02010000
+    window: 0x1000
+    params:
+      counters: [cycle, instret, mtime, htif_chars, matrix_mma, matrix_macs, matrix_mem_to_m_bytes,
+                 matrix_m_to_mem_bytes, matrix_unsupported]
+  - {name: dram, type: dram, base: 0x80000000, window: 1GiB}
+  - {name: htif, type: htif}

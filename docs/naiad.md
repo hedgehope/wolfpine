@@ -10,7 +10,8 @@ A design picks:
 - **the cores**: one or more RV32 or RV64 harts, with any of M, A, F, D, the RVV vector
   extension (at a VLEN you choose) and the Zb*/Zfh*/Zvf* sub-extensions;
 - **a matrix unit** attached to every hart, in one of three styles:
-  - **AME**, an attached matrix unit with its own tile and accumulator registers;
+  - **AME**, an attached matrix unit with its own tile and accumulator registers, in
+    Naiad's own encodings or as the AME TG's Ztt v0.6 draft ISA itself (`mode: ztt`);
   - **IME**, the RISC-V Integrated Matrix Extension draft (Zvvm), which computes on vector
     registers;
   - **VME**, the Zvt v0.4 vector-matrix draft, which uses a separate tile buffer fed from
@@ -178,6 +179,7 @@ that explain its choices and, for the timed ones, where every number comes from.
 | `naiad-ime`, `naiad-ime-timed` | the integrated (Zvvm) matrix unit |
 | `naiad-vme`, `naiad-vme-timed` | the vector-matrix (Zvt) unit |
 | `naiad-ztt` | an AME unit restricted to the Ztt profile |
+| `naiad-ztt06` | the AME TG's Ztt v0.6 draft ISA itself (`mode: ztt`): its encodings, registers, datatype descriptors and CSRs; untimed |
 | `naiad-dwarfs` | the base of every experiment: RV64GCV at VLEN 256 (a SpacemiT K1 X60's vector shape), F/D, a 16×16×16 AME unit, 1.5 MiB L1, DRAM, timed |
 | `naiad-tensix` | `naiad-dwarfs` plus a Blackhole Tensix tile and a DMA engine on the bus |
 
@@ -246,17 +248,77 @@ design; the builder never special-cases a block by name.
     `shift`, `shift2`, `epilogue`, `semiring` (min-plus and max-plus `mma`), `acc_move`,
     `convert`, `mma_transpose`, `reduce`, `ewise`, `ewise_tx` and `halo`.
   - **The Ztt profile.** `profile: ztt` restricts the unit to the Ztt draft's instruction
-    set, so it rejects the features Ztt does not have.
+    set, so it rejects the features Ztt does not have. It keeps Naiad's own encodings; for
+    the draft's encodings use `mode: ztt`.
   - **Accumulator loads and stores** are on unless `acc_mem: false`.
 - **`ime`** — the RISC-V Integrated Matrix Extension TG's Zvvm draft: `C += A·Bᵀ` computed
   on vector register groups, with the tile geometry set through new `vtype` fields
   (`lambda`, `bs`, `altfmt`). The core needs the vector extension.
 - **`vme`** — the Zvt v0.4 draft: a tile buffer of its own, fed with row and column moves
   from vector registers.
+- **`ztt`** — the RISC-V AME TG's Ztt v0.6 draft as written: its 138 custom-1 encodings, so
+  a Ztt binary runs unchanged. See [The Ztt mode](#the-ztt-mode) below.
 
 The supported formats are fp64, fp32, fp16, bf16, fp8 and int8. A program checks a format
 pair at run time through `mcfg`, the unit's configuration query, and the generated
 `naiad.h` lists the formats the design has.
+
+### The Ztt mode
+
+`matrix.mode: ztt` implements the AME TG's draft `riscv/riscv-attached-matrix-extension`
+tag `v0.6` (commit `8d27acd`). Its encodings live in
+[`framework/matrix/ztt_encodings.yaml`](../framework/matrix/ztt_encodings.yaml), imported
+from the draft's `INSTRUCTION_ENCODINGS.md` by `tools/naiad/ztt_import.py <checkout>`.
+Definitions are in [`ztt.py`](../framework/matrix/ztt.py) and execution in
+[`ztt_isa.py`](../framework/matrix/ztt_isa.py).
+
+```yaml
+matrix:
+  mode: ztt
+  nelem: 256          # AME_NELEM: N x N squares, N = 16
+  unit_bits: 8        # AME_UNIT_DATATYPE_SIZE: int8 is one M register, bf16 two, fp32 four
+  m_regs: 16          # AME_NUM_M_REGS: 16 or 32
+  acc_regs: 8         # AME_NUM_ACC_REGS: 1, 2, 4, 8 or 16
+  datatypes: [int8, uint8, int32, fp16, bf16, fp32, fp64]
+  matmul: [[int8, int8, int32], ...]   # optional; default int8/uint8 -> int32, narrow floats -> fp32, fp64
+  backend: dedicated  # or shared: one backend, and one owner at a time, for every hart
+```
+
+- **State and access.** The unit has M registers with `Md` descriptors, accumulators with
+  `Ad` descriptors, and the seven CSRs at the draft's provisional addresses. An instruction
+  traps unless `mstatus.MS` is non-Off and the hart has run `ame.acquire`.
+  `kernels/naiad/include/ztt.h`'s `ztt_enable()` does both.
+- **Checks, in the draft's order:**
+  1. An illegal register index traps.
+  2. An unsupported datatype or operation tuple sets `amestatus.UN` and changes nothing
+     else; it does not trap.
+  3. A misaligned register group traps.
+  4. A misaligned base address raises cause 4 or 6.
+  5. An unmapped segment raises cause 5 or 7, with `mtval` the faulting address. Stores are
+     checked in full first, so a faulting one writes nothing.
+- **Implemented:**
+  - acquire and release, and setting and reading datatypes;
+  - every load and store form, zeroing, and the moves (`mmov.*`, `mbcast.m.x`, `mmove*`);
+  - the six matrix multiplies;
+  - `mconv.ew`; add, sub, mul, max and min, element-wise and with a scalar;
+  - row and column shifts, reductions and prefixes.
+
+  Every other instruction decodes and reports UN, as the draft allows.
+- **Numerics:**
+  - **Matrix multiplies** fold N products into the accumulator in order, unfused (each
+    product rounded, then added), and do not set `amefflags`.
+  - **Element results** round to nearest even and accrue `amefflags`.
+  - **Integers** wrap, or saturate and set `amexsat`.
+- **Naiad's interpretations of the draft:**
+  - The draft gives `mstatus.MS` no bit position; Naiad puts it at bits 26:25
+    (`ms_shift`), with SD.
+  - `amestype`, `amefflags` and `amexsat` are writable, though their provisional addresses
+    are in the read-only CSR range.
+  - Packed datatypes are not modelled.
+- **Not modelled:** timing (the mode is untimed), address translation and custom datatypes.
+
+`kernels/naiad/ztt_gemm` runs blocked int8 and bf16 GEMMs with the draft's instructions and
+checks them against scalar references.
 
 ## The cycle model
 
@@ -434,7 +496,7 @@ simulated one, and the predicted against the simulated crossovers.
 | `framework/naiad/` | design parser, builder, generators (`gen/`), runner, `kernel_io`, difftest, the packaged designs, the platform header and libc, the GEMM emitters (`emit/`) and the cost model (`costmodel/`) |
 | `framework/ip/` | the generic IP blocks: CLINT, PLIC, HTIF, DMA, caches, memories, perfcounters, the Tensix block |
 | `framework/pe/rv/` | the RISC-V cores, their ISA modules (`isa/`, with RVV in `isa/v/`), traps, and the cycle model (`timing/`) |
-| `framework/matrix/` | the AME, IME and VME units: encodings, ISA executors, numerics, formats, timing |
+| `framework/matrix/` | the AME, IME, VME and Ztt units: encodings, ISA executors, numerics, formats, timing |
 | `kernels/naiad/` | bring-up and feature kernels, the shared `include/matrix.h`, and the dwarfs |
 | `driver/naiad/` | the seven guided examples |
 | `experiments/naiad/` | the sweep harness, its sweeps and tests |
@@ -450,6 +512,6 @@ simulated one, and the predicted against the simulated crossovers.
   calibrate against.
 - **Tile instructions are not checked for misalignment.** That covers the Zvvm and Zvt tile
   loads and stores.
-- **Draft extensions are pinned.** IME follows the Zvvm draft and VME the Zvt v0.4 draft, at
-  the commits named in `framework/matrix/ime.py` and `vme.py`, and will move as the drafts
-  do.
+- **Draft extensions are pinned.** IME follows the Zvvm draft, VME the Zvt v0.4 draft and
+  Ztt the AME v0.6 draft, at the commits named in `framework/matrix/ime.py`, `vme.py` and
+  `ztt_encodings.yaml`, and will move as the drafts do.

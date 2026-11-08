@@ -258,7 +258,7 @@ def _parse_vector(raw, isa, xlen):
 
 
 #: Coupling modes the schema knows; only AME is built so far.
-MATRIX_MODES = ("ame", "ime", "vme")
+MATRIX_MODES = ("ame", "ime", "vme", "ztt")
 _MATRIX_MAX_DIM = 256
 
 
@@ -298,6 +298,11 @@ def _parse_matrix(raw, cores=None):
         from framework.matrix.vme import parse_vme
 
         return parse_vme(raw, cores, DesignError)
+    if isinstance(raw, dict) and str(raw.get("mode", "ame")).lower() == "ztt":
+        # The AME TG's Ztt v0.6 draft: its own encodings, state and datatype descriptors.
+        from framework.matrix.ztt import parse_ztt
+
+        return parse_ztt(raw, cores, DesignError)
     keys = {"mode", "m", "n", "k", "tiles", "accs", "formats", "features", "k_chunk"}
     _check_keys(raw, keys | {"numerics", "fidelity", "acc_mem", "profile"}, "matrix")
     mode = str(raw.get("mode", "ame")).lower()
